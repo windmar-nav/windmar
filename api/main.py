@@ -36,6 +36,9 @@ from src.data.copernicus import (
     CopernicusDataProvider, SyntheticDataProvider, WeatherData,
     ClimatologyProvider, UnifiedWeatherProvider, WeatherDataSource
 )
+from src.data.regulatory_zones import (
+    get_zone_checker, Zone, ZoneProperties, ZoneType, ZoneInteraction
+)
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -1172,6 +1175,218 @@ async def update_vessel_specs(config: VesselConfig):
     except Exception as e:
         logger.error(f"Failed to update vessel specs: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ============================================================================
+# API Endpoints - Regulatory Zones
+# ============================================================================
+
+class ZoneCoordinate(BaseModel):
+    """A coordinate in a zone polygon."""
+    lat: float
+    lon: float
+
+
+class CreateZoneRequest(BaseModel):
+    """Request to create a custom zone."""
+    name: str
+    zone_type: str = Field(..., description="eca, hra, tss, exclusion, custom, etc.")
+    interaction: str = Field(..., description="mandatory, exclusion, penalty, advisory")
+    coordinates: List[ZoneCoordinate]
+    penalty_factor: float = Field(1.0, ge=1.0, le=10.0)
+    notes: Optional[str] = None
+
+
+class ZoneResponse(BaseModel):
+    """Zone information response."""
+    id: str
+    name: str
+    zone_type: str
+    interaction: str
+    penalty_factor: float
+    is_builtin: bool
+    coordinates: List[ZoneCoordinate]
+    notes: Optional[str] = None
+
+
+@app.get("/api/zones")
+async def get_all_zones():
+    """
+    Get all regulatory zones (built-in and custom).
+
+    Returns GeoJSON FeatureCollection for map display.
+    """
+    zone_checker = get_zone_checker()
+    return zone_checker.export_geojson()
+
+
+@app.get("/api/zones/list")
+async def list_zones():
+    """Get zones as a simple list."""
+    zone_checker = get_zone_checker()
+    zones = []
+    for zone in zone_checker.get_all_zones():
+        zones.append({
+            "id": zone.id,
+            "name": zone.properties.name,
+            "zone_type": zone.properties.zone_type.value,
+            "interaction": zone.properties.interaction.value,
+            "penalty_factor": zone.properties.penalty_factor,
+            "is_builtin": zone.is_builtin,
+        })
+    return {"zones": zones, "count": len(zones)}
+
+
+@app.get("/api/zones/{zone_id}")
+async def get_zone(zone_id: str):
+    """Get a specific zone by ID."""
+    zone_checker = get_zone_checker()
+    zone = zone_checker.get_zone(zone_id)
+
+    if zone is None:
+        raise HTTPException(status_code=404, detail=f"Zone not found: {zone_id}")
+
+    return zone.to_geojson()
+
+
+@app.post("/api/zones", response_model=ZoneResponse)
+async def create_zone(request: CreateZoneRequest):
+    """
+    Create a custom zone.
+
+    Coordinates should be provided as a list of {lat, lon} objects
+    forming a closed polygon (first and last point should match).
+    """
+    import uuid
+
+    zone_checker = get_zone_checker()
+
+    # Validate zone type
+    try:
+        zone_type = ZoneType(request.zone_type)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid zone_type. Valid values: {[t.value for t in ZoneType]}"
+        )
+
+    # Validate interaction
+    try:
+        interaction = ZoneInteraction(request.interaction)
+    except ValueError:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Invalid interaction. Valid values: {[i.value for i in ZoneInteraction]}"
+        )
+
+    # Convert coordinates
+    coords = [(c.lat, c.lon) for c in request.coordinates]
+
+    # Ensure polygon is closed
+    if coords[0] != coords[-1]:
+        coords.append(coords[0])
+
+    # Create zone
+    zone_id = f"custom_{uuid.uuid4().hex[:8]}"
+    zone = Zone(
+        id=zone_id,
+        properties=ZoneProperties(
+            name=request.name,
+            zone_type=zone_type,
+            interaction=interaction,
+            penalty_factor=request.penalty_factor,
+            notes=request.notes,
+        ),
+        coordinates=coords,
+        is_builtin=False,
+    )
+
+    zone_checker.add_zone(zone)
+
+    return ZoneResponse(
+        id=zone.id,
+        name=zone.properties.name,
+        zone_type=zone.properties.zone_type.value,
+        interaction=zone.properties.interaction.value,
+        penalty_factor=zone.properties.penalty_factor,
+        is_builtin=zone.is_builtin,
+        coordinates=[ZoneCoordinate(lat=c[0], lon=c[1]) for c in zone.coordinates],
+        notes=zone.properties.notes,
+    )
+
+
+@app.delete("/api/zones/{zone_id}")
+async def delete_zone(zone_id: str):
+    """
+    Delete a custom zone.
+
+    Built-in zones cannot be deleted.
+    """
+    zone_checker = get_zone_checker()
+
+    zone = zone_checker.get_zone(zone_id)
+    if zone is None:
+        raise HTTPException(status_code=404, detail=f"Zone not found: {zone_id}")
+
+    if zone.is_builtin:
+        raise HTTPException(status_code=400, detail="Cannot delete built-in zones")
+
+    zone_checker.remove_zone(zone_id)
+    return {"status": "deleted", "zone_id": zone_id}
+
+
+@app.get("/api/zones/at-point")
+async def get_zones_at_point(
+    lat: float = Query(..., ge=-90, le=90),
+    lon: float = Query(..., ge=-180, le=180),
+):
+    """Get all zones that contain a specific point."""
+    zone_checker = get_zone_checker()
+    zones = zone_checker.get_zones_at_point(lat, lon)
+
+    return {
+        "position": {"lat": lat, "lon": lon},
+        "zones": [
+            {
+                "id": z.id,
+                "name": z.properties.name,
+                "zone_type": z.properties.zone_type.value,
+                "interaction": z.properties.interaction.value,
+                "penalty_factor": z.properties.penalty_factor,
+            }
+            for z in zones
+        ]
+    }
+
+
+@app.get("/api/zones/check-path")
+async def check_path_zones(
+    lat1: float = Query(..., ge=-90, le=90),
+    lon1: float = Query(..., ge=-180, le=180),
+    lat2: float = Query(..., ge=-90, le=90),
+    lon2: float = Query(..., ge=-180, le=180),
+):
+    """Check which zones a path segment crosses."""
+    zone_checker = get_zone_checker()
+    zones_by_type = zone_checker.check_path_zones(lat1, lon1, lat2, lon2)
+    penalty, warnings = zone_checker.get_path_penalty(lat1, lon1, lat2, lon2)
+
+    return {
+        "path": {
+            "from": {"lat": lat1, "lon": lon1},
+            "to": {"lat": lat2, "lon": lon2},
+        },
+        "zones": {
+            interaction: [
+                {"id": z.id, "name": z.properties.name}
+                for z in zones
+            ]
+            for interaction, zones in zones_by_type.items()
+        },
+        "penalty_factor": penalty if penalty != float('inf') else None,
+        "is_forbidden": penalty == float('inf'),
+        "warnings": warnings,
+    }
 
 
 # ============================================================================

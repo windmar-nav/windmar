@@ -29,6 +29,7 @@ from src.optimization.vessel_model import VesselModel, VesselSpecs
 from src.optimization.voyage import LegWeather
 from src.optimization.seakeeping import SafetyConstraints, SafetyStatus, create_default_safety_constraints
 from src.data.land_mask import is_ocean, is_path_clear, get_land_mask_status
+from src.data.regulatory_zones import get_zone_checker, ZoneChecker
 
 logger = logging.getLogger(__name__)
 
@@ -113,6 +114,8 @@ class RouteOptimizer:
         optimization_target: str = "fuel",  # "fuel" or "time"
         safety_constraints: Optional[SafetyConstraints] = None,
         enforce_safety: bool = True,
+        zone_checker: Optional[ZoneChecker] = None,
+        enforce_zones: bool = True,
     ):
         """
         Initialize route optimizer.
@@ -123,17 +126,23 @@ class RouteOptimizer:
             optimization_target: What to minimize ("fuel" or "time")
             safety_constraints: Safety constraint checker (seakeeping model)
             enforce_safety: Whether to penalize/forbid unsafe routes
+            zone_checker: Regulatory zone checker
+            enforce_zones: Whether to apply zone penalties/exclusions
         """
         self.vessel_model = vessel_model or VesselModel()
         self.resolution_deg = resolution_deg
         self.optimization_target = optimization_target
         self.enforce_safety = enforce_safety
+        self.enforce_zones = enforce_zones
 
         # Safety constraints (seakeeping model)
         self.safety_constraints = safety_constraints or create_default_safety_constraints(
             lpp=self.vessel_model.specs.lpp,
             beam=self.vessel_model.specs.beam,
         )
+
+        # Regulatory zone checker
+        self.zone_checker = zone_checker or get_zone_checker()
 
         # Weather provider function (set before optimization)
         self.weather_provider: Optional[Callable] = None
@@ -530,11 +539,24 @@ class RouteOptimizer:
             if safety_factor == float('inf'):
                 return float('inf'), float('inf')  # Dangerous - forbidden
 
+        # Apply regulatory zone penalties
+        zone_factor = 1.0
+        if self.enforce_zones:
+            zone_penalty, _ = self.zone_checker.get_path_penalty(
+                from_cell.lat, from_cell.lon, to_cell.lat, to_cell.lon
+            )
+            if zone_penalty == float('inf'):
+                return float('inf'), float('inf')  # Exclusion zone - forbidden
+            zone_factor = zone_penalty
+
+        # Combined cost factor
+        total_factor = safety_factor * zone_factor
+
         # Return cost based on optimization target
         if self.optimization_target == "time":
-            return travel_time_hours * safety_factor, travel_time_hours
+            return travel_time_hours * total_factor, travel_time_hours
         else:
-            return result['fuel_mt'] * safety_factor, travel_time_hours
+            return result['fuel_mt'] * total_factor, travel_time_hours
 
     def _calculate_current_effect(
         self,
