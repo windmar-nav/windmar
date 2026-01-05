@@ -119,6 +119,7 @@ class OptimizationLegModel(BaseModel):
     fuel_mt: float
     time_hours: float
     sog_kts: float
+    stw_kts: float  # Speed through water (optimized per leg)
     wind_speed_ms: float
     wave_height_m: float
     # Safety metrics per leg
@@ -151,6 +152,11 @@ class OptimizationResponse(BaseModel):
 
     # Per-leg details
     legs: List[OptimizationLegModel]
+
+    # Speed profile (variable speed optimization)
+    speed_profile: List[float]  # Optimal speed per leg (kts)
+    avg_speed_kts: float
+    variable_speed_enabled: bool
 
     # Safety assessment
     safety: Optional[SafetySummary] = None
@@ -1122,6 +1128,7 @@ async def optimize_route(request: OptimizationRequest):
                 fuel_mt=round(leg['fuel_mt'], 3),
                 time_hours=round(leg['time_hours'], 2),
                 sog_kts=round(leg['sog_kts'], 1),
+                stw_kts=round(leg.get('stw_kts', leg['sog_kts']), 1),  # Optimized speed through water
                 wind_speed_ms=round(leg['wind_speed_ms'], 1),
                 wave_height_m=round(leg['wave_height_m'], 1),
                 safety_status=leg.get('safety_status'),
@@ -1148,6 +1155,9 @@ async def optimize_route(request: OptimizationRequest):
             fuel_savings_pct=round(result.fuel_savings_pct, 1),
             time_savings_pct=round(result.time_savings_pct, 1),
             legs=legs,
+            speed_profile=[round(s, 1) for s in result.speed_profile],
+            avg_speed_kts=round(result.avg_speed_kts, 1),
+            variable_speed_enabled=result.variable_speed_enabled,
             safety=safety_summary,
             optimization_target=request.optimization_target,
             grid_resolution_deg=request.grid_resolution_deg,

@@ -448,7 +448,38 @@ export default function HomePage() {
                         <span>Waypoints:</span>
                         <span>{optimizationResult.waypoints.length}</span>
                       </div>
+                      <div className="flex justify-between">
+                        <span>Avg speed:</span>
+                        <span>{optimizationResult.avg_speed_kts.toFixed(1)} kts</span>
+                      </div>
                     </div>
+
+                    {/* Speed Profile */}
+                    {optimizationResult.variable_speed_enabled && optimizationResult.speed_profile.length > 1 && (
+                      <div className="mt-2 pt-2 border-t border-white/10">
+                        <div className="text-xs text-gray-400 mb-1">Speed Profile (per leg):</div>
+                        <div className="flex items-end h-8 gap-px">
+                          {optimizationResult.speed_profile.map((speed, i) => {
+                            const minSpeed = Math.min(...optimizationResult.speed_profile);
+                            const maxSpeed = Math.max(...optimizationResult.speed_profile);
+                            const range = maxSpeed - minSpeed || 1;
+                            const height = ((speed - minSpeed) / range) * 100;
+                            return (
+                              <div
+                                key={i}
+                                className="flex-1 bg-primary-500 rounded-t"
+                                style={{ height: `${Math.max(20, height)}%` }}
+                                title={`Leg ${i + 1}: ${speed.toFixed(1)} kts`}
+                              />
+                            );
+                          })}
+                        </div>
+                        <div className="flex justify-between text-xs text-gray-500 mt-1">
+                          <span>{Math.min(...optimizationResult.speed_profile).toFixed(0)} kts</span>
+                          <span>{Math.max(...optimizationResult.speed_profile).toFixed(0)} kts</span>
+                        </div>
+                      </div>
+                    )}
 
                     {/* Safety Assessment */}
                     {optimizationResult.safety && (

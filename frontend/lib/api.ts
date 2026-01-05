@@ -194,6 +194,7 @@ export interface OptimizationLeg {
   fuel_mt: number;
   time_hours: number;
   sog_kts: number;
+  stw_kts: number;  // Optimized speed through water
   wind_speed_ms: number;
   wave_height_m: number;
   // Safety metrics per leg
@@ -220,6 +221,10 @@ export interface OptimizationResponse {
   fuel_savings_pct: number;
   time_savings_pct: number;
   legs: OptimizationLeg[];
+  // Speed profile (variable speed optimization)
+  speed_profile: number[];  // Optimal speed per leg (kts)
+  avg_speed_kts: number;
+  variable_speed_enabled: boolean;
   // Safety assessment
   safety?: SafetySummary;
   optimization_target: string;

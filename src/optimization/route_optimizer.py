@@ -76,6 +76,10 @@ class OptimizedRoute:
     # Per-leg details
     leg_details: List[Dict]
 
+    # Speed profile (for variable speed optimization)
+    speed_profile: List[float]  # Optimal speed per leg (kts)
+    avg_speed_kts: float  # Average speed over voyage
+
     # Safety assessment
     safety_status: str  # "safe", "marginal", "dangerous"
     safety_warnings: List[str]
@@ -87,6 +91,7 @@ class OptimizedRoute:
     grid_resolution_deg: float
     cells_explored: int
     optimization_time_ms: float
+    variable_speed_enabled: bool
 
 
 class RouteOptimizer:
@@ -107,6 +112,10 @@ class RouteOptimizer:
         (1, 0), (1, -1), (0, -1), (-1, -1)
     ]
 
+    # Speed optimization settings
+    SPEED_RANGE_KTS = (6.0, 18.0)  # Min/max speeds to consider
+    SPEED_STEPS = 7  # Number of speeds to test per leg
+
     def __init__(
         self,
         vessel_model: Optional[VesselModel] = None,
@@ -116,6 +125,7 @@ class RouteOptimizer:
         enforce_safety: bool = True,
         zone_checker: Optional[ZoneChecker] = None,
         enforce_zones: bool = True,
+        variable_speed: bool = True,  # Enable variable speed optimization
     ):
         """
         Initialize route optimizer.
@@ -128,12 +138,14 @@ class RouteOptimizer:
             enforce_safety: Whether to penalize/forbid unsafe routes
             zone_checker: Regulatory zone checker
             enforce_zones: Whether to apply zone penalties/exclusions
+            variable_speed: Enable per-leg speed optimization
         """
         self.vessel_model = vessel_model or VesselModel()
         self.resolution_deg = resolution_deg
         self.optimization_target = optimization_target
         self.enforce_safety = enforce_safety
         self.enforce_zones = enforce_zones
+        self.variable_speed = variable_speed
 
         # Safety constraints (seakeeping model)
         self.safety_constraints = safety_constraints or create_default_safety_constraints(
@@ -209,14 +221,14 @@ class RouteOptimizer:
         # Smooth path to reduce unnecessary waypoints
         waypoints = self._smooth_path(waypoints)
 
-        # Calculate route statistics
-        opt_fuel, opt_time, opt_distance, leg_details, safety_summary = self._calculate_route_stats(
-            waypoints, departure_time, calm_speed_kts, is_laden
+        # Calculate route statistics with variable speed optimization
+        opt_fuel, opt_time, opt_distance, leg_details, safety_summary, speed_profile = self._calculate_route_stats(
+            waypoints, departure_time, calm_speed_kts, is_laden, use_variable_speed=self.variable_speed
         )
 
-        # Calculate direct route for comparison
-        direct_fuel, direct_time, direct_distance, _, _ = self._calculate_route_stats(
-            [origin, destination], departure_time, calm_speed_kts, is_laden
+        # Calculate direct route for comparison (with variable speed for fair comparison)
+        direct_fuel, direct_time, direct_distance, _, _, _ = self._calculate_route_stats(
+            [origin, destination], departure_time, calm_speed_kts, is_laden, use_variable_speed=self.variable_speed
         )
 
         optimization_time_ms = (time.time() - start_time) * 1000
@@ -224,6 +236,9 @@ class RouteOptimizer:
         # Calculate savings
         fuel_savings = ((direct_fuel - opt_fuel) / direct_fuel * 100) if direct_fuel > 0 else 0
         time_savings = ((direct_time - opt_time) / direct_time * 100) if direct_time > 0 else 0
+
+        # Calculate average speed
+        avg_speed = sum(speed_profile) / len(speed_profile) if speed_profile else calm_speed_kts
 
         return OptimizedRoute(
             waypoints=waypoints,
@@ -235,6 +250,8 @@ class RouteOptimizer:
             fuel_savings_pct=fuel_savings,
             time_savings_pct=time_savings,
             leg_details=leg_details,
+            speed_profile=speed_profile,
+            avg_speed_kts=avg_speed,
             safety_status=safety_summary['status'],
             safety_warnings=safety_summary['warnings'],
             max_roll_deg=safety_summary['max_roll_deg'],
@@ -243,6 +260,7 @@ class RouteOptimizer:
             grid_resolution_deg=self.resolution_deg,
             cells_explored=cells_explored,
             optimization_time_ms=optimization_time_ms,
+            variable_speed_enabled=self.variable_speed,
         )
 
     def _build_grid(
@@ -584,6 +602,125 @@ class RouteOptimizer:
 
         return current_effect
 
+    def _find_optimal_speed(
+        self,
+        distance_nm: float,
+        weather: LegWeather,
+        bearing_deg: float,
+        is_laden: bool,
+        target_time_hours: Optional[float] = None,
+    ) -> Tuple[float, float, float]:
+        """
+        Find optimal speed for a leg considering weather conditions.
+
+        For fuel optimization: finds speed that minimizes fuel per mile
+        For time-constrained: finds speed that meets ETA with minimum fuel
+
+        Args:
+            distance_nm: Leg distance
+            weather: Weather conditions
+            bearing_deg: Vessel heading
+            is_laden: Loading condition
+            target_time_hours: Optional target time for this leg
+
+        Returns:
+            Tuple of (optimal_speed_kts, fuel_mt, time_hours)
+        """
+        min_speed, max_speed = self.SPEED_RANGE_KTS
+
+        # Adjust speed range based on vessel capabilities
+        if is_laden:
+            max_speed = min(max_speed, self.vessel_model.specs.service_speed_laden + 2)
+        else:
+            max_speed = min(max_speed, self.vessel_model.specs.service_speed_ballast + 2)
+
+        # Build weather dict
+        weather_dict = {
+            'wind_speed_ms': weather.wind_speed_ms,
+            'wind_dir_deg': weather.wind_dir_deg,
+            'heading_deg': bearing_deg,
+            'sig_wave_height_m': weather.sig_wave_height_m,
+            'wave_dir_deg': weather.wave_dir_deg,
+        }
+
+        # Calculate current effect (constant for all speeds)
+        current_effect = self._calculate_current_effect(
+            vessel_speed_kts=12.0,  # Representative speed
+            heading_deg=bearing_deg,
+            current_speed_ms=weather.current_speed_ms,
+            current_dir_deg=weather.current_dir_deg,
+        )
+
+        # Test speeds and find optimal
+        speeds_to_test = np.linspace(min_speed, max_speed, self.SPEED_STEPS)
+        best_speed = min_speed
+        best_fuel = float('inf')
+        best_time = float('inf')
+        best_score = float('inf')
+
+        results = []
+
+        for speed_kts in speeds_to_test:
+            # Calculate fuel consumption at this speed
+            result = self.vessel_model.calculate_fuel_consumption(
+                speed_kts=speed_kts,
+                is_laden=is_laden,
+                weather=weather_dict,
+                distance_nm=distance_nm,
+            )
+
+            # Calculate SOG and time
+            sog_kts = speed_kts + current_effect
+            if sog_kts <= 1.0:
+                continue  # Can't make meaningful progress
+
+            time_hours = distance_nm / sog_kts
+            fuel_mt = result['fuel_mt']
+
+            # Calculate score based on optimization target
+            if self.optimization_target == "time":
+                # Minimize time, but check fuel penalty
+                score = time_hours
+            else:
+                # Minimize fuel per nautical mile (efficiency)
+                fuel_per_nm = fuel_mt / distance_nm if distance_nm > 0 else fuel_mt
+                score = fuel_per_nm
+
+            # Apply safety penalty for high speeds in heavy weather
+            if self.enforce_safety and weather.sig_wave_height_m > 2.0:
+                wave_period_s = weather.wave_period_s if weather.wave_period_s > 0 else (5.0 + weather.sig_wave_height_m)
+                safety_factor = self.safety_constraints.get_safety_cost_factor(
+                    wave_height_m=weather.sig_wave_height_m,
+                    wave_period_s=wave_period_s,
+                    wave_dir_deg=weather.wave_dir_deg,
+                    heading_deg=bearing_deg,
+                    speed_kts=speed_kts,
+                    is_laden=is_laden,
+                )
+                if safety_factor == float('inf'):
+                    continue  # Skip dangerous speeds
+                score *= safety_factor
+
+            results.append((speed_kts, fuel_mt, time_hours, score))
+
+            if score < best_score:
+                best_score = score
+                best_speed = speed_kts
+                best_fuel = fuel_mt
+                best_time = time_hours
+
+        # If we have a target time constraint, adjust speed
+        if target_time_hours is not None and best_time > target_time_hours:
+            # Need to go faster - find minimum speed that meets target
+            for speed_kts, fuel_mt, time_hours, _ in sorted(results, key=lambda x: x[2]):
+                if time_hours <= target_time_hours:
+                    return speed_kts, fuel_mt, time_hours
+            # Can't meet target - return fastest safe option
+            fastest = max(results, key=lambda x: x[0]) if results else (max_speed, best_fuel, best_time)
+            return fastest[0], fastest[1], fastest[2]
+
+        return best_speed, best_fuel, best_time
+
     def _smooth_path(
         self,
         waypoints: List[Tuple[float, float]],
@@ -661,17 +798,28 @@ class RouteOptimizer:
         departure_time: datetime,
         calm_speed_kts: float,
         is_laden: bool,
-    ) -> Tuple[float, float, float, List[Dict], Dict]:
+        use_variable_speed: bool = None,
+    ) -> Tuple[float, float, float, List[Dict], Dict, List[float]]:
         """
         Calculate total fuel, time, and distance for a route.
 
+        Args:
+            waypoints: Route waypoints
+            departure_time: Departure time
+            calm_speed_kts: Base speed (used if variable speed disabled)
+            is_laden: Loading condition
+            use_variable_speed: Override variable speed setting
+
         Returns:
-            Tuple of (total_fuel_mt, total_time_hours, total_distance_nm, leg_details, safety_summary)
+            Tuple of (total_fuel_mt, total_time_hours, total_distance_nm, leg_details, safety_summary, speed_profile)
         """
+        use_var_speed = use_variable_speed if use_variable_speed is not None else self.variable_speed
+
         total_fuel = 0.0
         total_time = 0.0
         total_distance = 0.0
         leg_details = []
+        speed_profile = []
 
         # Safety tracking
         max_roll = 0.0
@@ -699,28 +847,48 @@ class RouteOptimizer:
             except Exception:
                 weather = LegWeather()
 
-            weather_dict = {
-                'wind_speed_ms': weather.wind_speed_ms,
-                'wind_dir_deg': weather.wind_dir_deg,
-                'heading_deg': bearing,
-                'sig_wave_height_m': weather.sig_wave_height_m,
-                'wave_dir_deg': weather.wave_dir_deg,
-            }
+            # Variable speed optimization
+            if use_var_speed:
+                optimal_speed, fuel_mt, time_hours = self._find_optimal_speed(
+                    distance_nm=distance,
+                    weather=weather,
+                    bearing_deg=bearing,
+                    is_laden=is_laden,
+                )
+                leg_speed = optimal_speed
+            else:
+                leg_speed = calm_speed_kts
+                weather_dict = {
+                    'wind_speed_ms': weather.wind_speed_ms,
+                    'wind_dir_deg': weather.wind_dir_deg,
+                    'heading_deg': bearing,
+                    'sig_wave_height_m': weather.sig_wave_height_m,
+                    'wave_dir_deg': weather.wave_dir_deg,
+                }
 
-            result = self.vessel_model.calculate_fuel_consumption(
-                speed_kts=calm_speed_kts,
-                is_laden=is_laden,
-                weather=weather_dict,
-                distance_nm=distance,
-            )
+                result = self.vessel_model.calculate_fuel_consumption(
+                    speed_kts=calm_speed_kts,
+                    is_laden=is_laden,
+                    weather=weather_dict,
+                    distance_nm=distance,
+                )
+                fuel_mt = result['fuel_mt']
 
+                current_effect = self._calculate_current_effect(
+                    calm_speed_kts, bearing, weather.current_speed_ms, weather.current_dir_deg
+                )
+                sog = max(calm_speed_kts + current_effect, 0.1)
+                time_hours = distance / sog
+
+            speed_profile.append(leg_speed)
+
+            # Calculate SOG for this leg
             current_effect = self._calculate_current_effect(
-                calm_speed_kts, bearing, weather.current_speed_ms, weather.current_dir_deg
+                leg_speed, bearing, weather.current_speed_ms, weather.current_dir_deg
             )
-            sog = max(calm_speed_kts + current_effect, 0.1)
-            time_hours = distance / sog
+            sog = max(leg_speed + current_effect, 0.1)
 
-            total_fuel += result['fuel_mt']
+            total_fuel += fuel_mt
             total_time += time_hours
             total_distance += distance
 
@@ -734,7 +902,7 @@ class RouteOptimizer:
                     wave_period_s=wave_period_s,
                     wave_dir_deg=weather.wave_dir_deg,
                     heading_deg=bearing,
-                    speed_kts=calm_speed_kts,
+                    speed_kts=leg_speed,
                     is_laden=is_laden,
                 )
 
@@ -759,9 +927,10 @@ class RouteOptimizer:
                 'to': to_wp,
                 'distance_nm': distance,
                 'bearing_deg': bearing,
-                'fuel_mt': result['fuel_mt'],
+                'fuel_mt': fuel_mt,
                 'time_hours': time_hours,
                 'sog_kts': sog,
+                'stw_kts': leg_speed,  # Speed through water (optimized)
                 'wind_speed_ms': weather.wind_speed_ms,
                 'wave_height_m': weather.sig_wave_height_m,
                 'safety_status': leg_safety.status.value if leg_safety else 'safe',
@@ -779,7 +948,7 @@ class RouteOptimizer:
             'max_accel_ms2': max_accel,
         }
 
-        return total_fuel, total_time, total_distance, leg_details, safety_summary
+        return total_fuel, total_time, total_distance, leg_details, safety_summary, speed_profile
 
     @staticmethod
     def _haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
