@@ -21,8 +21,10 @@ import {
   Eye,
   EyeOff,
   RefreshCw,
+  Compass,
+  TrendingDown,
 } from 'lucide-react';
-import { apiClient, Position, WindFieldData, VoyageResponse } from '@/lib/api';
+import { apiClient, Position, WindFieldData, VoyageResponse, OptimizationResponse } from '@/lib/api';
 
 // Dynamic imports for map components (client-side only)
 const MapContainer = dynamic(
@@ -63,6 +65,11 @@ export default function HomePage() {
   const [voyageResult, setVoyageResult] = useState<VoyageResponse | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
   const [viewMode, setViewMode] = useState<ViewMode>('edit');
+
+  // Optimization
+  const [optimizationResult, setOptimizationResult] = useState<OptimizationResponse | null>(null);
+  const [isOptimizing, setIsOptimizing] = useState(false);
+  const [showOptimizedRoute, setShowOptimizedRoute] = useState(false);
 
   // Weather visualization
   const [weatherLayer, setWeatherLayer] = useState<WeatherLayer>('wind');
@@ -140,6 +147,54 @@ export default function HomePage() {
       alert('Voyage calculation failed. Please check the backend is running.');
     } finally {
       setIsCalculating(false);
+    }
+  };
+
+  // Optimize route using A*
+  const handleOptimize = async () => {
+    if (waypoints.length < 2) {
+      alert('Please add at least 2 waypoints (origin and destination)');
+      return;
+    }
+
+    setIsOptimizing(true);
+    setOptimizationResult(null);
+
+    try {
+      const result = await apiClient.optimizeRoute({
+        origin: waypoints[0],
+        destination: waypoints[waypoints.length - 1],
+        calm_speed_kts: calmSpeed,
+        is_laden: isLaden,
+        optimization_target: 'fuel',
+        grid_resolution_deg: 0.5,
+      });
+
+      setOptimizationResult(result);
+      setShowOptimizedRoute(true);
+
+      // Show a summary alert
+      const savings = result.fuel_savings_pct > 0
+        ? `Fuel savings: ${result.fuel_savings_pct.toFixed(1)}%`
+        : 'No savings found (direct route is optimal)';
+
+      alert(`Route optimized!\n\n${savings}\nCells explored: ${result.cells_explored}\nTime: ${result.optimization_time_ms.toFixed(0)}ms`);
+
+    } catch (error) {
+      console.error('Route optimization failed:', error);
+      alert('Route optimization failed. Please check the backend is running.');
+    } finally {
+      setIsOptimizing(false);
+    }
+  };
+
+  // Apply optimized route as waypoints
+  const applyOptimizedRoute = () => {
+    if (optimizationResult) {
+      setWaypoints(optimizationResult.waypoints);
+      setOptimizationResult(null);
+      setShowOptimizedRoute(false);
+      setVoyageResult(null);
     }
   };
 
@@ -325,6 +380,57 @@ export default function HomePage() {
                     </>
                   )}
                 </button>
+
+                {/* Optimize Button */}
+                <button
+                  onClick={handleOptimize}
+                  disabled={isOptimizing || waypoints.length < 2}
+                  className="w-full flex items-center justify-center space-x-2 py-3 bg-gradient-to-r from-green-600 to-emerald-500 text-white font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
+                >
+                  {isOptimizing ? (
+                    <>
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                      <span>Optimizing...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Compass className="w-5 h-5" />
+                      <span>Optimize Route (A*)</span>
+                    </>
+                  )}
+                </button>
+
+                {/* Optimization Results */}
+                {optimizationResult && (
+                  <div className="mt-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
+                    <div className="flex items-center justify-between mb-2">
+                      <span className="text-sm font-medium text-green-400">Route Optimized</span>
+                      <TrendingDown className="w-4 h-4 text-green-400" />
+                    </div>
+                    <div className="text-xs text-gray-300 space-y-1">
+                      <div className="flex justify-between">
+                        <span>Fuel savings:</span>
+                        <span className="text-green-400 font-semibold">
+                          {optimizationResult.fuel_savings_pct.toFixed(1)}%
+                        </span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Distance:</span>
+                        <span>{optimizationResult.total_distance_nm.toFixed(0)} nm</span>
+                      </div>
+                      <div className="flex justify-between">
+                        <span>Waypoints:</span>
+                        <span>{optimizationResult.waypoints.length}</span>
+                      </div>
+                    </div>
+                    <button
+                      onClick={applyOptimizedRoute}
+                      className="mt-2 w-full py-2 text-sm bg-green-600 text-white rounded hover:bg-green-500 transition-colors"
+                    >
+                      Apply Optimized Route
+                    </button>
+                  </div>
+                )}
               </div>
             </Card>
 

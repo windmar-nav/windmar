@@ -7,6 +7,7 @@ Minimizes fuel consumption (or time) considering:
 - Wave resistance
 - Ocean currents
 - Vessel hydrodynamics
+- Land avoidance
 
 Grid-based approach:
 1. Discretize ocean into lat/lon cells
@@ -26,6 +27,7 @@ import numpy as np
 
 from src.optimization.vessel_model import VesselModel, VesselSpecs
 from src.optimization.voyage import LegWeather
+from src.data.land_mask import is_ocean, is_path_clear, get_land_mask_status
 
 logger = logging.getLogger(__name__)
 
@@ -215,11 +217,13 @@ class RouteOptimizer:
         origin: Tuple[float, float],
         destination: Tuple[float, float],
         margin_deg: float = 5.0,
+        filter_land: bool = True,
     ) -> Dict[Tuple[int, int], GridCell]:
         """
         Build routing grid around origin-destination corridor.
 
         Adds margin around the direct path to allow for deviations.
+        Filters out land cells if filter_land=True.
         """
         lat1, lon1 = origin
         lat2, lon2 = destination
@@ -241,20 +245,27 @@ class RouteOptimizer:
 
         # Build grid
         grid = {}
+        land_cells = 0
         row = 0
         lat = lat_min
         while lat <= lat_max:
             col = 0
             lon = lon_min
             while lon <= lon_max:
-                cell = GridCell(lat=lat, lon=lon, row=row, col=col)
-                grid[(row, col)] = cell
+                # Check if cell is ocean (skip land cells)
+                if filter_land and not is_ocean(lat, lon):
+                    land_cells += 1
+                else:
+                    cell = GridCell(lat=lat, lon=lon, row=row, col=col)
+                    grid[(row, col)] = cell
                 lon += self.resolution_deg
                 col += 1
             lat += self.resolution_deg
             row += 1
 
-        logger.info(f"Built grid with {len(grid)} cells ({row} rows x {col} cols)")
+        total_cells = row * col
+        logger.info(f"Built grid: {len(grid)} ocean cells, {land_cells} land cells filtered "
+                   f"({row} rows x {col} cols, {land_cells/total_cells*100:.1f}% land)")
 
         return grid
 
@@ -515,11 +526,13 @@ class RouteOptimizer:
         self,
         waypoints: List[Tuple[float, float]],
         tolerance_nm: float = 5.0,
+        check_land: bool = True,
     ) -> List[Tuple[float, float]]:
         """
         Smooth path using Douglas-Peucker algorithm.
 
         Removes unnecessary waypoints while keeping path shape.
+        Ensures simplified path doesn't cross land.
         """
         if len(waypoints) <= 2:
             return waypoints
@@ -564,6 +577,18 @@ class RouteOptimizer:
                 right = simplify(points[max_idx:], epsilon)
                 return left[:-1] + right
             else:
+                # Before simplifying to just endpoints, check for land crossing
+                if check_land:
+                    start = points[0]
+                    end = points[-1]
+                    if not is_path_clear(start[0], start[1], end[0], end[1]):
+                        # Can't simplify - path would cross land
+                        # Keep the midpoint
+                        mid_idx = len(points) // 2
+                        left = simplify(points[:mid_idx + 1], epsilon)
+                        right = simplify(points[mid_idx:], epsilon)
+                        return left[:-1] + right
+
                 return [points[0], points[-1]]
 
         return simplify(waypoints, tolerance_nm)
