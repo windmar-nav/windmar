@@ -1,0 +1,132 @@
+WINDMAR Commercial Software License Agreement
+Version 1.0
+
+Copyright (c) 2024-2026 SL Mar. All rights reserved.
+
+IMPORTANT: READ CAREFULLY BEFORE USING THIS SOFTWARE
+
+This Commercial Software License Agreement ("Agreement") is a legal agreement
+between you (either an individual or an entity, "Licensee") and SL Mar
+("Licensor") for the WINDMAR Maritime Route Optimization Software ("Software").
+
+By installing, copying, or otherwise using the Software, you agree to be bound
+by the terms of this Agreement. If you do not agree to these terms, do not
+install or use the Software.
+
+1. GRANT OF LICENSE
+
+   Subject to the terms and conditions of this Agreement and payment of the
+   applicable license fees, Licensor grants Licensee a non-exclusive,
+   non-transferable, limited license to:
+
+   a) Install and use the Software on servers owned or controlled by Licensee
+      for Licensee's internal business purposes.
+
+   b) Make a reasonable number of backup copies of the Software for archival
+      purposes.
+
+   c) Deploy the Software in production environments as specified in the
+      purchased license tier.
+
+2. LICENSE TIERS
+
+   The Software is licensed under the following tiers:
+
+   a) SINGLE-SERVER LICENSE: Permits installation on one (1) server instance.
+
+   b) ENTERPRISE LICENSE: Permits installation on unlimited server instances
+      within Licensee's organization.
+
+   c) OEM LICENSE: Permits redistribution as part of Licensee's own product,
+      subject to separate OEM agreement terms.
+
+3. RESTRICTIONS
+
+   Licensee shall NOT:
+
+   a) Sublicense, sell, rent, lease, or otherwise transfer the Software to
+      any third party without prior written consent from Licensor.
+
+   b) Modify, translate, adapt, reverse engineer, decompile, disassemble, or
+      create derivative works based on the Software.
+
+   c) Remove or alter any proprietary notices, labels, or marks on the Software.
+
+   d) Use the Software to provide services to third parties (SaaS) without an
+      appropriate license tier.
+
+   e) Use the Software in violation of any applicable laws or regulations.
+
+4. INTELLECTUAL PROPERTY
+
+   The Software is protected by copyright laws and international treaty
+   provisions. Licensor retains all intellectual property rights in the
+   Software. This Agreement does not grant Licensee any rights to trademarks
+   or service marks of Licensor.
+
+5. SUPPORT AND UPDATES
+
+   a) Licensed users are entitled to receive software updates and bug fixes
+      for the duration of their active support subscription.
+
+   b) Technical support is provided according to the support tier purchased.
+
+   c) Support subscriptions are sold separately and are not included in the
+      base license fee unless explicitly stated.
+
+6. WARRANTY DISCLAIMER
+
+   THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+   IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+   FITNESS FOR A PARTICULAR PURPOSE, AND NONINFRINGEMENT. LICENSOR DOES NOT
+   WARRANT THAT THE SOFTWARE WILL BE ERROR-FREE OR UNINTERRUPTED.
+
+7. LIMITATION OF LIABILITY
+
+   IN NO EVENT SHALL LICENSOR BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL,
+   EXEMPLARY, OR CONSEQUENTIAL DAMAGES (INCLUDING, BUT NOT LIMITED TO,
+   PROCUREMENT OF SUBSTITUTE GOODS OR SERVICES; LOSS OF USE, DATA, OR PROFITS;
+   OR BUSINESS INTERRUPTION) HOWEVER CAUSED AND ON ANY THEORY OF LIABILITY,
+   WHETHER IN CONTRACT, STRICT LIABILITY, OR TORT (INCLUDING NEGLIGENCE OR
+   OTHERWISE) ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF
+   ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+   LICENSOR'S TOTAL LIABILITY SHALL NOT EXCEED THE AMOUNT PAID BY LICENSEE
+   FOR THE SOFTWARE LICENSE.
+
+8. TERMINATION
+
+   a) This Agreement is effective until terminated.
+
+   b) Licensor may terminate this Agreement immediately upon written notice
+      if Licensee breaches any term of this Agreement.
+
+   c) Upon termination, Licensee must destroy all copies of the Software in
+      their possession.
+
+   d) Sections 4, 6, 7, and 9 shall survive termination.
+
+9. GOVERNING LAW
+
+   This Agreement shall be governed by and construed in accordance with the
+   laws of the jurisdiction in which Licensor is incorporated, without regard
+   to its conflict of law provisions.
+
+10. ENTIRE AGREEMENT
+
+    This Agreement constitutes the entire agreement between the parties with
+    respect to the Software and supersedes all prior or contemporaneous
+    understandings regarding such subject matter.
+
+11. CONTACT
+
+    For licensing inquiries, please contact:
+
+    SL Mar
+    Email: licensing@windmar.io
+    Website: https://windmar.io
+
+---
+
+BY USING THIS SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE READ THIS AGREEMENT,
+UNDERSTAND IT, AND AGREE TO BE BOUND BY ITS TERMS AND CONDITIONS.

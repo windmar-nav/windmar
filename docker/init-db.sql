@@ -117,8 +117,12 @@ $$ language 'plpgsql';
 CREATE TRIGGER update_vessel_specs_updated_at BEFORE UPDATE ON vessel_specs
     FOR EACH ROW EXECUTE FUNCTION update_updated_at_column();
 
--- Insert a default API key for development (hash of "dev_api_key_12345")
--- DO NOT USE IN PRODUCTION
-INSERT INTO api_keys (key_hash, name, metadata) VALUES
-    ('$2b$12$rI8gXH9G0KWj5hLqz.4g3O8QN9X7J5Y6Q8Z1A2B3C4D5E6F7G8H9I0J', 'Development Key', '{"description": "Default development API key. Remove in production!"}')
-ON CONFLICT (key_hash) DO NOTHING;
+-- ============================================================================
+-- PRODUCTION SECURITY NOTICE
+-- ============================================================================
+-- API keys must be created manually after deployment using the CLI tool:
+--
+--   docker-compose exec api python -m api.cli create-api-key --name "Production Key"
+--
+-- NEVER commit API keys to version control or seed them in init scripts.
+-- ============================================================================

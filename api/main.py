@@ -6,6 +6,9 @@ Provides REST API endpoints for:
 - Route management (waypoints, RTZ import)
 - Voyage calculation (per-leg SOG, ETA, fuel)
 - Vessel configuration
+
+Version: 2.1.0
+License: Commercial - See LICENSE file
 """
 
 import io
@@ -16,8 +19,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Response
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import PlainTextResponse
 from pydantic import BaseModel, Field
 import uvicorn
 
@@ -42,29 +46,98 @@ from src.data.copernicus import (
 from src.data.regulatory_zones import (
     get_zone_checker, Zone, ZoneProperties, ZoneType, ZoneInteraction
 )
+from api.config import settings
+from api.middleware import (
+    setup_middleware,
+    metrics_collector,
+    structured_logger,
+    get_request_id,
+)
 
-# Configure logging
-logging.basicConfig(level=logging.INFO)
+# Configure structured logging for production
+logging.basicConfig(
+    level=getattr(logging, settings.log_level.upper(), logging.INFO),
+    format='%(message)s',  # JSON logs are self-contained
+)
 logger = logging.getLogger(__name__)
 
 
-# Initialize FastAPI app
-app = FastAPI(
-    title="WINDMAR API",
-    description="Maritime Route Optimization API - Weather, Routes, Voyage Planning",
-    version="2.0.0",
-    docs_url="/api/docs",
-    redoc_url="/api/redoc",
-)
+# =============================================================================
+# Application Factory
+# =============================================================================
 
-# CORS middleware for frontend
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://localhost:3001", "*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
+def create_app() -> FastAPI:
+    """
+    Application factory for WINDMAR API.
+
+    Creates and configures the FastAPI application with all middleware,
+    routes, and dependencies. Supports both production and development modes.
+
+    Returns:
+        FastAPI: Configured application instance
+    """
+    application = FastAPI(
+        title="WINDMAR API",
+        description="""
+## Maritime Route Optimization API
+
+Professional-grade API for maritime route optimization, weather routing,
+and voyage planning.
+
+### Features
+- Real-time weather data integration (Copernicus CDS/CMEMS)
+- A* pathfinding route optimization
+- Vessel performance modeling with calibration
+- Regulatory zone management (ECA, HRA, TSS)
+- Fuel consumption prediction
+
+### Authentication
+API key authentication required for all endpoints except health checks.
+Include your API key in the `X-API-Key` header.
+
+### Rate Limiting
+- 60 requests per minute
+- 1000 requests per hour
+
+### Support
+Contact: support@windmar.io
+        """,
+        version="2.1.0",
+        docs_url="/api/docs",
+        redoc_url="/api/redoc",
+        openapi_url="/api/openapi.json",
+        license_info={
+            "name": "Commercial License",
+            "url": "https://windmar.io/license",
+        },
+        contact={
+            "name": "WINDMAR Support",
+            "url": "https://windmar.io",
+            "email": "support@windmar.io",
+        },
+    )
+
+    # Setup production middleware (security headers, logging, metrics, etc.)
+    setup_middleware(
+        application,
+        debug=settings.is_development,
+        enable_hsts=settings.is_production,
+    )
+
+    # CORS middleware - use configured origins only (NO WILDCARDS)
+    application.add_middleware(
+        CORSMiddleware,
+        allow_origins=settings.cors_origins_list,
+        allow_credentials=True,
+        allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+        allow_headers=["*"],
+    )
+
+    return application
+
+
+# Create the application
+app = create_app()
 
 
 # ============================================================================
@@ -547,27 +620,72 @@ def weather_provider(lat: float, lon: float, time: datetime) -> LegWeather:
 # API Endpoints - Core
 # ============================================================================
 
-@app.get("/")
+@app.get("/", tags=["System"])
 async def root():
-    """API root."""
+    """
+    API root endpoint.
+
+    Returns basic API information and available endpoint categories.
+    """
     return {
         "name": "WINDMAR API",
-        "version": "2.0.0",
+        "version": "2.1.0",
         "status": "operational",
         "docs": "/api/docs",
         "endpoints": {
+            "health": "/api/health",
+            "metrics": "/api/metrics",
             "weather": "/api/weather/...",
             "routes": "/api/routes/...",
             "voyage": "/api/voyage/...",
             "vessel": "/api/vessel/...",
+            "zones": "/api/zones/...",
         }
     }
 
 
-@app.get("/api/health")
+@app.get("/api/health", tags=["System"])
 async def health_check():
-    """Health check."""
-    return {"status": "healthy", "timestamp": datetime.utcnow().isoformat()}
+    """
+    Health check endpoint for load balancers and orchestrators.
+
+    Returns:
+        - status: Service health status
+        - timestamp: Current UTC timestamp
+        - version: API version
+        - request_id: Correlation ID for tracing
+    """
+    return {
+        "status": "healthy",
+        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "version": "2.1.0",
+        "request_id": get_request_id(),
+    }
+
+
+@app.get("/api/metrics", tags=["System"], response_class=PlainTextResponse)
+async def get_metrics():
+    """
+    Prometheus-compatible metrics endpoint.
+
+    Returns metrics in Prometheus exposition format for scraping.
+    Includes:
+    - Request counts by endpoint and status
+    - Request duration summaries
+    - Error counts
+    - Service uptime
+    """
+    return metrics_collector.get_prometheus_metrics()
+
+
+@app.get("/api/metrics/json", tags=["System"])
+async def get_metrics_json():
+    """
+    Metrics endpoint in JSON format.
+
+    Alternative to Prometheus format for custom dashboards.
+    """
+    return metrics_collector.get_metrics()
 
 
 @app.get("/api/data-sources")

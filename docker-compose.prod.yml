@@ -1,0 +1,129 @@
+# =============================================================================
+# WINDMAR Production Docker Compose Configuration
+# =============================================================================
+#
+# This file extends docker-compose.yml with production-specific settings.
+#
+# Usage:
+#   docker-compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Or set COMPOSE_FILE environment variable:
+#   export COMPOSE_FILE=docker-compose.yml:docker-compose.prod.yml
+#   docker-compose up -d
+#
+# =============================================================================
+
+version: '3.8'
+
+services:
+  db:
+    # Production database settings
+    deploy:
+      resources:
+        limits:
+          memory: 2G
+        reservations:
+          memory: 512M
+    environment:
+      # Enforce password requirement
+      POSTGRES_HOST_AUTH_METHOD: scram-sha-256
+    # Don't expose ports externally in production
+    ports: []
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "5"
+
+  redis:
+    # Production Redis settings
+    command: >
+      redis-server
+      --appendonly yes
+      --requirepass ${REDIS_PASSWORD}
+      --maxmemory 256mb
+      --maxmemory-policy allkeys-lru
+    deploy:
+      resources:
+        limits:
+          memory: 512M
+        reservations:
+          memory: 128M
+    # Don't expose ports externally in production
+    ports: []
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "3"
+
+  api:
+    # Production API settings
+    environment:
+      ENVIRONMENT: production
+      LOG_LEVEL: info
+      AUTH_ENABLED: "true"
+      RATE_LIMIT_ENABLED: "true"
+    deploy:
+      resources:
+        limits:
+          memory: 4G
+        reservations:
+          memory: 1G
+      replicas: 2
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "100m"
+        max-file: "10"
+    # Production health check with stricter settings
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 60s
+
+  frontend:
+    # Production frontend settings
+    deploy:
+      resources:
+        limits:
+          memory: 1G
+        reservations:
+          memory: 256M
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  # Optional: Nginx reverse proxy for SSL termination
+  nginx:
+    image: nginx:alpine
+    container_name: windmar-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./docker/nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./docker/nginx/ssl:/etc/nginx/ssl:ro
+    depends_on:
+      - api
+      - frontend
+    networks:
+      - windmar-network
+    restart: unless-stopped
+    profiles:
+      - with-nginx
+
+# Production volumes with backup-friendly naming
+volumes:
+  postgres_data:
+    name: windmar_postgres_data
+  redis_data:
+    name: windmar_redis_data
+
+networks:
+  windmar-network:
+    name: windmar_network
