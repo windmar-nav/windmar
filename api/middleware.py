@@ -113,15 +113,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             "magnetometer=(), microphone=(), payment=(), usb=()"
         )
 
-        # Content Security Policy
+        # Content Security Policy - Strict mode for production security
+        # Note: If you need inline scripts/styles, use nonces or hashes instead
+        # See: https://developer.mozilla.org/en-US/docs/Web/HTTP/CSP
         response.headers["Content-Security-Policy"] = (
             "default-src 'self'; "
-            "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-            "style-src 'self' 'unsafe-inline'; "
+            "script-src 'self'; "
+            "style-src 'self'; "
             "img-src 'self' data: https:; "
             "font-src 'self' data:; "
             "connect-src 'self' https:; "
-            "frame-ancestors 'none';"
+            "frame-ancestors 'none'; "
+            "base-uri 'self'; "
+            "form-action 'self'; "
+            "upgrade-insecure-requests;"
         )
 
         # HSTS - only enable in production with HTTPS

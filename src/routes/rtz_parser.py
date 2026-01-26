@@ -3,14 +3,31 @@ RTZ Route File Parser.
 
 Parses RTZ (Route Plan Exchange Format) files used by ECDIS systems.
 RTZ is an XML-based format defined by IEC 61174.
+
+Security Note:
+    Uses defusedxml to prevent XXE (XML External Entity) attacks.
+    Never use standard xml.etree.ElementTree for untrusted input.
 """
 
 import logging
-import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 from typing import List, Optional, Tuple
 from datetime import datetime
+
+# Use defusedxml to prevent XXE attacks
+# See: https://owasp.org/www-community/vulnerabilities/XML_External_Entity_(XXE)_Processing
+try:
+    import defusedxml.ElementTree as ET
+except ImportError:
+    # Fallback with security warning - should never happen in production
+    import xml.etree.ElementTree as ET
+    import warnings
+    warnings.warn(
+        "defusedxml not installed! XML parsing is vulnerable to XXE attacks. "
+        "Install with: pip install defusedxml",
+        SecurityWarning
+    )
 
 logger = logging.getLogger(__name__)
 

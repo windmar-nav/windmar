@@ -19,11 +19,17 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
 import numpy as np
-from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Response
+from fastapi import FastAPI, HTTPException, UploadFile, File, Query, Response, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse
+from fastapi.responses import PlainTextResponse, JSONResponse
 from pydantic import BaseModel, Field
+from slowapi.errors import RateLimitExceeded
 import uvicorn
+
+# File upload size limits (security)
+MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB general limit
+MAX_RTZ_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB for RTZ files
+MAX_CSV_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB for CSV files
 
 # Import WINDMAR modules
 import sys
@@ -53,6 +59,11 @@ from api.middleware import (
     structured_logger,
     get_request_id,
 )
+from api.auth import get_api_key, get_optional_api_key
+from api.rate_limit import limiter, get_rate_limit_string
+from api.state import get_app_state, get_vessel_state
+from api.cache import weather_cache, get_all_cache_stats
+from api.resilience import get_all_circuit_breaker_status
 
 # Configure structured logging for production
 logging.basicConfig(
@@ -133,11 +144,30 @@ Contact: support@windmar.io
         allow_headers=["*"],
     )
 
+    # Add rate limiter to app state
+    application.state.limiter = limiter
+
+    # Add rate limit exception handler
+    @application.exception_handler(RateLimitExceeded)
+    async def rate_limit_handler(request: Request, exc: RateLimitExceeded):
+        return JSONResponse(
+            status_code=429,
+            content={
+                "error": "Rate limit exceeded",
+                "detail": str(exc.detail),
+                "retry_after": getattr(exc, 'retry_after', 60),
+            },
+            headers={"Retry-After": str(getattr(exc, 'retry_after', 60))},
+        )
+
     return application
 
 
 # Create the application
 app = create_app()
+
+# Initialize application state (thread-safe singleton)
+_ = get_app_state()
 
 
 # ============================================================================
@@ -647,20 +677,68 @@ async def root():
 @app.get("/api/health", tags=["System"])
 async def health_check():
     """
-    Health check endpoint for load balancers and orchestrators.
+    Comprehensive health check endpoint for load balancers and orchestrators.
+
+    Checks connectivity to all dependencies:
+    - Database (PostgreSQL)
+    - Cache (Redis)
+    - Weather data providers
 
     Returns:
-        - status: Service health status
+        - status: Overall health status (healthy/degraded/unhealthy)
         - timestamp: Current UTC timestamp
         - version: API version
-        - request_id: Correlation ID for tracing
+        - components: Individual component health status
     """
-    return {
-        "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
-        "version": "2.1.0",
-        "request_id": get_request_id(),
-    }
+    from api.health import perform_full_health_check
+    result = await perform_full_health_check()
+    result["request_id"] = get_request_id()
+    return result
+
+
+@app.get("/api/health/live", tags=["System"])
+async def liveness_check():
+    """
+    Kubernetes liveness probe endpoint.
+
+    Simple check that the service is alive.
+    Use this for K8s livenessProbe configuration.
+    """
+    from api.health import perform_liveness_check
+    return await perform_liveness_check()
+
+
+@app.get("/api/health/ready", tags=["System"])
+async def readiness_check():
+    """
+    Kubernetes readiness probe endpoint.
+
+    Checks if the service is ready to accept traffic.
+    Use this for K8s readinessProbe configuration.
+    """
+    from api.health import perform_readiness_check
+    result = await perform_readiness_check()
+
+    # Return 503 if not ready
+    if result.get("status") != "ready":
+        raise HTTPException(status_code=503, detail="Service not ready")
+
+    return result
+
+
+@app.get("/api/status", tags=["System"])
+async def detailed_status():
+    """
+    Detailed system status endpoint.
+
+    Returns comprehensive information about the system including:
+    - Health status of all components
+    - Cache statistics
+    - Circuit breaker states
+    - Configuration summary
+    """
+    from api.health import get_detailed_status
+    return await get_detailed_status()
 
 
 @app.get("/api/metrics", tags=["System"], response_class=PlainTextResponse)
@@ -951,14 +1029,30 @@ async def api_get_weather_point(
 # ============================================================================
 
 @app.post("/api/routes/parse-rtz")
-async def parse_rtz(file: UploadFile = File(...)):
+@limiter.limit(get_rate_limit_string())
+async def parse_rtz(
+    request: Request,
+    file: UploadFile = File(...),
+):
     """
     Parse an uploaded RTZ route file.
 
+    Maximum file size: 5 MB.
     Returns waypoints in standard format.
     """
     try:
         content = await file.read()
+
+        # Validate file size
+        if len(content) > MAX_RTZ_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size: {MAX_RTZ_SIZE_BYTES // (1024*1024)} MB"
+            )
+
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Empty file")
+
         rtz_string = content.decode('utf-8')
 
         route = parse_rtz_string(rtz_string)
@@ -1327,24 +1421,38 @@ async def get_vessel_specs():
 
 
 @app.post("/api/vessel/specs")
-async def update_vessel_specs(config: VesselConfig):
-    """Update vessel specifications."""
+@limiter.limit(get_rate_limit_string())
+async def update_vessel_specs(
+    request: Request,
+    config: VesselConfig,
+    api_key=Depends(get_api_key),
+):
+    """
+    Update vessel specifications.
+
+    Requires authentication via API key.
+    """
     global current_vessel_specs, current_vessel_model, voyage_calculator
 
     try:
-        current_vessel_specs = VesselSpecs(
-            dwt=config.dwt,
-            loa=config.loa,
-            beam=config.beam,
-            draft_laden=config.draft_laden,
-            draft_ballast=config.draft_ballast,
-            mcr_kw=config.mcr_kw,
-            sfoc_at_mcr=config.sfoc_at_mcr,
-            service_speed_laden=config.service_speed_laden,
-            service_speed_ballast=config.service_speed_ballast,
-        )
-        current_vessel_model = VesselModel(specs=current_vessel_specs)
-        voyage_calculator = VoyageCalculator(vessel_model=current_vessel_model)
+        # Use thread-safe state management
+        vessel_state = get_vessel_state()
+        vessel_state.update_specs({
+            'dwt': config.dwt,
+            'loa': config.loa,
+            'beam': config.beam,
+            'draft_laden': config.draft_laden,
+            'draft_ballast': config.draft_ballast,
+            'mcr_kw': config.mcr_kw,
+            'sfoc_at_mcr': config.sfoc_at_mcr,
+            'service_speed_laden': config.service_speed_laden,
+            'service_speed_ballast': config.service_speed_ballast,
+        })
+
+        # Update legacy globals for backward compatibility
+        current_vessel_specs = vessel_state.specs
+        current_vessel_model = vessel_state.model
+        voyage_calculator = vessel_state.voyage_calculator
 
         return {"status": "success", "message": "Vessel specs updated"}
 
@@ -1390,8 +1498,17 @@ async def get_calibration():
 
 
 @app.post("/api/vessel/calibration/set")
-async def set_calibration_factors(factors: CalibrationFactorsModel):
-    """Manually set calibration factors."""
+@limiter.limit(get_rate_limit_string())
+async def set_calibration_factors(
+    request: Request,
+    factors: CalibrationFactorsModel,
+    api_key=Depends(get_api_key),
+):
+    """
+    Manually set calibration factors.
+
+    Requires authentication via API key.
+    """
     global current_calibration, current_vessel_model, voyage_calculator, route_optimizer
 
     current_calibration = CalibrationFactors(
@@ -1404,17 +1521,14 @@ async def set_calibration_factors(factors: CalibrationFactorsModel):
         days_since_drydock=factors.days_since_drydock,
     )
 
-    # Update vessel model with new calibration
-    current_vessel_model = VesselModel(
-        specs=current_vessel_specs,
-        calibration_factors={
-            'calm_water': current_calibration.calm_water,
-            'wind': current_calibration.wind,
-            'waves': current_calibration.waves,
-        }
-    )
-    voyage_calculator = VoyageCalculator(vessel_model=current_vessel_model)
-    route_optimizer = RouteOptimizer(vessel_model=current_vessel_model)
+    # Use thread-safe state management
+    vessel_state = get_vessel_state()
+    vessel_state.update_calibration(current_calibration)
+
+    # Update legacy globals for backward compatibility
+    current_vessel_model = vessel_state.model
+    voyage_calculator = vessel_state.voyage_calculator
+    route_optimizer = vessel_state.route_optimizer
 
     return {"status": "success", "message": "Calibration factors updated"}
 
@@ -1442,8 +1556,17 @@ async def get_noon_reports():
 
 
 @app.post("/api/vessel/noon-reports")
-async def add_noon_report(report: NoonReportModel):
-    """Add a single noon report for calibration."""
+@limiter.limit(get_rate_limit_string())
+async def add_noon_report(
+    request: Request,
+    report: NoonReportModel,
+    api_key=Depends(get_api_key),
+):
+    """
+    Add a single noon report for calibration.
+
+    Requires authentication via API key.
+    """
     global vessel_calibrator
 
     nr = NoonReport(
@@ -1472,9 +1595,17 @@ async def add_noon_report(report: NoonReportModel):
 
 
 @app.post("/api/vessel/noon-reports/upload-csv")
-async def upload_noon_reports_csv(file: UploadFile = File(...)):
+@limiter.limit("10/minute")  # Lower rate limit for file uploads
+async def upload_noon_reports_csv(
+    request: Request,
+    file: UploadFile = File(...),
+    api_key=Depends(get_api_key),
+):
     """
     Upload noon reports from CSV file.
+
+    Requires authentication via API key.
+    Maximum file size: 50 MB.
 
     Expected columns:
     - timestamp (ISO format or common date format)
@@ -1490,18 +1621,29 @@ async def upload_noon_reports_csv(file: UploadFile = File(...)):
     global vessel_calibrator
 
     try:
+        # Read and validate file size
+        content = await file.read()
+        if len(content) > MAX_CSV_SIZE_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"File too large. Maximum size: {MAX_CSV_SIZE_BYTES // (1024*1024)} MB"
+            )
+
+        if len(content) == 0:
+            raise HTTPException(status_code=400, detail="Empty file")
+
         # Save to temp file
         import tempfile
         with tempfile.NamedTemporaryFile(mode='wb', suffix='.csv', delete=False) as tmp:
-            content = await file.read()
             tmp.write(content)
             tmp_path = Path(tmp.name)
 
-        # Import from CSV
-        count = vessel_calibrator.add_noon_reports_from_csv(tmp_path)
-
-        # Cleanup
-        tmp_path.unlink()
+        try:
+            # Import from CSV
+            count = vessel_calibrator.add_noon_reports_from_csv(tmp_path)
+        finally:
+            # Cleanup
+            tmp_path.unlink()
 
         return {
             "status": "success",
@@ -1509,14 +1651,24 @@ async def upload_noon_reports_csv(file: UploadFile = File(...)):
             "total_reports": len(vessel_calibrator.noon_reports),
         }
 
+    except HTTPException:
+        raise
     except Exception as e:
         logger.error(f"Failed to import CSV: {e}", exc_info=True)
         raise HTTPException(status_code=400, detail=f"Failed to parse CSV: {str(e)}")
 
 
 @app.delete("/api/vessel/noon-reports")
-async def clear_noon_reports():
-    """Clear all uploaded noon reports."""
+@limiter.limit(get_rate_limit_string())
+async def clear_noon_reports(
+    request: Request,
+    api_key=Depends(get_api_key),
+):
+    """
+    Clear all uploaded noon reports.
+
+    Requires authentication via API key.
+    """
     global vessel_calibrator
 
     vessel_calibrator.noon_reports = []
@@ -1524,11 +1676,16 @@ async def clear_noon_reports():
 
 
 @app.post("/api/vessel/calibrate", response_model=CalibrationResponse)
+@limiter.limit("5/minute")  # Lower limit for CPU-intensive operation
 async def calibrate_vessel(
+    request: Request,
     days_since_drydock: int = Query(0, ge=0, description="Days since last dry dock"),
+    api_key=Depends(get_api_key),
 ):
     """
     Run calibration using uploaded noon reports.
+
+    Requires authentication via API key.
 
     Finds optimal calibration factors that minimize prediction error
     compared to actual fuel consumption.
@@ -1690,9 +1847,16 @@ async def get_zone(zone_id: str):
 
 
 @app.post("/api/zones", response_model=ZoneResponse)
-async def create_zone(request: CreateZoneRequest):
+@limiter.limit(get_rate_limit_string())
+async def create_zone(
+    http_request: Request,
+    request: CreateZoneRequest,
+    api_key=Depends(get_api_key),
+):
     """
     Create a custom zone.
+
+    Requires authentication via API key.
 
     Coordinates should be provided as a list of {lat, lon} objects
     forming a closed polygon (first and last point should match).
@@ -1756,10 +1920,16 @@ async def create_zone(request: CreateZoneRequest):
 
 
 @app.delete("/api/zones/{zone_id}")
-async def delete_zone(zone_id: str):
+@limiter.limit(get_rate_limit_string())
+async def delete_zone(
+    request: Request,
+    zone_id: str,
+    api_key=Depends(get_api_key),
+):
     """
     Delete a custom zone.
 
+    Requires authentication via API key.
     Built-in zones cannot be deleted.
     """
     zone_checker = get_zone_checker()

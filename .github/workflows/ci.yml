@@ -118,6 +118,20 @@ jobs:
         working-directory: frontend
         run: npx tsc --noEmit
 
+      - name: Run unit tests
+        working-directory: frontend
+        run: npm test -- --coverage --watchAll=false
+        env:
+          CI: true
+
+      - name: Upload frontend coverage
+        uses: codecov/codecov-action@v4
+        with:
+          files: frontend/coverage/lcov.info
+          flags: frontend
+          name: frontend-coverage
+        continue-on-error: true
+
       - name: Build frontend
         working-directory: frontend
         run: npm run build
