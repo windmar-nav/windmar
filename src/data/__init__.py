@@ -7,9 +7,19 @@ from .copernicus import (
     PointWeather,
 )
 
+# Real-time Copernicus client for sensor fusion
+from .copernicus_client import (
+    CopernicusClient,
+    OceanConditions,
+    WindConditions,
+)
+
 __all__ = [
     'CopernicusDataProvider',
     'SyntheticDataProvider',
     'WeatherData',
     'PointWeather',
+    'CopernicusClient',
+    'OceanConditions',
+    'WindConditions',
 ]
