@@ -4,7 +4,7 @@ version = "1.0.0"
 description = "Maritime route optimization for MR Product Tankers with weather-aware fuel consumption modeling"
 authors = ["WINDMAR Team"]
 readme = "README.md"
-license = "MIT"
+license = "Apache-2.0"
 packages = [{ include = "src" }, { include = "api" }]
 
 [tool.poetry.dependencies]

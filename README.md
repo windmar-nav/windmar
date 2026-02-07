@@ -1,197 +1,247 @@
-# WINDMAR - Maritime Route Optimizer for MR Product Tanker
+# WINDMAR - Maritime Route Optimization System
 
-A complete maritime route optimization system for Medium Range (MR) Product Tankers that minimizes fuel consumption using real-time weather and wave data from NOAA. Features a **beautiful web interface** inspired by Syroco's professional design.
+A production-grade maritime route optimization platform for Medium Range (MR) Product Tankers. Minimizes fuel consumption through weather-aware A\* routing, physics-based vessel modeling, and real-time sensor fusion.
 
-## 🚢 Features
+## Features
 
-### Core Engine
-- **GRIB Data Integration**: Automatic download and parsing of NOAA GFS (weather) and WaveWatch III (waves) forecasts
-- **Vessel Performance Model**: Physics-based fuel consumption model using Holtrop-Mennen resistance and SFOC curves
-- **Route Optimization**: A* pathfinding algorithm adapted for maritime navigation
-- **Model Calibration**: Calibrate performance models from Excel noon report data
-- **Constraint Handling**: Under Keel Clearance (UKC), ECA zones, weather limits
+### Vessel Performance Modeling
+- Holtrop-Mennen resistance prediction (calm water, wind, waves)
+- SFOC curves at variable engine loads
+- Hull fouling calibration from operational noon reports
+- Laden and ballast condition support
+- Configurable vessel specifications (default: 49,000 DWT MR tanker)
 
-### Web Application
-- **🗺️ Interactive Route Planning**: Optimize routes with real-time weather data
-- **📊 Fuel Analysis Dashboard**: Compare fuel consumption across scenarios
-- **⚙️ Vessel Configuration**: Customize vessel specifications
-- **🌊 Weather Integration**: Real-time NOAA weather routing
-- **📈 Performance Charts**: Visual fuel breakdown and optimization insights
-- **🎨 Beautiful UI**: Professional maritime design inspired by Syroco
+### Route Optimization
+- A\* grid-based pathfinding with configurable resolution (0.25-2.0 degrees)
+- Variable speed optimization (6-18 knots per leg)
+- Seakeeping safety constraints (roll, pitch, acceleration limits)
+- Land avoidance via vectorized ocean mask (global-land-mask)
+- RTZ file import/export (IEC 61174 ECDIS standard)
 
-### Technology Stack
-- **Backend**: FastAPI (Python) - REST API
-- **Frontend**: Next.js 15 + TypeScript - Modern web interface
-- **Styling**: Tailwind CSS - Custom maritime theme
-- **Maps**: React Leaflet - Interactive route visualization
-- **Charts**: Recharts - Performance analytics
+### Weather Integration
+- Copernicus Marine Service (CMEMS) for real-time wind, wave, and current data
+- Copernicus Climate Data Store (CDS) for ERA5 reanalysis
+- Climatology fallback for beyond-forecast-horizon voyages
+- Unified provider that blends forecast and climatology with smooth transitions
+- Synthetic data generator for testing and demos
 
-## Vessel Specifications
+### Regulatory Compliance
+- IMO CII (Carbon Intensity Indicator) calculations with annual tightening
+- Emission Control Areas (ECA/SECA) with fuel switching requirements
+- High Risk Areas (HRA), Traffic Separation Schemes (TSS)
+- Custom zone creation with penalty/exclusion/mandatory interactions
+- GeoJSON export for frontend visualization
 
-The system is optimized for a typical MR Product Tanker:
-- **DWT**: 49,000 MT
-- **LOA**: 183m, Beam: 32m
-- **Draft**: 11.8m (laden), 6.5m (ballast)
-- **Main Engine**: 8,840 kW
-- **SFOC**: 171 g/kWh at MCR
-- **Service Speed**: 14.5 kts (laden), 15.0 kts (ballast)
+### Live Operations
+- SBG Electronics IMU sensor integration (roll, pitch, heave)
+- FFT-based wave spectrum estimation from ship motion
+- Multi-source sensor fusion engine
+- Continuous model recalibration from live data
 
-## 🚀 Quick Start
+### Web Interface
+- Interactive Leaflet maps with weather overlays and route visualization
+- Voyage calculation with per-leg fuel, speed, and ETA breakdown
+- Vessel configuration and calibration panels
+- CII compliance tracking and projections
+- Dark maritime theme, responsive design
 
-### One-Command Setup
-
-```bash
-# Install dependencies and start everything
-./run.sh
-```
-
-Then visit:
-- **Web Interface**: http://localhost:3000
-- **API Documentation**: http://localhost:8000/api/docs
-
-### Manual Setup
-
-#### 1. Install Python Dependencies
-
-```bash
-pip install -r requirements.txt
-```
-
-#### 2. Install Frontend Dependencies
-
-```bash
-cd frontend && npm install && cd ..
-```
-
-#### 3. Start Backend API
-
-```bash
-python api/main.py
-```
-
-#### 4. Start Frontend (in new terminal)
-
-```bash
-cd frontend && npm run dev
-```
-
-### Python Examples (Optional)
-
-```bash
-# Simple demo (no GRIB required)
-python examples/demo_simple.py
-
-# Full ARA-MED optimization
-python examples/example_ara_med.py
-
-# Model calibration
-python examples/example_calibration.py
-```
-
-## 📁 Project Structure
+## Architecture
 
 ```
 windmar/
-├── api/
-│   └── main.py                   # FastAPI backend server
-├── frontend/
-│   ├── app/                      # Next.js pages
-│   │   ├── page.tsx             # Route optimization
-│   │   ├── fuel-analysis/       # Fuel dashboard
-│   │   └── vessel-config/       # Vessel settings
-│   └── components/              # React components
+├── api/                        # FastAPI backend
+│   ├── main.py                 # API endpoints (weather, routes, voyage, zones, vessel, calibration)
+│   ├── auth.py                 # JWT / API key authentication
+│   ├── config.py               # API configuration (pydantic-settings)
+│   ├── middleware.py            # Security headers, structured logging, metrics
+│   ├── rate_limit.py           # Token bucket rate limiter (Redis-backed)
+│   ├── database.py             # SQLAlchemy ORM setup
+│   ├── models.py               # Database models
+│   ├── health.py               # Health check logic
+│   ├── state.py                # Thread-safe application state
+│   ├── cache.py                # Weather data caching
+│   └── resilience.py           # Circuit breakers
 ├── src/
-│   ├── grib/
-│   │   ├── extractor.py         # Download GRIB files from NOAA
-│   │   └── parser.py            # Parse GRIB data with pygrib
-│   ├── visualization/
-│   │   └── plotter.py           # Weather maps and route visualization
 │   ├── optimization/
-│   │   ├── vessel_model.py      # Fuel consumption model
-│   │   └── router.py            # A* route optimization
-│   └── database/
-│       ├── excel_parser.py      # Parse Excel noon reports
-│       └── calibration.py       # Calibrate model from data
-├── examples/
-│   ├── demo_simple.py           # Simple demo (no GRIB)
-│   ├── example_ara_med.py       # Rotterdam-Augusta example
-│   └── example_calibration.py   # Calibration example
+│   │   ├── vessel_model.py     # Holtrop-Mennen fuel consumption model
+│   │   ├── route_optimizer.py  # A* pathfinding with weather costs
+│   │   ├── voyage.py           # Per-leg voyage calculator
+│   │   ├── vessel_calibration.py  # Noon report calibration (scipy)
+│   │   └── seakeeping.py       # Ship motion safety assessment
+│   ├── data/
+│   │   ├── copernicus.py       # Copernicus CDS/CMEMS providers
+│   │   ├── regulatory_zones.py # Zone management and point-in-polygon
+│   │   ├── eca_zones.py        # ECA zone definitions
+│   │   └── land_mask.py        # Ocean/land detection
+│   ├── sensors/
+│   │   ├── sbg_nmea.py         # SBG IMU NMEA parsing
+│   │   └── sbg_ellipse.py      # SBG Ellipse sensor driver
+│   ├── fusion/
+│   │   ├── fusion_engine.py    # Multi-source data fusion
+│   │   └── wave_estimator.py   # FFT wave spectrum from heave data
+│   ├── compliance/
+│   │   └── cii.py              # IMO CII rating calculations
+│   ├── routes/
+│   │   └── rtz_parser.py       # RTZ XML route file parser
+│   ├── validation.py           # Input validation
+│   ├── config.py               # Application configuration
+│   └── metrics.py              # Performance metrics collection
+├── frontend/                   # Next.js 15 + TypeScript
+│   ├── app/                    # Pages (route planner, fuel analysis, vessel config, CII, live dashboard)
+│   ├── components/             # React components (maps, charts, editors, weather layers)
+│   └── lib/                    # API client, utilities
 ├── tests/
-│   └── unit/                    # Unit tests
-├── data/
-│   └── grib_cache/             # Downloaded GRIB files
-└── run.sh                      # One-command startup script
+│   ├── unit/                   # Vessel model, router, validation, ECA zones, Excel parser
+│   ├── integration/            # API endpoints, optimization flow
+│   └── test_e2e_*.py           # End-to-end sensor integration
+├── examples/                   # Demo scripts (simple, ARA-MED, calibration)
+├── docker/                     # init-db.sql (PostgreSQL schema)
+├── data/                       # Runtime data (GRIB cache, calibration, climatology)
+├── docker-compose.yml          # Full stack (API + frontend + PostgreSQL + Redis)
+├── Dockerfile                  # Multi-stage production build
+└── pyproject.toml              # Poetry project definition
 ```
 
-## 🌐 Web Interface
+## Tech Stack
 
-The WINDMAR web application provides:
+| Layer | Technology |
+|-------|-----------|
+| Backend | FastAPI, Uvicorn, Python 3.10+ |
+| Frontend | Next.js 15, TypeScript, React, Tailwind CSS |
+| Maps | React Leaflet |
+| Charts | Recharts |
+| Database | PostgreSQL 16, SQLAlchemy |
+| Cache | Redis 7 |
+| Scientific | NumPy, SciPy, Pandas |
+| Auth | JWT, API keys, bcrypt |
+| Containerization | Docker, Docker Compose |
 
-### Route Optimization
-- Select predefined routes (ARA-MED, Transatlantic, Mediterranean)
-- Choose loading condition (Laden/Ballast)
-- Toggle weather routing
-- View optimized route on interactive map
-- Real-time fuel consumption calculations
+## Quick Start
 
-### Fuel Analysis
-- Compare scenarios (calm vs rough seas)
-- Weather impact analysis
-- Fuel breakdown charts
-- Optimization opportunities
-
-### Vessel Configuration
-- Configure vessel dimensions
-- Set engine specifications
-- Customize service speeds
-- Save custom configurations
-
-## 📊 Data Sources
-
-- **Weather Forecasts**: NOAA GFS (0.25° resolution, 384-hour forecast)
-- **Wave Forecasts**: NOAA WaveWatch III (0.5° resolution, 180-hour forecast)
-
-Both datasets are freely available and updated every 6 hours.
-
-## 📖 Documentation
-
-- **Complete Setup Guide**: See [RUN.md](RUN.md)
-- **Installation Details**: See [INSTALLATION.md](INSTALLATION.md)
-- **Frontend Docs**: See [frontend/README.md](frontend/README.md)
-- **API Documentation**: http://localhost:8000/api/docs (when running)
-
-## 🧪 Testing
+### Docker Compose (recommended)
 
 ```bash
-# Run unit tests
-pytest tests/ -v
-
-# Run specific test file
-pytest tests/unit/test_vessel_model.py -v
+git clone https://github.com/SL-Mar/Windmar.git
+cd Windmar
+cp .env.example .env    # Edit with your settings
+docker compose up -d --build
 ```
 
-## 📸 Screenshots
+Services start on:
 
-The web interface features:
-- **Dark Maritime Theme**: Professional design inspired by Syroco
-- **Interactive Maps**: Leaflet-based route visualization
-- **Real-time Data**: Live weather and route calculations
-- **Responsive Design**: Works on desktop and tablet
+| Service | URL |
+|---------|-----|
+| Frontend | http://localhost:3000 |
+| API | http://localhost:8000 |
+| API Docs (Swagger) | http://localhost:8000/api/docs |
+| PostgreSQL | localhost:5432 |
+| Redis | localhost:6379 |
 
-## 🚀 Production Deployment
+### Manual Setup
 
-See [RUN.md](RUN.md) for Docker and production deployment instructions.
+```bash
+# Backend
+pip install -r requirements.txt
+python api/main.py
 
-## 📝 License
+# Frontend (separate terminal)
+cd frontend
+npm install --legacy-peer-deps
+npm run dev
+```
 
-Private - SL Mar
+### Python Examples
 
-## 👥 Author
+```bash
+python examples/demo_simple.py          # Synthetic weather demo
+python examples/example_ara_med.py      # Rotterdam to Augusta optimization
+python examples/example_calibration.py  # Noon report calibration
+```
 
-SL Mar - Maritime Route Optimization Team
+## Configuration
 
-## 🤝 Support
+Copy `.env.example` to `.env` and configure:
 
-- API Documentation: http://localhost:8000/api/docs
-- GitHub Issues: For bug reports and feature requests
-- Documentation: See RUN.md and INSTALLATION.md for detailed guides
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `ENVIRONMENT` | development / staging / production | development |
+| `DATABASE_URL` | PostgreSQL connection string | postgresql://windmar:...@db:5432/windmar |
+| `REDIS_URL` | Redis connection string | redis://:...@redis:6379/0 |
+| `API_SECRET_KEY` | JWT signing key | (generate with `openssl rand -hex 32`) |
+| `CORS_ORIGINS` | Allowed frontend origins | http://localhost:3000 |
+| `COPERNICUS_MOCK_MODE` | Use synthetic weather data | true |
+| `AUTH_ENABLED` | Require API key authentication | true |
+| `RATE_LIMIT_PER_MINUTE` | API rate limit | 60 |
+
+For real weather data, set `COPERNICUS_MOCK_MODE=false` and provide Copernicus CMEMS credentials.
+
+## API Endpoints
+
+### Weather
+- `GET /api/weather/wind` - Wind field grid (U/V components)
+- `GET /api/weather/waves` - Wave height field
+- `GET /api/weather/currents` - Ocean current field
+- `GET /api/weather/point` - Weather at specific coordinates
+
+### Routes
+- `POST /api/routes/parse-rtz` - Parse RTZ route file
+- `POST /api/routes/from-waypoints` - Create route from coordinates
+
+### Voyage
+- `POST /api/voyage/calculate` - Full voyage calculation with weather
+- `GET /api/voyage/weather-along-route` - Weather conditions per waypoint
+
+### Optimization
+- `POST /api/optimize/route` - A\* weather-optimal route finding
+
+### Vessel
+- `GET /api/vessel/specs` - Current vessel specifications
+- `POST /api/vessel/specs` - Update vessel specifications
+- `POST /api/vessel/calibrate` - Run calibration from noon reports
+- `POST /api/vessel/noon-reports/upload-csv` - Upload operational data
+
+### Zones
+- `GET /api/zones` - All regulatory zones (GeoJSON)
+- `POST /api/zones` - Create custom zone
+- `GET /api/zones/check-path` - Check zone intersections
+
+### System
+- `GET /api/health` - Health check
+- `GET /api/metrics` - Prometheus metrics
+
+Full interactive documentation at `/api/docs` when the server is running.
+
+## Testing
+
+```bash
+pytest tests/ -v                             # All tests
+pytest tests/unit/ -v                        # Unit tests only
+pytest tests/integration/ -v                 # Integration tests
+pytest tests/unit/test_vessel_model.py -v    # Specific test file
+```
+
+## Default Vessel
+
+The system ships with a default MR Product Tanker configuration:
+
+| Parameter | Value |
+|-----------|-------|
+| DWT | 49,000 MT |
+| LOA / Beam | 183m / 32m |
+| Draft (laden / ballast) | 11.8m / 6.5m |
+| Main Engine | 8,840 kW |
+| SFOC at MCR | 171 g/kWh |
+| Service Speed (laden / ballast) | 14.5 / 15.0 knots |
+
+## Branch Strategy
+
+- `main` - Stable release branch
+- `development` - Integration branch for features in progress
+
+## License
+
+Licensed under the [Apache License, Version 2.0](LICENSE).
+
+## Author
+
+**SL Mar**
