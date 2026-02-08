@@ -21,6 +21,12 @@ global-land-mask>=1.0.0
 # HTTP requests for data download
 requests>=2.31.0
 
+# Copernicus weather data
+cdsapi>=0.7.0
+copernicusmarine>=2.0.0
+xarray>=2024.1.0
+netcdf4>=1.6.0
+
 # Excel file parsing
 openpyxl>=3.1.0
 

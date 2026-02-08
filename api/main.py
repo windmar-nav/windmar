@@ -14,6 +14,7 @@ License: Apache 2.0 - See LICENSE file
 import io
 import logging
 import math
+import os
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
@@ -461,8 +462,17 @@ vessel_calibrator = VesselCalibrator(vessel_specs=current_vessel_specs)
 current_calibration: Optional[CalibrationFactors] = None
 
 # Initialize data providers
+# Set CDS env vars so cdsapi.Client() picks them up
+if settings.cdsapi_key:
+    os.environ.setdefault("CDSAPI_URL", settings.cdsapi_url)
+    os.environ.setdefault("CDSAPI_KEY", settings.cdsapi_key)
+
 # Copernicus provider (attempts real API if configured)
-copernicus_provider = CopernicusDataProvider(cache_dir="data/copernicus_cache")
+copernicus_provider = CopernicusDataProvider(
+    cache_dir="data/copernicus_cache",
+    cmems_username=settings.copernicusmarine_service_username,
+    cmems_password=settings.copernicusmarine_service_password,
+)
 
 # Climatology provider (for beyond-forecast-horizon)
 climatology_provider = ClimatologyProvider(cache_dir="data/climatology_cache")
@@ -805,13 +815,15 @@ async def get_data_sources():
         "copernicus": {
             "cds": {
                 "available": copernicus_provider._has_cdsapi,
+                "configured": settings.has_cds_credentials,
                 "description": "Climate Data Store (ERA5 wind data)",
-                "setup": "pip install cdsapi && create ~/.cdsapirc with API key",
+                "setup": "Set CDSAPI_KEY in .env (register at https://cds.climate.copernicus.eu)",
             },
             "cmems": {
                 "available": copernicus_provider._has_copernicusmarine,
+                "configured": settings.has_cmems_credentials,
                 "description": "Copernicus Marine Service (waves, currents)",
-                "setup": "pip install copernicusmarine && configure credentials",
+                "setup": "Set COPERNICUSMARINE_SERVICE_USERNAME/PASSWORD in .env (register at https://marine.copernicus.eu)",
             },
             "xarray": {
                 "available": copernicus_provider._has_xarray,
@@ -827,7 +839,8 @@ async def get_data_sources():
         },
         "active_source": "copernicus" if (
             copernicus_provider._has_cdsapi and copernicus_provider._has_copernicusmarine
-        ) else "synthetic",
+            and (settings.has_cds_credentials or settings.has_cmems_credentials)
+        ) else "synthetic (no credentials configured — set CDSAPI_KEY and COPERNICUSMARINE_SERVICE_* in .env)",
     }
 
 

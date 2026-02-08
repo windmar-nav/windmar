@@ -88,15 +88,15 @@ class CopernicusDataProvider:
 
         Args:
             cache_dir: Directory to cache downloaded data
-            cmems_username: CMEMS username (or set CMEMS_USERNAME env var)
-            cmems_password: CMEMS password (or set CMEMS_PASSWORD env var)
+            cmems_username: CMEMS username (or set COPERNICUSMARINE_SERVICE_USERNAME env var)
+            cmems_password: CMEMS password (or set COPERNICUSMARINE_SERVICE_PASSWORD env var)
         """
         self.cache_dir = Path(cache_dir)
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
-        # CMEMS credentials
-        self.cmems_username = cmems_username or os.environ.get("CMEMS_USERNAME")
-        self.cmems_password = cmems_password or os.environ.get("CMEMS_PASSWORD")
+        # CMEMS credentials — resolve from param, then COPERNICUSMARINE_SERVICE_* env vars
+        self.cmems_username = cmems_username or os.environ.get("COPERNICUSMARINE_SERVICE_USERNAME")
+        self.cmems_password = cmems_password or os.environ.get("COPERNICUSMARINE_SERVICE_PASSWORD")
 
         # Cached xarray datasets
         self._wind_data: Optional[any] = None
@@ -153,6 +153,10 @@ class CopernicusDataProvider:
         """
         if not self._has_cdsapi or not self._has_xarray:
             logger.warning("CDS API not available, returning None")
+            return None
+
+        if not os.environ.get("CDSAPI_KEY"):
+            logger.warning("CDS API key not configured (set CDSAPI_KEY), returning None")
             return None
 
         import cdsapi
@@ -251,6 +255,10 @@ class CopernicusDataProvider:
             logger.warning("CMEMS API not available, returning None")
             return None
 
+        if not self.cmems_username or not self.cmems_password:
+            logger.warning("CMEMS credentials not configured, returning None")
+            return None
+
         import copernicusmarine
         import xarray as xr
 
@@ -279,7 +287,13 @@ class CopernicusDataProvider:
                     maximum_latitude=lat_max,
                     start_datetime=start_time.strftime("%Y-%m-%dT%H:%M:%S"),
                     end_datetime=(start_time + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S"),
+                    username=self.cmems_username,
+                    password=self.cmems_password,
                 )
+
+                if ds is None:
+                    logger.error("CMEMS returned None for wave data")
+                    return None
 
                 # Save to cache
                 ds.to_netcdf(cache_file)
@@ -353,6 +367,10 @@ class CopernicusDataProvider:
             logger.warning("CMEMS API not available, returning None")
             return None
 
+        if not self.cmems_username or not self.cmems_password:
+            logger.warning("CMEMS credentials not configured, returning None")
+            return None
+
         import copernicusmarine
         import xarray as xr
 
@@ -381,7 +399,13 @@ class CopernicusDataProvider:
                     end_datetime=(start_time + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S"),
                     minimum_depth=0,
                     maximum_depth=10,  # Surface currents
+                    username=self.cmems_username,
+                    password=self.cmems_password,
                 )
+
+                if ds is None:
+                    logger.error("CMEMS returned None for current data")
+                    return None
 
                 ds.to_netcdf(cache_file)
 

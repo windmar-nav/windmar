@@ -77,6 +77,26 @@ class Settings(BaseSettings):
         return self.environment.lower() == "development"
 
     # ========================================================================
+    # Copernicus Weather Data
+    # ========================================================================
+    # CDS API (ERA5 wind data) — register at https://cds.climate.copernicus.eu
+    cdsapi_url: str = "https://cds.climate.copernicus.eu/api"
+    cdsapi_key: Optional[str] = None
+
+    # CMEMS (wave/current data) — register at https://marine.copernicus.eu
+    copernicusmarine_service_username: Optional[str] = None
+    copernicusmarine_service_password: Optional[str] = None
+
+    @property
+    def has_cds_credentials(self) -> bool:
+        return self.cdsapi_key is not None
+
+    @property
+    def has_cmems_credentials(self) -> bool:
+        return (self.copernicusmarine_service_username is not None
+                and self.copernicusmarine_service_password is not None)
+
+    # ========================================================================
     # Performance Configuration
     # ========================================================================
     max_calculation_time: int = 300
