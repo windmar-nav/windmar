@@ -418,6 +418,126 @@ class CopernicusDataProvider:
             logger.error(f"Failed to parse wave data: {e}")
             return None
 
+    # ------------------------------------------------------------------
+    # Wave forecast (multi-timestep)
+    # ------------------------------------------------------------------
+    WAVE_FORECAST_HOURS = list(range(0, 121, 3))  # 0-120h every 3h = 41 steps
+
+    def fetch_wave_forecast(
+        self,
+        lat_min: float,
+        lat_max: float,
+        lon_min: float,
+        lon_max: float,
+    ) -> Optional[Dict[int, "WeatherData"]]:
+        """
+        Fetch 0-120h wave forecast from CMEMS in a single download.
+
+        Returns:
+            Dict mapping forecast_hour → WeatherData, or None on failure.
+        """
+        if not self._has_copernicusmarine or not self._has_xarray:
+            logger.warning("CMEMS API not available for wave forecast")
+            return None
+
+        import copernicusmarine
+        import xarray as xr
+
+        now = datetime.utcnow()
+        # CMEMS analysis+forecast dataset — request next 120 hours
+        start_dt = now - timedelta(hours=1)  # slight overlap to ensure t=0
+        end_dt = now + timedelta(hours=122)
+
+        cache_key = now.strftime("%Y%m%d_%H")
+        cache_file = self.cache_dir / f"wave_forecast_{cache_key}_lat{lat_min:.0f}_{lat_max:.0f}_lon{lon_min:.0f}_{lon_max:.0f}.nc"
+
+        try:
+            if cache_file.exists():
+                logger.info(f"Loading wave forecast from cache: {cache_file}")
+                ds = xr.open_dataset(cache_file)
+            else:
+                logger.info(f"Downloading CMEMS wave forecast {start_dt} → {end_dt}")
+                ds = copernicusmarine.open_dataset(
+                    dataset_id=self.CMEMS_WAVE_DATASET,
+                    variables=[
+                        "VHM0", "VTPK", "VMDR",
+                        "VHM0_WW", "VTM01_WW", "VMDR_WW",
+                        "VHM0_SW1", "VTM01_SW1", "VMDR_SW1",
+                    ],
+                    minimum_longitude=lon_min,
+                    maximum_longitude=lon_max,
+                    minimum_latitude=lat_min,
+                    maximum_latitude=lat_max,
+                    start_datetime=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                    end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                    username=self.cmems_username,
+                    password=self.cmems_password,
+                )
+                if ds is None:
+                    logger.error("CMEMS returned None for wave forecast")
+                    return None
+                ds.to_netcdf(cache_file)
+                ds.close()
+                logger.info(f"Wave forecast cached: {cache_file}")
+                # Reopen from local file to avoid lazy remote reads
+                ds = xr.open_dataset(cache_file)
+
+            # Extract coordinate arrays
+            lats = ds["latitude"].values
+            lons = ds["longitude"].values
+            times = ds["time"].values  # numpy datetime64 array
+
+            def _clean(arr):
+                return np.nan_to_num(arr, nan=0.0) if arr is not None else None
+
+            def _extract_var(name, t_idx):
+                if name in ds:
+                    v = ds[name].values
+                    if len(v.shape) == 3 and t_idx < v.shape[0]:
+                        return _clean(v[t_idx])
+                return None
+
+            # Map each available timestep to a forecast hour
+            import pandas as pd
+
+            base_time = pd.Timestamp(times[0]).to_pydatetime()
+            frames: Dict[int, WeatherData] = {}
+
+            for t_idx in range(len(times)):
+                ts = pd.Timestamp(times[t_idx]).to_pydatetime()
+                fh = round((ts - base_time).total_seconds() / 3600)
+                # Only keep 3-hourly steps within 0-120h
+                if fh < 0 or fh > 120 or fh % 3 != 0:
+                    continue
+
+                hs = _extract_var("VHM0", t_idx)
+                if hs is None:
+                    continue
+
+                frames[fh] = WeatherData(
+                    parameter="wave_height",
+                    time=ts,
+                    lats=lats,
+                    lons=lons,
+                    values=hs,
+                    unit="m",
+                    wave_period=_extract_var("VTPK", t_idx),
+                    wave_direction=_extract_var("VMDR", t_idx),
+                    windwave_height=_extract_var("VHM0_WW", t_idx),
+                    windwave_period=_extract_var("VTM01_WW", t_idx),
+                    windwave_direction=_extract_var("VMDR_WW", t_idx),
+                    swell_height=_extract_var("VHM0_SW1", t_idx),
+                    swell_period=_extract_var("VTM01_SW1", t_idx),
+                    swell_direction=_extract_var("VMDR_SW1", t_idx),
+                )
+
+            logger.info(f"Wave forecast: {len(frames)} frames extracted (hours: {sorted(frames.keys())})")
+            return frames if frames else None
+
+        except Exception as e:
+            logger.error(f"Failed to fetch wave forecast: {e}")
+            return None
+
     def fetch_current_data(
         self,
         lat_min: float,

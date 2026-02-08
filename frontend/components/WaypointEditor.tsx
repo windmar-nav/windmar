@@ -3,6 +3,11 @@
 import { useCallback, useEffect, useState } from 'react';
 import { Position } from '@/lib/api';
 
+/** Wrap longitude to [-180, 180] (Leaflet can return unwrapped values). */
+function wrapLng(lng: number): number {
+  return ((((lng + 180) % 360) + 360) % 360) - 180;
+}
+
 interface WaypointEditorProps {
   waypoints: Position[];
   onWaypointsChange: (waypoints: Position[]) => void;
@@ -81,7 +86,7 @@ function WaypointEditorInner({
 
         const newWaypoint: Position = {
           lat: e.latlng.lat,
-          lon: e.latlng.lng,
+          lon: wrapLng(e.latlng.lng),
         };
 
         onWaypointsChange([...waypoints, newWaypoint]);
@@ -99,7 +104,7 @@ function WaypointEditorInner({
       const newWaypoints = [...waypoints];
       newWaypoints[index] = {
         lat: position.lat,
-        lon: position.lng,
+        lon: wrapLng(position.lng),
       };
 
       onWaypointsChange(newWaypoints);

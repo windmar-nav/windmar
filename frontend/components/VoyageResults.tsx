@@ -1,6 +1,6 @@
 'use client';
 
-import { VoyageResponse, LegResult } from '@/lib/api';
+import { VoyageResponse, LegResult, RouteWeatherPoint, apiClient } from '@/lib/api';
 import { format } from 'date-fns';
 import {
   Navigation,
@@ -15,8 +15,19 @@ import {
   AlertTriangle,
   CloudSun,
   Calendar,
+  Loader2,
 } from 'lucide-react';
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
+import {
+  ComposedChart,
+  Area,
+  Line,
+  XAxis,
+  YAxis,
+  Tooltip,
+  ReferenceLine,
+  ResponsiveContainer,
+} from 'recharts';
 
 interface VoyageResultsProps {
   voyage: VoyageResponse;
@@ -404,69 +415,157 @@ function formatHours(hours: number): string {
 }
 
 /**
- * Voyage profile chart showing weather and speed along the route.
+ * Voyage profile chart — distance-indexed weather with waypoint markers.
+ * Uses Recharts ComposedChart with data from the weather-along-route endpoint.
  */
 interface VoyageProfileProps {
   voyage: VoyageResponse;
 }
 
 export function VoyageProfile({ voyage }: VoyageProfileProps) {
-  const maxWind = Math.max(...voyage.legs.map((l) => l.wind_speed_kts), 30);
-  const maxWave = Math.max(...voyage.legs.map((l) => l.wave_height_m), 5);
+  const [routeWeather, setRouteWeather] = useState<RouteWeatherPoint[] | null>(null);
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Fetch weather-along-route data when voyage result exists
+  useEffect(() => {
+    const waypoints = [
+      voyage.legs[0]?.from_wp,
+      ...voyage.legs.map((l) => l.to_wp),
+    ];
+    if (waypoints.length < 2) return;
+
+    setIsLoading(true);
+    apiClient
+      .getWeatherAlongRoute(
+        waypoints.map((wp) => ({ lat: wp.lat, lon: wp.lon })),
+        undefined,
+        5,
+      )
+      .then((res) => setRouteWeather(res.points))
+      .catch((err) => console.error('Weather along route failed:', err))
+      .finally(() => setIsLoading(false));
+  }, [voyage]);
+
+  // Build chart data from route weather OR fallback to leg-based data
+  const chartData = routeWeather
+    ? routeWeather.map((pt) => ({
+        distance_nm: pt.distance_nm,
+        wind_speed_kts: pt.wind_speed_kts,
+        wave_height_m: pt.wave_height_m,
+        is_waypoint: pt.is_waypoint,
+        waypoint_index: pt.waypoint_index,
+      }))
+    : buildFallbackChartData(voyage);
+
+  // Interpolate SOG from voyage legs onto the distance axis
+  const sogData = buildSogOverlay(voyage);
+
+  // Merge SOG into chart data by nearest distance
+  const mergedData = chartData.map((pt) => {
+    const nearest = sogData.reduce((best, s) =>
+      Math.abs(s.distance_nm - pt.distance_nm) < Math.abs(best.distance_nm - pt.distance_nm) ? s : best,
+    );
+    return { ...pt, sog_kts: nearest.sog_kts };
+  });
+
+  // Waypoint reference lines
+  const waypointMarkers = mergedData.filter((d) => d.is_waypoint);
 
   return (
     <div className="bg-maritime-dark rounded-lg p-4">
-      <h4 className="text-sm font-medium text-gray-300 mb-4">Route Weather Profile</h4>
+      <h4 className="text-sm font-medium text-gray-300 mb-4 flex items-center gap-2">
+        Route Weather Profile
+        {isLoading && <Loader2 className="w-3.5 h-3.5 animate-spin text-primary-400" />}
+      </h4>
 
-      <div className="relative h-32">
-        {/* Wind bars */}
-        <div className="absolute inset-0 flex items-end justify-around">
-          {voyage.legs.map((leg, i) => (
-            <div
-              key={`wind-${i}`}
-              className="w-4 bg-blue-500/50 rounded-t"
-              style={{ height: `${(leg.wind_speed_kts / maxWind) * 100}%` }}
-              title={`Wind: ${leg.wind_speed_kts.toFixed(0)} kts`}
+      <ResponsiveContainer width="100%" height={160}>
+        <ComposedChart data={mergedData} margin={{ top: 5, right: 5, bottom: 5, left: -10 }}>
+          <XAxis
+            dataKey="distance_nm"
+            tick={{ fill: '#9ca3af', fontSize: 10 }}
+            tickFormatter={(v: number) => `${Math.round(v)}`}
+            label={{ value: 'nm', position: 'insideBottomRight', offset: -2, fill: '#6b7280', fontSize: 10 }}
+          />
+          <YAxis
+            yAxisId="left"
+            tick={{ fill: '#9ca3af', fontSize: 10 }}
+            domain={[0, 'auto']}
+          />
+          <YAxis
+            yAxisId="right"
+            orientation="right"
+            tick={{ fill: '#9ca3af', fontSize: 10 }}
+            domain={[0, 'auto']}
+          />
+
+          <Tooltip
+            contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 8, fontSize: 11 }}
+            labelStyle={{ color: '#9ca3af' }}
+            labelFormatter={(v: number) => `${Math.round(v)} nm`}
+            formatter={(value: number, name: string) => {
+              if (name === 'wind_speed_kts') return [`${value.toFixed(1)} kts`, 'Wind'];
+              if (name === 'wave_height_m') return [`${value.toFixed(1)} m`, 'Waves'];
+              if (name === 'sog_kts') return [`${value.toFixed(1)} kts`, 'SOG'];
+              return [value, name];
+            }}
+          />
+
+          {/* Wind area */}
+          <Area
+            yAxisId="left"
+            dataKey="wind_speed_kts"
+            stroke="#3b82f6"
+            fill="#3b82f6"
+            fillOpacity={0.3}
+            strokeWidth={1.5}
+            dot={false}
+            isAnimationActive={false}
+          />
+
+          {/* Wave area */}
+          <Area
+            yAxisId="right"
+            dataKey="wave_height_m"
+            stroke="#22d3ee"
+            fill="#22d3ee"
+            fillOpacity={0.2}
+            strokeWidth={1.5}
+            dot={false}
+            isAnimationActive={false}
+          />
+
+          {/* SOG line */}
+          <Line
+            yAxisId="left"
+            dataKey="sog_kts"
+            stroke="#22c55e"
+            strokeWidth={1.5}
+            strokeDasharray="4 2"
+            dot={false}
+            isAnimationActive={false}
+          />
+
+          {/* Waypoint reference lines */}
+          {waypointMarkers.map((wp) => (
+            <ReferenceLine
+              key={`wp-${wp.waypoint_index}`}
+              yAxisId="left"
+              x={wp.distance_nm}
+              stroke="rgba(255,255,255,0.25)"
+              strokeDasharray="3 3"
+              label={{
+                value: `WP${(wp.waypoint_index ?? 0) + 1}`,
+                position: 'top',
+                fill: '#9ca3af',
+                fontSize: 9,
+              }}
             />
           ))}
-        </div>
-
-        {/* Wave line */}
-        <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
-          <polyline
-            fill="none"
-            stroke="#22d3ee"
-            strokeWidth="2"
-            points={voyage.legs
-              .map((leg, i) => {
-                const x = ((i + 0.5) / voyage.legs.length) * 100;
-                const y = 100 - (leg.wave_height_m / maxWave) * 100;
-                return `${x},${y}`;
-              })
-              .join(' ')}
-          />
-        </svg>
-
-        {/* SOG line */}
-        <svg className="absolute inset-0 w-full h-full" preserveAspectRatio="none">
-          <polyline
-            fill="none"
-            stroke="#22c55e"
-            strokeWidth="2"
-            strokeDasharray="4,2"
-            points={voyage.legs
-              .map((leg, i) => {
-                const x = ((i + 0.5) / voyage.legs.length) * 100;
-                const y = 100 - (leg.sog_kts / 20) * 100;
-                return `${x},${y}`;
-              })
-              .join(' ')}
-          />
-        </svg>
-      </div>
+        </ComposedChart>
+      </ResponsiveContainer>
 
       {/* Legend */}
-      <div className="flex justify-center space-x-6 mt-3 text-xs">
+      <div className="flex justify-center space-x-6 mt-2 text-xs">
         <div className="flex items-center space-x-1">
           <div className="w-3 h-3 bg-blue-500/50 rounded" />
           <span className="text-gray-400">Wind (kts)</span>
@@ -482,4 +581,58 @@ export function VoyageProfile({ voyage }: VoyageProfileProps) {
       </div>
     </div>
   );
+}
+
+/** Build fallback chart data from voyage legs when weather-along-route unavailable. */
+function buildFallbackChartData(voyage: VoyageResponse) {
+  let cumDist = 0;
+  const data: Array<{
+    distance_nm: number;
+    wind_speed_kts: number;
+    wave_height_m: number;
+    is_waypoint: boolean;
+    waypoint_index: number | null;
+  }> = [];
+
+  // First waypoint
+  data.push({
+    distance_nm: 0,
+    wind_speed_kts: voyage.legs[0]?.wind_speed_kts ?? 0,
+    wave_height_m: voyage.legs[0]?.wave_height_m ?? 0,
+    is_waypoint: true,
+    waypoint_index: 0,
+  });
+
+  voyage.legs.forEach((leg, i) => {
+    cumDist += leg.distance_nm;
+    data.push({
+      distance_nm: Math.round(cumDist * 10) / 10,
+      wind_speed_kts: leg.wind_speed_kts,
+      wave_height_m: leg.wave_height_m,
+      is_waypoint: true,
+      waypoint_index: i + 1,
+    });
+  });
+
+  return data;
+}
+
+/** Build SOG overlay data indexed by cumulative distance from voyage legs. */
+function buildSogOverlay(voyage: VoyageResponse) {
+  let cumDist = 0;
+  const data: Array<{ distance_nm: number; sog_kts: number }> = [];
+
+  data.push({ distance_nm: 0, sog_kts: voyage.legs[0]?.sog_kts ?? 0 });
+
+  voyage.legs.forEach((leg) => {
+    // Leg midpoint
+    const mid = cumDist + leg.distance_nm / 2;
+    data.push({ distance_nm: mid, sog_kts: leg.sog_kts });
+    cumDist += leg.distance_nm;
+  });
+
+  // Final point
+  data.push({ distance_nm: cumDist, sog_kts: voyage.legs[voyage.legs.length - 1]?.sog_kts ?? 0 });
+
+  return data;
 }

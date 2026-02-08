@@ -1,81 +1,19 @@
 'use client';
 
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import dynamic from 'next/dynamic';
 import Header from '@/components/Header';
 import Card from '@/components/Card';
-import { WaypointList } from '@/components/WaypointEditor';
-import RouteImport, { SampleRTZButton } from '@/components/RouteImport';
-import VoyageResults, { VoyageProfile } from '@/components/VoyageResults';
-import SavedRoutes from '@/components/SavedRoutes';
-import CalibrationPanel from '@/components/CalibrationPanel';
-import {
-  Navigation,
-  Ship,
-  Play,
-  Loader2,
-  Wind,
-  Waves,
-  Droplets,
-  Settings,
-  Upload,
-  MousePointer,
-  Eye,
-  EyeOff,
-  RefreshCw,
-  Compass,
-  TrendingDown,
-  AlertTriangle,
-  CheckCircle,
-  ShieldAlert,
-  Shield,
-  PenTool,
-  Clock,
-} from 'lucide-react';
-import { apiClient, Position, WindFieldData, WaveFieldData, VelocityData, VoyageResponse, OptimizationResponse, CreateZoneRequest } from '@/lib/api';
+import TabPanel, { ActiveTab } from '@/components/TabPanel';
+import RouteTab from '@/components/RouteTab';
+import AnalysisTab from '@/components/AnalysisTab';
+import MapOverlayControls from '@/components/MapOverlayControls';
+import { apiClient, Position, WindFieldData, WaveFieldData, VelocityData, VoyageResponse, OptimizationResponse, CreateZoneRequest, WaveForecastFrames } from '@/lib/api';
+import { getAnalyses, saveAnalysis, deleteAnalysis, updateAnalysisMonteCarlo, AnalysisEntry } from '@/lib/analysisStorage';
 
-// Dynamic imports for map components (client-side only)
-const MapContainer = dynamic(
-  () => import('react-leaflet').then((mod) => mod.MapContainer),
-  { ssr: false }
-);
-const TileLayer = dynamic(
-  () => import('react-leaflet').then((mod) => mod.TileLayer),
-  { ssr: false }
-);
-const WaypointEditor = dynamic(() => import('@/components/WaypointEditor'), {
-  ssr: false,
-});
-const WeatherGridLayer = dynamic(
-  () => import('@/components/WeatherGridLayer'),
-  { ssr: false }
-);
-const WeatherLegend = dynamic(
-  () => import('@/components/WeatherLegend'),
-  { ssr: false }
-);
-const VelocityParticleLayer = dynamic(
-  () => import('@/components/VelocityParticleLayer'),
-  { ssr: false }
-);
-const ZoneLayer = dynamic(
-  () => import('@/components/ZoneLayer'),
-  { ssr: false }
-);
-const ZoneEditor = dynamic(
-  () => import('@/components/ZoneEditor'),
-  { ssr: false }
-);
-const ForecastTimeline = dynamic(
-  () => import('@/components/ForecastTimeline'),
-  { ssr: false }
-);
+// Dynamic import for MapComponent (client-side only)
+const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
 
-// Map bounds for Europe/Mediterranean
-const DEFAULT_CENTER: [number, number] = [45, 10];
-const DEFAULT_ZOOM = 5;
-
-type ViewMode = 'edit' | 'results';
 type WeatherLayer = 'wind' | 'waves' | 'currents' | 'none';
 
 export default function HomePage() {
@@ -90,14 +28,11 @@ export default function HomePage() {
   const [useWeather, setUseWeather] = useState(true);
 
   // Results
-  const [voyageResult, setVoyageResult] = useState<VoyageResponse | null>(null);
   const [isCalculating, setIsCalculating] = useState(false);
-  const [viewMode, setViewMode] = useState<ViewMode>('edit');
 
   // Optimization
   const [optimizationResult, setOptimizationResult] = useState<OptimizationResponse | null>(null);
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [showOptimizedRoute, setShowOptimizedRoute] = useState(false);
 
   // Weather visualization
   const [weatherLayer, setWeatherLayer] = useState<WeatherLayer>('wind');
@@ -107,6 +42,12 @@ export default function HomePage() {
   const [currentVelocityData, setCurrentVelocityData] = useState<VelocityData[] | null>(null);
   const [isLoadingWeather, setIsLoadingWeather] = useState(false);
 
+  // Viewport state
+  const [viewport, setViewport] = useState<{
+    bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number };
+    zoom: number;
+  } | null>(null);
+
   // Forecast timeline state
   const [forecastEnabled, setForecastEnabled] = useState(false);
   const [forecastHour, setForecastHour] = useState(0);
@@ -114,18 +55,45 @@ export default function HomePage() {
   // Zone state
   const [showZones, setShowZones] = useState(true);
   const [isDrawingZone, setIsDrawingZone] = useState(false);
-  const [zoneKey, setZoneKey] = useState(0); // Force re-render of zones
+  const [zoneKey, setZoneKey] = useState(0);
 
-  // Load weather data
-  const loadWeatherData = useCallback(async () => {
+  // Tab state
+  const [activeTab, setActiveTab] = useState<ActiveTab>('route');
+
+  // Analysis state
+  const [analyses, setAnalyses] = useState<AnalysisEntry[]>([]);
+  const [displayedAnalysisId, setDisplayedAnalysisId] = useState<string | null>(null);
+  const [simulatingId, setSimulatingId] = useState<string | null>(null);
+
+  // Load analyses from localStorage on mount
+  useEffect(() => {
+    setAnalyses(getAnalyses());
+  }, []);
+
+  // Derive weather resolution from zoom level
+  const getResolutionForZoom = (zoom: number): number => {
+    if (zoom <= 4) return 2.0;
+    if (zoom <= 6) return 1.0;
+    return 0.5;
+  };
+
+  // Keep a stable ref to the current viewport so callbacks don't need it as a dep
+  const viewportRef = useRef(viewport);
+  useEffect(() => { viewportRef.current = viewport; }, [viewport]);
+
+  // Load weather data for current viewport (stable — no object deps)
+  const loadWeatherData = useCallback(async (vp?: typeof viewport) => {
+    const v = vp || viewportRef.current;
+    if (!v) return;
+
     setIsLoadingWeather(true);
     try {
       const params = {
-        lat_min: 30,
-        lat_max: 60,
-        lon_min: -15,
-        lon_max: 40,
-        resolution: 1.0,
+        lat_min: v.bounds.lat_min,
+        lat_max: v.bounds.lat_max,
+        lon_min: v.bounds.lon_min,
+        lon_max: v.bounds.lon_max,
+        resolution: getResolutionForZoom(v.zoom),
       };
       const [wind, waves, windVel, currentVel] = await Promise.all([
         apiClient.getWindField(params),
@@ -142,50 +110,85 @@ export default function HomePage() {
     } finally {
       setIsLoadingWeather(false);
     }
-  }, []);
+  }, []); // stable — reads viewport from ref
 
-  // Load weather on mount
+  // Reload weather when viewport changes
   useEffect(() => {
-    loadWeatherData();
-  }, [loadWeatherData]);
+    if (viewport) {
+      loadWeatherData(viewport);
+    }
+  }, [viewport]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle forecast hour change from timeline
+  // Handle wind forecast hour change from timeline (stable)
   const handleForecastHourChange = useCallback((hour: number, data: VelocityData[] | null) => {
     setForecastHour(hour);
     if (data) {
-      // Replace wind velocity data with forecast frame
       setWindVelocityData(data);
     } else if (hour === 0) {
-      // Reset to live data — reload
       loadWeatherData();
     }
+  }, [loadWeatherData]);
+
+  // Handle wave forecast hour change — construct WaveFieldData from frame
+  const handleWaveForecastHourChange = useCallback((hour: number, allFrames: WaveForecastFrames | null) => {
+    setForecastHour(hour);
+    if (!allFrames || hour === 0) {
+      if (hour === 0) loadWeatherData();
+      return;
+    }
+    const frame = allFrames.frames[String(hour)];
+    if (!frame) return;
+
+    const synth: WaveFieldData = {
+      parameter: 'wave_height',
+      time: allFrames.run_time,
+      bbox: {
+        lat_min: allFrames.lats[0],
+        lat_max: allFrames.lats[allFrames.lats.length - 1],
+        lon_min: allFrames.lons[0],
+        lon_max: allFrames.lons[allFrames.lons.length - 1],
+      },
+      resolution: allFrames.lats.length > 1 ? Math.abs(allFrames.lats[1] - allFrames.lats[0]) : 1,
+      nx: allFrames.nx,
+      ny: allFrames.ny,
+      lats: allFrames.lats,
+      lons: allFrames.lons,
+      data: frame.data,
+      unit: 'm',
+      direction: frame.direction,
+      has_decomposition: !!frame.windwave && !!frame.swell,
+      windwave: frame.windwave,
+      swell: frame.swell,
+      ocean_mask: allFrames.ocean_mask,
+      ocean_mask_lats: allFrames.ocean_mask_lats,
+      ocean_mask_lons: allFrames.ocean_mask_lons,
+      colorscale: allFrames.colorscale,
+    };
+    setWaveData(synth);
   }, [loadWeatherData]);
 
   // Handle RTZ import
   const handleRouteImport = (importedWaypoints: Position[], name: string) => {
     setWaypoints(importedWaypoints);
     setRouteName(name);
-    setVoyageResult(null);
-    setViewMode('edit');
+    setDisplayedAnalysisId(null);
   };
 
   // Handle loading saved route
   const handleLoadRoute = (loadedWaypoints: Position[]) => {
     setWaypoints(loadedWaypoints);
-    setVoyageResult(null);
-    setViewMode('edit');
     setIsEditing(true);
+    setDisplayedAnalysisId(null);
   };
 
   // Clear route
   const handleClearRoute = () => {
     setWaypoints([]);
     setRouteName('Custom Route');
-    setVoyageResult(null);
-    setViewMode('edit');
+    setDisplayedAnalysisId(null);
   };
 
-  // Calculate voyage
+  // Calculate voyage → create analysis entry
   const handleCalculate = async () => {
     if (waypoints.length < 2) {
       alert('Please add at least 2 waypoints');
@@ -200,9 +203,19 @@ export default function HomePage() {
         is_laden: isLaden,
         use_weather: useWeather,
       });
-      setVoyageResult(result);
-      setViewMode('results');
-      setIsEditing(false);
+
+      // Save analysis entry
+      const entry = saveAnalysis(
+        routeName,
+        waypoints,
+        { calmSpeed, isLaden, useWeather },
+        result,
+      );
+
+      // Refresh analyses list and switch to analysis tab
+      setAnalyses(getAnalyses());
+      setDisplayedAnalysisId(entry.id);
+      setActiveTab('analysis');
     } catch (error) {
       console.error('Voyage calculation failed:', error);
       alert('Voyage calculation failed. Please check the backend is running.');
@@ -232,9 +245,7 @@ export default function HomePage() {
       });
 
       setOptimizationResult(result);
-      setShowOptimizedRoute(true);
 
-      // Show a summary alert
       const savings = result.fuel_savings_pct > 0
         ? `Fuel savings: ${result.fuel_savings_pct.toFixed(1)}%`
         : 'No savings found (direct route is optimal)';
@@ -254,16 +265,62 @@ export default function HomePage() {
     if (optimizationResult) {
       setWaypoints(optimizationResult.waypoints);
       setOptimizationResult(null);
-      setShowOptimizedRoute(false);
-      setVoyageResult(null);
+      setDisplayedAnalysisId(null);
     }
   };
 
   // Save new zone
   const handleSaveZone = async (request: CreateZoneRequest) => {
     await apiClient.createZone(request);
-    setZoneKey(prev => prev + 1); // Force zone layer to reload
+    setZoneKey(prev => prev + 1);
     setIsDrawingZone(false);
+  };
+
+  // Analysis actions
+  const handleShowOnMap = (id: string) => {
+    if (displayedAnalysisId === id) {
+      setDisplayedAnalysisId(null);
+    } else {
+      setDisplayedAnalysisId(id);
+      // Load the analysis waypoints onto the map
+      const analysis = analyses.find(a => a.id === id);
+      if (analysis) {
+        setWaypoints(analysis.waypoints);
+        setIsEditing(false);
+      }
+    }
+  };
+
+  const handleDeleteAnalysis = (id: string) => {
+    deleteAnalysis(id);
+    setAnalyses(getAnalyses());
+    if (displayedAnalysisId === id) {
+      setDisplayedAnalysisId(null);
+    }
+  };
+
+  const handleRunSimulation = async (id: string) => {
+    const analysis = analyses.find(a => a.id === id);
+    if (!analysis) return;
+
+    setSimulatingId(id);
+    try {
+      const mcResult = await apiClient.runMonteCarlo({
+        waypoints: analysis.waypoints,
+        calm_speed_kts: analysis.parameters.calmSpeed,
+        is_laden: analysis.parameters.isLaden,
+        departure_time: analysis.parameters.departureTime,
+        n_simulations: 100,
+      });
+
+      updateAnalysisMonteCarlo(id, mcResult);
+      setAnalyses(getAnalyses());
+    } catch (error) {
+      console.error('Monte Carlo simulation failed:', error);
+      alert('Monte Carlo simulation failed. Please check the backend is running.');
+    } finally {
+      setSimulatingId(null);
+    }
   };
 
   // Calculate total distance
@@ -282,378 +339,66 @@ export default function HomePage() {
     return sum + R * c;
   }, 0);
 
+  // Determine if map should show editable waypoints
+  const mapEditing = activeTab === 'route' ? isEditing : false;
+
   return (
     <div className="min-h-screen bg-gradient-maritime">
       <Header />
 
       <main className="px-4 pt-20 pb-4 h-screen flex flex-col">
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[280px_1fr_300px] gap-3 min-h-0">
-          {/* Left Panel - Controls */}
-          <div className="space-y-3 overflow-y-auto min-h-0">
-            {/* Route Input Card */}
-            <Card title="Route" icon={<Navigation className="w-5 h-5" />}>
-              {/* Mode Tabs */}
-              <div className="flex space-x-2 mb-4">
-                <button
-                  onClick={() => setIsEditing(true)}
-                  className={`flex-1 flex items-center justify-center space-x-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    isEditing
-                      ? 'bg-primary-500 text-white'
-                      : 'bg-maritime-dark text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <MousePointer className="w-4 h-4" />
-                  <span>Draw</span>
-                </button>
-                <button
-                  onClick={() => setIsEditing(false)}
-                  className={`flex-1 flex items-center justify-center space-x-1 px-3 py-2 rounded-lg text-sm font-medium transition-colors ${
-                    !isEditing
-                      ? 'bg-primary-500 text-white'
-                      : 'bg-maritime-dark text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <Upload className="w-4 h-4" />
-                  <span>Import</span>
-                </button>
-              </div>
-
-              {/* Import Section */}
-              {!isEditing && (
-                <div className="mb-4">
-                  <RouteImport onImport={handleRouteImport} />
-                  <div className="mt-2 text-center">
-                    <SampleRTZButton />
-                  </div>
-                </div>
-              )}
-
-              {/* Waypoint List */}
-              <WaypointList
-                waypoints={waypoints}
-                onWaypointsChange={setWaypoints}
-                onClear={handleClearRoute}
-                totalDistance={totalDistance}
-              />
-
-              {isEditing && waypoints.length === 0 && (
-                <p className="text-xs text-gray-500 mt-2">
-                  Click on the map to add waypoints
-                </p>
-              )}
-
-              {/* Saved Routes */}
-              <div className="mt-4 pt-4 border-t border-white/10">
-                <SavedRoutes
-                  currentWaypoints={waypoints}
+        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-3 min-h-0">
+          {/* Left — Tab Panel */}
+          <div className="min-h-0 bg-maritime-medium/50 backdrop-blur-sm rounded-lg border border-white/5 overflow-hidden">
+            <TabPanel activeTab={activeTab} onTabChange={setActiveTab}>
+              {activeTab === 'route' ? (
+                <RouteTab
+                  waypoints={waypoints}
+                  onWaypointsChange={setWaypoints}
+                  isEditing={isEditing}
+                  onIsEditingChange={setIsEditing}
+                  routeName={routeName}
+                  onRouteImport={handleRouteImport}
                   onLoadRoute={handleLoadRoute}
+                  onClearRoute={handleClearRoute}
+                  totalDistance={totalDistance}
+                  calmSpeed={calmSpeed}
+                  onCalmSpeedChange={setCalmSpeed}
+                  isLaden={isLaden}
+                  onIsLadenChange={setIsLaden}
+                  useWeather={useWeather}
+                  onUseWeatherChange={setUseWeather}
+                  isCalculating={isCalculating}
+                  onCalculate={handleCalculate}
+                  isOptimizing={isOptimizing}
+                  onOptimize={handleOptimize}
+                  optimizationResult={optimizationResult}
+                  onApplyOptimizedRoute={applyOptimizedRoute}
+                  showZones={showZones}
+                  onShowZonesChange={setShowZones}
+                  isDrawingZone={isDrawingZone}
+                  onIsDrawingZoneChange={setIsDrawingZone}
                 />
-              </div>
-            </Card>
-
-            {/* Voyage Parameters Card */}
-            <Card title="Voyage Parameters" icon={<Ship className="w-5 h-5" />}>
-              <div className="space-y-4">
-                {/* Calm Speed */}
-                <div>
-                  <label className="block text-sm text-gray-300 mb-2">
-                    Calm Water Speed
-                  </label>
-                  <div className="flex items-center space-x-2">
-                    <input
-                      type="range"
-                      min="8"
-                      max="18"
-                      step="0.5"
-                      value={calmSpeed}
-                      onChange={(e) => setCalmSpeed(parseFloat(e.target.value))}
-                      className="flex-1"
-                    />
-                    <span className="w-16 text-right text-white font-semibold">
-                      {calmSpeed} kts
-                    </span>
-                  </div>
-                </div>
-
-                {/* Loading Condition */}
-                <div>
-                  <label className="block text-sm text-gray-300 mb-2">
-                    Loading Condition
-                  </label>
-                  <div className="flex space-x-2">
-                    <button
-                      onClick={() => setIsLaden(true)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        isLaden
-                          ? 'bg-primary-500 text-white'
-                          : 'bg-maritime-dark text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      Laden
-                    </button>
-                    <button
-                      onClick={() => setIsLaden(false)}
-                      className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
-                        !isLaden
-                          ? 'bg-primary-500 text-white'
-                          : 'bg-maritime-dark text-gray-400 hover:text-white'
-                      }`}
-                    >
-                      Ballast
-                    </button>
-                  </div>
-                </div>
-
-                {/* Weather Toggle */}
-                <div className="flex items-center justify-between p-3 bg-maritime-dark rounded-lg">
-                  <div className="flex items-center space-x-2">
-                    <Wind className="w-4 h-4 text-primary-400" />
-                    <span className="text-sm text-white">Use Weather</span>
-                  </div>
-                  <button
-                    onClick={() => setUseWeather(!useWeather)}
-                    className={`relative w-10 h-6 rounded-full transition-colors ${
-                      useWeather ? 'bg-primary-500' : 'bg-gray-600'
-                    }`}
-                  >
-                    <span
-                      className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${
-                        useWeather ? 'left-5' : 'left-1'
-                      }`}
-                    />
-                  </button>
-                </div>
-
-                {/* Calculate Button */}
-                <button
-                  onClick={handleCalculate}
-                  disabled={isCalculating || waypoints.length < 2}
-                  className="w-full flex items-center justify-center space-x-2 py-3 bg-gradient-to-r from-primary-500 to-ocean-500 text-white font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isCalculating ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      <span>Calculating...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Play className="w-5 h-5" />
-                      <span>Calculate Voyage</span>
-                    </>
-                  )}
-                </button>
-
-                {/* Optimize Button */}
-                <button
-                  onClick={handleOptimize}
-                  disabled={isOptimizing || waypoints.length < 2}
-                  className="w-full flex items-center justify-center space-x-2 py-3 bg-gradient-to-r from-green-600 to-emerald-500 text-white font-semibold rounded-lg hover:opacity-90 transition-opacity disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isOptimizing ? (
-                    <>
-                      <Loader2 className="w-5 h-5 animate-spin" />
-                      <span>Optimizing...</span>
-                    </>
-                  ) : (
-                    <>
-                      <Compass className="w-5 h-5" />
-                      <span>Optimize Route (A*)</span>
-                    </>
-                  )}
-                </button>
-
-                {/* Optimization Results */}
-                {optimizationResult && (
-                  <div className="mt-3 p-3 bg-green-500/10 border border-green-500/30 rounded-lg">
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="text-sm font-medium text-green-400">Route Optimized</span>
-                      <TrendingDown className="w-4 h-4 text-green-400" />
-                    </div>
-                    <div className="text-xs text-gray-300 space-y-1">
-                      <div className="flex justify-between">
-                        <span>Fuel savings:</span>
-                        <span className="text-green-400 font-semibold">
-                          {optimizationResult.fuel_savings_pct.toFixed(1)}%
-                        </span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Distance:</span>
-                        <span>{optimizationResult.total_distance_nm.toFixed(0)} nm</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Waypoints:</span>
-                        <span>{optimizationResult.waypoints.length}</span>
-                      </div>
-                      <div className="flex justify-between">
-                        <span>Avg speed:</span>
-                        <span>{optimizationResult.avg_speed_kts.toFixed(1)} kts</span>
-                      </div>
-                    </div>
-
-                    {/* Speed Profile */}
-                    {optimizationResult.variable_speed_enabled && optimizationResult.speed_profile.length > 1 && (
-                      <div className="mt-2 pt-2 border-t border-white/10">
-                        <div className="text-xs text-gray-400 mb-1">Speed Profile (per leg):</div>
-                        <div className="flex items-end h-8 gap-px">
-                          {optimizationResult.speed_profile.map((speed, i) => {
-                            const minSpeed = Math.min(...optimizationResult.speed_profile);
-                            const maxSpeed = Math.max(...optimizationResult.speed_profile);
-                            const range = maxSpeed - minSpeed || 1;
-                            const height = ((speed - minSpeed) / range) * 100;
-                            return (
-                              <div
-                                key={i}
-                                className="flex-1 bg-primary-500 rounded-t"
-                                style={{ height: `${Math.max(20, height)}%` }}
-                                title={`Leg ${i + 1}: ${speed.toFixed(1)} kts`}
-                              />
-                            );
-                          })}
-                        </div>
-                        <div className="flex justify-between text-xs text-gray-500 mt-1">
-                          <span>{Math.min(...optimizationResult.speed_profile).toFixed(0)} kts</span>
-                          <span>{Math.max(...optimizationResult.speed_profile).toFixed(0)} kts</span>
-                        </div>
-                      </div>
-                    )}
-
-                    {/* Safety Assessment */}
-                    {optimizationResult.safety && (
-                      <div className={`mt-2 p-2 rounded ${
-                        optimizationResult.safety.status === 'safe'
-                          ? 'bg-green-500/20 border border-green-500/30'
-                          : optimizationResult.safety.status === 'marginal'
-                          ? 'bg-yellow-500/20 border border-yellow-500/30'
-                          : 'bg-red-500/20 border border-red-500/30'
-                      }`}>
-                        <div className="flex items-center space-x-2 mb-1">
-                          {optimizationResult.safety.status === 'safe' ? (
-                            <CheckCircle className="w-4 h-4 text-green-400" />
-                          ) : optimizationResult.safety.status === 'marginal' ? (
-                            <AlertTriangle className="w-4 h-4 text-yellow-400" />
-                          ) : (
-                            <ShieldAlert className="w-4 h-4 text-red-400" />
-                          )}
-                          <span className={`text-xs font-medium ${
-                            optimizationResult.safety.status === 'safe'
-                              ? 'text-green-400'
-                              : optimizationResult.safety.status === 'marginal'
-                              ? 'text-yellow-400'
-                              : 'text-red-400'
-                          }`}>
-                            {optimizationResult.safety.status === 'safe'
-                              ? 'Safe Passage'
-                              : optimizationResult.safety.status === 'marginal'
-                              ? 'Marginal Conditions'
-                              : 'Dangerous Conditions'}
-                          </span>
-                        </div>
-                        <div className="text-xs text-gray-400 space-y-0.5">
-                          <div>Max Roll: {optimizationResult.safety.max_roll_deg.toFixed(1)}°</div>
-                          <div>Max Pitch: {optimizationResult.safety.max_pitch_deg.toFixed(1)}°</div>
-                        </div>
-                        {optimizationResult.safety.warnings.length > 0 && (
-                          <div className="mt-1 text-xs text-yellow-400">
-                            {optimizationResult.safety.warnings.slice(0, 2).map((w, i) => (
-                              <div key={i} className="truncate">• {w}</div>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-                    )}
-
-                    <button
-                      onClick={applyOptimizedRoute}
-                      className="mt-2 w-full py-2 text-sm bg-green-600 text-white rounded hover:bg-green-500 transition-colors"
-                    >
-                      Apply Optimized Route
-                    </button>
-                  </div>
-                )}
-              </div>
-            </Card>
-
-            {/* Weather Layer Controls */}
-            <Card title="Weather Display" icon={<Wind className="w-5 h-5" />}>
-              <div className="space-y-2">
-                <WeatherLayerButton
-                  icon={<Wind className="w-4 h-4" />}
-                  label="Wind"
-                  active={weatherLayer === 'wind'}
-                  onClick={() => setWeatherLayer(weatherLayer === 'wind' ? 'none' : 'wind')}
+              ) : (
+                <AnalysisTab
+                  analyses={analyses}
+                  displayedAnalysisId={displayedAnalysisId}
+                  onShowOnMap={handleShowOnMap}
+                  onDelete={handleDeleteAnalysis}
+                  onRunSimulation={handleRunSimulation}
+                  simulatingId={simulatingId}
                 />
-                <WeatherLayerButton
-                  icon={<Waves className="w-4 h-4" />}
-                  label="Waves"
-                  active={weatherLayer === 'waves'}
-                  onClick={() => setWeatherLayer(weatherLayer === 'waves' ? 'none' : 'waves')}
-                />
-                <WeatherLayerButton
-                  icon={<Droplets className="w-4 h-4" />}
-                  label="Currents"
-                  active={weatherLayer === 'currents'}
-                  onClick={() => setWeatherLayer(weatherLayer === 'currents' ? 'none' : 'currents')}
-                />
-                {weatherLayer === 'wind' && (
-                  <WeatherLayerButton
-                    icon={<Clock className="w-4 h-4" />}
-                    label="Forecast"
-                    active={forecastEnabled}
-                    onClick={() => setForecastEnabled(!forecastEnabled)}
-                  />
-                )}
-                <button
-                  onClick={loadWeatherData}
-                  disabled={isLoadingWeather}
-                  className="w-full flex items-center justify-center space-x-2 py-2 text-sm text-gray-400 hover:text-white transition-colors"
-                >
-                  <RefreshCw className={`w-4 h-4 ${isLoadingWeather ? 'animate-spin' : ''}`} />
-                  <span>Refresh Weather</span>
-                </button>
-              </div>
-            </Card>
-
-            {/* Vessel Calibration */}
-            <CalibrationPanel />
-
-            {/* Regulatory Zones */}
-            <Card title="Regulatory Zones" icon={<Shield className="w-5 h-5" />}>
-              <div className="space-y-2">
-                <WeatherLayerButton
-                  icon={<Shield className="w-4 h-4" />}
-                  label="Show Zones"
-                  active={showZones}
-                  onClick={() => setShowZones(!showZones)}
-                />
-                <button
-                  onClick={() => setIsDrawingZone(!isDrawingZone)}
-                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors ${
-                    isDrawingZone
-                      ? 'bg-amber-500/20 border border-amber-500/50 text-amber-400'
-                      : 'bg-maritime-dark text-gray-400 hover:text-white'
-                  }`}
-                >
-                  <div className="flex items-center space-x-2">
-                    <PenTool className="w-4 h-4" />
-                    <span className="text-sm">Draw Custom Zone</span>
-                  </div>
-                </button>
-                {isDrawingZone && (
-                  <p className="text-xs text-amber-400 px-2">
-                    Click on the map to draw a polygon, then fill in zone properties.
-                  </p>
-                )}
-              </div>
-            </Card>
+              )}
+            </TabPanel>
           </div>
 
-          {/* Center - Map */}
+          {/* Right — Map */}
           <div className="min-h-0">
             <Card className="h-full min-h-[500px]">
               <MapComponent
                 waypoints={waypoints}
                 onWaypointsChange={setWaypoints}
-                isEditing={isEditing}
+                isEditing={mapEditing}
                 weatherLayer={weatherLayer}
                 windData={windData}
                 waveData={waveData}
@@ -667,194 +412,23 @@ export default function HomePage() {
                 forecastEnabled={forecastEnabled}
                 onForecastClose={() => setForecastEnabled(false)}
                 onForecastHourChange={handleForecastHourChange}
-              />
+                onWaveForecastHourChange={handleWaveForecastHourChange}
+                onViewportChange={setViewport}
+                viewportBounds={viewport?.bounds ?? null}
+              >
+                <MapOverlayControls
+                  weatherLayer={weatherLayer}
+                  onWeatherLayerChange={setWeatherLayer}
+                  forecastEnabled={forecastEnabled}
+                  onForecastToggle={() => setForecastEnabled(!forecastEnabled)}
+                  isLoadingWeather={isLoadingWeather}
+                  onRefresh={loadWeatherData}
+                />
+              </MapComponent>
             </Card>
-          </div>
-
-          {/* Right Panel - Results */}
-          <div className="overflow-y-auto min-h-0">
-            {voyageResult ? (
-              <div className="space-y-4">
-                <VoyageResults voyage={voyageResult} />
-                <VoyageProfile voyage={voyageResult} />
-              </div>
-            ) : (
-              <Card>
-                <div className="text-center py-12">
-                  <Ship className="w-16 h-16 text-gray-600 mx-auto mb-4" />
-                  <h3 className="text-lg font-semibold text-gray-400 mb-2">
-                    No Voyage Calculated
-                  </h3>
-                  <p className="text-sm text-gray-500">
-                    Add waypoints and click "Calculate Voyage" to see results with
-                    per-leg SOG, ETA, and weather conditions.
-                  </p>
-                </div>
-              </Card>
-            )}
           </div>
         </div>
       </main>
-    </div>
-  );
-}
-
-// Weather layer toggle button
-function WeatherLayerButton({
-  icon,
-  label,
-  active,
-  onClick,
-  disabled,
-}: {
-  icon: React.ReactNode;
-  label: string;
-  active: boolean;
-  onClick: () => void;
-  disabled?: boolean;
-}) {
-  return (
-    <button
-      onClick={onClick}
-      disabled={disabled}
-      className={`w-full flex items-center justify-between px-3 py-2 rounded-lg transition-colors ${
-        active
-          ? 'bg-primary-500/20 border border-primary-500/50 text-primary-400'
-          : 'bg-maritime-dark text-gray-400 hover:text-white'
-      } ${disabled ? 'opacity-50 cursor-not-allowed' : ''}`}
-    >
-      <div className="flex items-center space-x-2">
-        {icon}
-        <span className="text-sm">{label}</span>
-      </div>
-      {active ? (
-        <Eye className="w-4 h-4" />
-      ) : (
-        <EyeOff className="w-4 h-4" />
-      )}
-    </button>
-  );
-}
-
-// Map component wrapper
-function MapComponent({
-  waypoints,
-  onWaypointsChange,
-  isEditing,
-  weatherLayer,
-  windData,
-  waveData,
-  windVelocityData,
-  currentVelocityData,
-  showZones = true,
-  zoneKey = 0,
-  isDrawingZone = false,
-  onSaveZone,
-  onCancelZone,
-  forecastEnabled = false,
-  onForecastClose,
-  onForecastHourChange,
-}: {
-  waypoints: Position[];
-  onWaypointsChange: (wps: Position[]) => void;
-  isEditing: boolean;
-  weatherLayer: WeatherLayer;
-  windData: WindFieldData | null;
-  waveData: WaveFieldData | null;
-  windVelocityData: VelocityData[] | null;
-  currentVelocityData: VelocityData[] | null;
-  showZones?: boolean;
-  zoneKey?: number;
-  isDrawingZone?: boolean;
-  onSaveZone?: (request: CreateZoneRequest) => Promise<void>;
-  onCancelZone?: () => void;
-  forecastEnabled?: boolean;
-  onForecastClose?: () => void;
-  onForecastHourChange?: (hour: number, data: VelocityData[] | null) => void;
-}) {
-  const [isMounted, setIsMounted] = useState(false);
-
-  useEffect(() => {
-    setIsMounted(true);
-  }, []);
-
-  if (!isMounted) {
-    return (
-      <div className="w-full h-full flex items-center justify-center bg-maritime-dark rounded-lg">
-        <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative w-full h-full">
-      <MapContainer
-        center={DEFAULT_CENTER}
-        zoom={DEFAULT_ZOOM}
-        style={{ height: '100%', width: '100%' }}
-        className="rounded-lg"
-        wheelPxPerZoomLevel={120}
-      >
-        <TileLayer
-          attribution='&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>'
-          url="https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png"
-        />
-
-        {/* Zone Layer */}
-        {showZones && <ZoneLayer key={zoneKey} visible={showZones} />}
-
-        {/* Zone Editor (drawing) */}
-        {isDrawingZone && onSaveZone && onCancelZone && (
-          <ZoneEditor
-            isDrawing={isDrawingZone}
-            onSaveZone={onSaveZone}
-            onCancel={onCancelZone}
-          />
-        )}
-
-        {/* Weather Layers */}
-        {weatherLayer === 'wind' && windData && (
-          <WeatherGridLayer
-            mode="wind"
-            windData={windData}
-            opacity={0.6}
-            showArrows={false}
-          />
-        )}
-        {weatherLayer === 'wind' && windVelocityData && (
-          <VelocityParticleLayer data={windVelocityData} type="wind" />
-        )}
-        {weatherLayer === 'waves' && waveData && (
-          <WeatherGridLayer
-            mode="waves"
-            waveData={waveData}
-          />
-        )}
-        {weatherLayer === 'currents' && currentVelocityData && (
-          <VelocityParticleLayer data={currentVelocityData} type="currents" />
-        )}
-
-        {/* Weather Legend */}
-        {weatherLayer !== 'none' && (
-          <WeatherLegend mode={weatherLayer} timelineVisible={forecastEnabled} />
-        )}
-
-        {/* Waypoint Editor */}
-        <WaypointEditor
-          waypoints={waypoints}
-          onWaypointsChange={onWaypointsChange}
-          isEditing={isEditing}
-        />
-      </MapContainer>
-
-      {/* Forecast Timeline overlay at bottom of map */}
-      {forecastEnabled && onForecastClose && onForecastHourChange && (
-        <ForecastTimeline
-          visible={forecastEnabled}
-          onClose={onForecastClose}
-          onForecastHourChange={onForecastHourChange}
-        />
-      )}
     </div>
   );
 }

@@ -178,7 +178,10 @@ class VesselModel:
             * self.RELATIVE_ROTATIVE_EFF
         )
 
-        # Ensure power is within engine limits
+        # Store uncapped power (needed for speed reduction calculations)
+        required_brake_power_kw = brake_power_kw
+
+        # Ensure power is within engine limits for fuel calculation
         brake_power_kw = min(brake_power_kw, self.specs.mcr_kw)
 
         # Calculate SFOC at this load
@@ -194,6 +197,7 @@ class VesselModel:
         return {
             "fuel_mt": fuel_mt,
             "power_kw": brake_power_kw,
+            "required_power_kw": required_brake_power_kw,
             "time_hours": time_hours,
             "fuel_breakdown": {
                 "calm_water": (resistance_calm / total_resistance) * fuel_mt
@@ -246,36 +250,28 @@ class VesselModel:
         # Frictional resistance coefficient (ITTC 1957)
         cf = 0.075 / (np.log10(reynolds) - 2) ** 2
 
+        # Hull roughness allowance (ITTC standard for in-service hull)
+        delta_cf = 0.00025
+
         # Form factor (Holtrop-Mennen for tankers)
-        lcb_fraction = -3.0  # LCB as % of Lpp (typical for tanker)
         k1 = (
             0.93
             + 0.4871 * (self.specs.beam / self.specs.lpp)
             - 0.2156 * (self.specs.beam / draft)
             + 0.1027 * cb
         )
+        k1 = max(0.1, k1)  # Floor for extreme B/T ratios (e.g. ballast)
 
-        # Frictional resistance
-        rf = 0.5 * self.RHO_SW * speed_ms**2 * wetted_surface * cf * (1 + k1)
+        # Frictional resistance (including hull roughness)
+        rf = 0.5 * self.RHO_SW * speed_ms**2 * wetted_surface * (cf + delta_cf) * (1 + k1)
 
-        # Wave-making resistance (simplified)
-        # For tankers at typical Froude numbers
-        c1 = 2223105 * cb**3.78613 * (draft / self.specs.beam) ** 1.07961
-        c7 = 0.229577 * (self.specs.beam / self.specs.lpp) ** 0.33333
+        # Wave-making resistance (empirical for full-form ships)
+        # For tankers (CB > 0.75) at low Froude numbers (Fn < 0.25),
+        # Rw is a small fraction of total resistance, scaling with Fn².
+        rw_ratio = 4.0 * froude**2
+        rw = rw_ratio * rf
 
-        if froude < 0.4:
-            rw = (
-                c1
-                * c7
-                * displacement
-                * self.RHO_SW
-                * 9.81
-                * np.exp(-0.4 * froude**-2)
-            )
-        else:
-            rw = 0.0  # Minimal at high Froude numbers
-
-        # Appendage resistance (rudder, etc.) - estimate 5% of frictional
+        # Appendage resistance (rudder, bilge keels ~5% of frictional)
         rapp = 0.05 * rf
 
         # Total resistance
@@ -291,24 +287,23 @@ class VesselModel:
         is_laden: bool,
     ) -> float:
         """
-        Calculate wind resistance.
+        Calculate wind resistance using Blendermann method.
 
-        Uses Blendermann method for wind forces.
+        Relative angle convention: 0° = headwind, 180° = tailwind.
 
         Args:
             wind_speed_ms: True wind speed (m/s)
-            wind_dir_deg: True wind direction (degrees)
+            wind_dir_deg: True wind direction (coming from, degrees)
             heading_deg: Vessel heading (degrees)
             is_laden: Loading condition
 
         Returns:
-            Wind resistance (N)
+            Wind resistance (N), always >= 0
         """
-        # Calculate relative wind angle
+        # Relative angle: 0° = headwind, 90° = beam, 180° = tailwind
         relative_angle = abs(((wind_dir_deg - heading_deg) + 180) % 360 - 180)
         relative_angle_rad = np.radians(relative_angle)
 
-        # Select frontal and lateral areas
         frontal_area = (
             self.specs.frontal_area_laden if is_laden
             else self.specs.frontal_area_ballast
@@ -318,31 +313,29 @@ class VesselModel:
             else self.specs.lateral_area_ballast
         )
 
-        # Wind force coefficients (simplified Blendermann)
-        # Longitudinal coefficient
-        cx = (
-            -0.6 * np.cos(relative_angle_rad)
-            + 0.8 * np.cos(relative_angle_rad) ** 2
-        )
-
-        # Transverse coefficient (contributes to resistance through drift)
-        cy = 0.9 * np.sin(relative_angle_rad)
-
-        # Calculate forces
-        fx = (
-            0.5
+        # Longitudinal drag coefficient (Blendermann for merchant vessels)
+        # Headwind (0°) → max drag ~0.8, tailwind (180°) → 0 drag
+        cx_drag = 0.8 * np.cos(relative_angle_rad)
+        direct_resistance = (
+            max(0.0, cx_drag)
+            * 0.5
             * self.RHO_AIR
             * wind_speed_ms**2
             * frontal_area
-            * abs(cx)
         )
-        fy = 0.5 * self.RHO_AIR * wind_speed_ms**2 * lateral_area * abs(cy)
 
-        # Total wind resistance (longitudinal + drift component)
-        # Drift angle typically small, so use simplified approach
-        wind_resistance = fx + 0.1 * fy  # 10% of transverse force contributes
+        # Transverse wind creates drift, adding ~10% to effective resistance
+        cy = 0.9 * abs(np.sin(relative_angle_rad))
+        drift_resistance = (
+            0.1
+            * cy
+            * 0.5
+            * self.RHO_AIR
+            * wind_speed_ms**2
+            * lateral_area
+        )
 
-        return wind_resistance
+        return direct_resistance + drift_resistance
 
     def _wave_resistance(
         self,
@@ -353,13 +346,11 @@ class VesselModel:
         is_laden: bool,
     ) -> float:
         """
-        Calculate added resistance in waves.
-
-        Uses empirical correlation based on wave height and relative direction.
+        Calculate added resistance in waves using STAWAVE-1 (ISO 15016).
 
         Args:
             sig_wave_height_m: Significant wave height (m)
-            wave_dir_deg: Wave direction (degrees)
+            wave_dir_deg: Wave direction (coming from, degrees)
             heading_deg: Vessel heading (degrees)
             speed_ms: Vessel speed (m/s)
             is_laden: Loading condition
@@ -367,27 +358,25 @@ class VesselModel:
         Returns:
             Added wave resistance (N)
         """
-        # Calculate relative wave angle
+        # Relative angle: 0° = head seas, 180° = following seas
         relative_angle = abs(((wave_dir_deg - heading_deg) + 180) % 360 - 180)
         relative_angle_rad = np.radians(relative_angle)
 
-        # Directional factor (head seas worst, following seas minimal)
+        # Directional factor (head seas = 1, following seas = 0)
         directional_factor = (1 + np.cos(relative_angle_rad)) / 2
 
-        # Wave resistance coefficient (empirical for tankers)
-        # Based on Kwon (2008) simplified correlation
-        draft = self.specs.draft_laden if is_laden else self.specs.draft_ballast
-        froude = speed_ms / np.sqrt(9.81 * self.specs.lpp)
-
-        # Simplified empirical formula
+        # STAWAVE-1 added resistance in waves
+        # R_AW = (1/16) * rho * g * Hs² * B * sqrt(B/Lpp) * alpha_BK
+        alpha_bk = 1.0  # Block coefficient correction (~1.0 for CB > 0.75)
         raw = (
-            directional_factor
-            * 4.5
+            (1.0 / 16.0)
             * self.RHO_SW
             * 9.81
+            * sig_wave_height_m**2
             * self.specs.beam
-            * (sig_wave_height_m**2)
-            * (1 + froude)
+            * np.sqrt(self.specs.beam / self.specs.lpp)
+            * alpha_bk
+            * directional_factor
         )
 
         return raw

@@ -272,24 +272,19 @@ class VoyageCalculator:
         # If power exceeds available, reduce speed
 
         if weather_dict:
-            # Get calm water fuel at same speed
-            calm_result = self.vessel_model.calculate_fuel_consumption(
-                speed_kts=calm_speed_kts,
-                is_laden=is_laden,
-                weather=None,
-                distance_nm=distance_nm,
-            )
-
-            # Power increase ratio
-            power_ratio = fuel_result['power_kw'] / max(calm_result['power_kw'], 0.1)
-
-            # If power exceeds MCR, we need to slow down
+            # Use UNCAPPED required power to determine speed reduction.
+            # The capped power_kw hides weather differences because it's
+            # always MCR when near service speed.
+            required_power = fuel_result['required_power_kw']
             mcr = self.vessel_model.specs.mcr_kw
-            if fuel_result['power_kw'] > mcr * 0.9:  # 90% MCR limit
-                # Estimate speed reduction needed
-                # Power ~ speed^3 roughly
-                speed_factor = (mcr * 0.9 / fuel_result['power_kw']) ** (1/3)
+            available_power = mcr * 0.9  # 90% MCR operating limit
+
+            if required_power > available_power:
+                # Engine cannot provide enough power at this speed.
+                # Reduce speed: Power ~ speed^3, so speed ~ power^(1/3)
+                speed_factor = (available_power / required_power) ** (1/3)
                 stw_kts = calm_speed_kts * speed_factor
+                stw_kts = max(stw_kts, calm_speed_kts * 0.5)  # Floor at 50%
 
                 # Recalculate fuel at reduced speed
                 fuel_result = self.vessel_model.calculate_fuel_consumption(
@@ -299,11 +294,9 @@ class VoyageCalculator:
                     distance_nm=distance_nm,
                 )
             else:
-                # Can maintain speed but with more fuel
-                # Calculate voluntary speed loss for same power as calm
-                # This is "weather routing" logic - maintain power, accept lower speed
-                stw_kts = calm_speed_kts / (power_ratio ** (1/3))
-                stw_kts = max(stw_kts, calm_speed_kts * 0.7)  # Min 70% of calm speed
+                # Engine can maintain commanded speed.
+                # Fuel consumption already reflects added weather resistance.
+                stw_kts = calm_speed_kts
 
             speed_loss_pct = ((calm_speed_kts - stw_kts) / calm_speed_kts) * 100
         else:

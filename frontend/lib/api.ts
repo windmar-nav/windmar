@@ -65,6 +65,12 @@ export interface WindFieldData {
   ocean_mask_lons?: number[];
 }
 
+export interface WaveDecomposition {
+  height: number[][];
+  period?: number[][];
+  direction?: number[][];
+}
+
 export interface WaveFieldData {
   parameter: string;
   time: string;
@@ -81,6 +87,12 @@ export interface WaveFieldData {
   lons: number[];
   data: number[][];
   unit: string;
+  /** Mean wave direction grid (degrees, meteorological convention) */
+  direction?: number[][];
+  /** Wave decomposition */
+  has_decomposition?: boolean;
+  windwave?: WaveDecomposition;
+  swell?: WaveDecomposition;
   ocean_mask?: boolean[][];
   ocean_mask_lats?: number[];
   ocean_mask_lons?: number[];
@@ -89,6 +101,29 @@ export interface WaveFieldData {
     max: number;
     colors: string[];
   };
+}
+
+// Wave forecast types
+export interface WaveForecastFrame {
+  data: number[][];
+  direction?: number[][];
+  windwave?: WaveDecomposition;
+  swell?: WaveDecomposition;
+}
+
+export interface WaveForecastFrames {
+  run_time: string;
+  total_hours: number;
+  cached_hours: number;
+  lats: number[];
+  lons: number[];
+  ny: number;
+  nx: number;
+  ocean_mask?: boolean[][];
+  ocean_mask_lats?: number[];
+  ocean_mask_lons?: number[];
+  colorscale: { min: number; max: number; colors: string[] };
+  frames: Record<string, WaveForecastFrame>;
 }
 
 export interface VelocityData {
@@ -203,6 +238,27 @@ export interface VoyageResponse {
   is_laden: boolean;
   // Data source summary
   data_sources?: DataSourceSummary;
+}
+
+// Weather along route types
+export interface RouteWeatherPoint {
+  distance_nm: number;
+  lat: number;
+  lon: number;
+  wind_speed_kts: number;
+  wind_dir_deg: number;
+  wave_height_m: number;
+  wave_dir_deg: number;
+  current_speed_ms: number;
+  current_dir_deg: number;
+  is_waypoint: boolean;
+  waypoint_index: number | null;
+}
+
+export interface WeatherAlongRouteResponse {
+  time: string;
+  total_distance_nm: number;
+  points: RouteWeatherPoint[];
 }
 
 // Optimization types
@@ -327,6 +383,35 @@ export interface ZoneListItem {
   interaction: ZoneInteraction;
   penalty_factor: number;
   is_builtin: boolean;
+}
+
+// Monte Carlo types
+export interface MonteCarloRequest {
+  waypoints: Position[];
+  calm_speed_kts: number;
+  is_laden: boolean;
+  departure_time?: string;
+  n_simulations?: number;
+}
+
+export interface PercentileFloat {
+  p10: number;
+  p50: number;
+  p90: number;
+}
+
+export interface PercentileString {
+  p10: string;
+  p50: string;
+  p90: string;
+}
+
+export interface MonteCarloResponse {
+  n_simulations: number;
+  eta: PercentileString;
+  fuel_mt: PercentileFloat;
+  total_time_hours: PercentileFloat;
+  computation_time_ms: number;
 }
 
 // Calibration types
@@ -462,6 +547,37 @@ export const apiClient = {
     return response.data;
   },
 
+  // Wave forecast timeline API
+  async getWaveForecastStatus(params: {
+    lat_min?: number;
+    lat_max?: number;
+    lon_min?: number;
+    lon_max?: number;
+  } = {}): Promise<ForecastStatus> {
+    const response = await api.get<ForecastStatus>('/api/weather/forecast/wave/status', { params });
+    return response.data;
+  },
+
+  async triggerWaveForecastPrefetch(params: {
+    lat_min?: number;
+    lat_max?: number;
+    lon_min?: number;
+    lon_max?: number;
+  } = {}): Promise<{ status: string; message: string }> {
+    const response = await api.post('/api/weather/forecast/wave/prefetch', null, { params });
+    return response.data;
+  },
+
+  async getWaveForecastFrames(params: {
+    lat_min?: number;
+    lat_max?: number;
+    lon_min?: number;
+    lon_max?: number;
+  } = {}): Promise<WaveForecastFrames> {
+    const response = await api.get<WaveForecastFrames>('/api/weather/forecast/wave/frames', { params });
+    return response.data;
+  },
+
   async getWaveField(params: {
     lat_min?: number;
     lat_max?: number;
@@ -528,17 +644,14 @@ export const apiClient = {
 
   async getWeatherAlongRoute(
     waypoints: Position[],
-    time?: string
-  ): Promise<{ time: string; waypoints: Array<{
-    waypoint_index: number;
-    position: Position;
-    wind_speed_kts: number;
-    wind_dir_deg: number;
-    wave_height_m: number;
-    wave_dir_deg: number;
-  }> }> {
+    time?: string,
+    interpolation_points: number = 5,
+  ): Promise<WeatherAlongRouteResponse> {
     const wpString = waypoints.map(wp => `${wp.lat},${wp.lon}`).join(';');
-    const params: { waypoints: string; time?: string } = { waypoints: wpString };
+    const params: { waypoints: string; time?: string; interpolation_points: number } = {
+      waypoints: wpString,
+      interpolation_points,
+    };
     if (time) params.time = time;
     const response = await api.get('/api/voyage/weather-along-route', { params });
     return response.data;
@@ -666,6 +779,17 @@ export const apiClient = {
 
   async deleteZone(zoneId: string): Promise<{ status: string; zone_id: string }> {
     const response = await api.delete(`/api/zones/${zoneId}`);
+    return response.data;
+  },
+
+  // -------------------------------------------------------------------------
+  // Monte Carlo API
+  // -------------------------------------------------------------------------
+
+  async runMonteCarlo(request: MonteCarloRequest): Promise<MonteCarloResponse> {
+    const response = await api.post<MonteCarloResponse>('/api/voyage/monte-carlo', request, {
+      timeout: 120000, // 2 min timeout for CPU-bound simulation
+    });
     return response.data;
   },
 

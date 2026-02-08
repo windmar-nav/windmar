@@ -169,6 +169,7 @@ function WeatherGridLayerInner({
     const uData = isWind ? (windData as WindFieldData).u : null;
     const vData = isWind ? (windData as WindFieldData).v : null;
     const waveValues = mode === 'waves' && waveData ? (waveData as WaveFieldData).data : null;
+    const waveDir = mode === 'waves' && waveData ? (waveData as WaveFieldData).direction : null;
 
     // Compute lat/lon ranges
     const latMin = lats[0];
@@ -346,6 +347,101 @@ function WeatherGridLayerInner({
               ctx.fill();
 
               ctx.setTransform(1, 0, 0, 1, 0, 0); // reset transform
+            }
+          }
+          ctx.restore();
+        }
+
+        // Draw swell & wind-wave direction triangles (Windy-style filled triangles)
+        if (showArrows && mode === 'waves') {
+          const waveW = waveData as any; // access decomposition fields
+          const swellDir = waveW?.swell?.direction as number[][] | undefined;
+          const swellHt = waveW?.swell?.height as number[][] | undefined;
+          const wwDir = waveW?.windwave?.direction as number[][] | undefined;
+          const wwHt = waveW?.windwave?.height as number[][] | undefined;
+          const hasSwell = swellDir && swellHt;
+          const hasWW = wwDir && wwHt;
+
+          const spacing = 30; // denser grid
+          ctx.save();
+
+          // Helper: draw a filled triangle at (ax,ay) pointing in propagation direction
+          const drawTriangle = (
+            ax: number, ay: number, dirDeg: number, size: number,
+            fillColor: string, strokeColor: string,
+          ) => {
+            // Met "from" → propagation: +180°. Then to canvas angle.
+            const propRad = ((dirDeg + 180) * Math.PI) / 180;
+            const angle = propRad - Math.PI / 2;
+            ctx.translate(ax, ay);
+            ctx.rotate(angle);
+            ctx.fillStyle = fillColor;
+            ctx.strokeStyle = strokeColor;
+            ctx.lineWidth = 0.8;
+            ctx.beginPath();
+            ctx.moveTo(size, 0);                    // tip
+            ctx.lineTo(-size * 0.55, -size * 0.45); // left
+            ctx.lineTo(-size * 0.55, size * 0.45);  // right
+            ctx.closePath();
+            ctx.fill();
+            ctx.stroke();
+            ctx.setTransform(1, 0, 0, 1, 0, 0);
+          };
+
+          for (let ay = spacing / 2; ay < 256; ay += spacing) {
+            for (let ax = spacing / 2; ax < 256; ax += spacing) {
+              const globalX = coords.x * tileSize + ax;
+              const globalY = coords.y * tileSize + ay;
+              const lng = (globalX / Math.pow(2, zoom) / tileSize) * 360 - 180;
+              const latRad = Math.atan(
+                Math.sinh(Math.PI * (1 - (2 * globalY) / (Math.pow(2, zoom) * tileSize)))
+              );
+              const aLat = (latRad * 180) / Math.PI;
+              if (aLat < latMin || aLat > latMax || lng < lonMin || lng > lonMax) continue;
+
+              const latFracIdx = ((aLat - latMin) / (latMax - latMin)) * (ny - 1);
+              const lonFracIdx = ((lng - lonMin) / (lonMax - lonMin)) * (nx - 1);
+              const aLatIdx = Math.floor(latFracIdx);
+              const aLonIdx = Math.floor(lonFracIdx);
+              const aLatFrac = latFracIdx - aLatIdx;
+              const aLonFrac = lonFracIdx - aLonIdx;
+
+              // Skip land
+              if (oceanMask) {
+                const mLatIdx = Math.round(((aLat - maskLatMin) / (maskLatMax - maskLatMin)) * (maskNy - 1));
+                const mLonIdx = Math.round(((lng - maskLonMin) / (maskLonMax - maskLonMin)) * (maskNx - 1));
+                if (mLatIdx < 0 || mLatIdx >= maskNy || mLonIdx < 0 || mLonIdx >= maskNx || !oceanMask[mLatIdx]?.[mLonIdx]) continue;
+              }
+
+              // Primary swell: white filled triangle, size ∝ height
+              if (hasSwell) {
+                const sh = bilinearInterpolate(swellHt, aLatIdx, aLonIdx, aLatFrac, aLonFrac, ny, nx);
+                if (sh > 0.2) {
+                  const sd = bilinearInterpolate(swellDir, aLatIdx, aLonIdx, aLatFrac, aLonFrac, ny, nx);
+                  const size = Math.min(9, 4 + sh * 2);
+                  drawTriangle(ax, ay, sd, size, 'rgba(255,255,255,0.85)', 'rgba(180,180,180,0.6)');
+                }
+              }
+
+              // Wind-wave: cyan filled triangle (smaller, offset slightly)
+              if (hasWW) {
+                const wh = bilinearInterpolate(wwHt, aLatIdx, aLonIdx, aLatFrac, aLonFrac, ny, nx);
+                if (wh > 0.2) {
+                  const wd = bilinearInterpolate(wwDir, aLatIdx, aLonIdx, aLatFrac, aLonFrac, ny, nx);
+                  const size = Math.min(7, 3 + wh * 1.5);
+                  drawTriangle(ax + 6, ay + 6, wd, size, 'rgba(0,210,230,0.8)', 'rgba(0,160,180,0.5)');
+                }
+              }
+
+              // Fallback: mean direction if no decomposition
+              if (!hasSwell && !hasWW && waveDir && waveValues) {
+                const h = bilinearInterpolate(waveValues, aLatIdx, aLonIdx, aLatFrac, aLonFrac, ny, nx);
+                if (h > 0.3) {
+                  const d = bilinearInterpolate(waveDir, aLatIdx, aLonIdx, aLatFrac, aLonFrac, ny, nx);
+                  const size = Math.min(8, 4 + h * 2);
+                  drawTriangle(ax, ay, d, size, 'rgba(255,255,255,0.8)', 'rgba(180,180,180,0.5)');
+                }
+              }
             }
           }
           ctx.restore();

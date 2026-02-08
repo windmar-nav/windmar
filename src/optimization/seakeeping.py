@@ -795,6 +795,41 @@ class SafetyConstraints:
             return SafetyStatus.MARGINAL, True
         return SafetyStatus.SAFE, False
 
+    def _quick_status(
+        self,
+        wave_height_m: float,
+        wave_period_s: float,
+        wave_dir_deg: float,
+        heading_deg: float,
+        speed_kts: float,
+        is_laden: bool,
+    ) -> Tuple[SafetyStatus, MotionResponse]:
+        """
+        Compute motions and overall status without recommendations.
+
+        This avoids the recursion that would occur if _find_safe_speed
+        or _suggest_heading_change called the full assess_safety method.
+        """
+        motions = self.seakeeping.calculate_motions(
+            wave_height_m, wave_period_s, wave_dir_deg,
+            heading_deg, speed_kts, is_laden,
+        )
+
+        roll_status, _ = self._assess_roll(motions.roll_amplitude_deg)
+        pitch_status, _ = self._assess_pitch(motions.pitch_amplitude_deg)
+        accel_status, _ = self._assess_acceleration(motions.bridge_accel_ms2)
+        slam_status, _ = self._assess_slamming(motions.slamming_probability)
+
+        status_values = [roll_status, pitch_status, accel_status, slam_status]
+        if SafetyStatus.DANGEROUS in status_values:
+            overall = SafetyStatus.DANGEROUS
+        elif SafetyStatus.MARGINAL in status_values:
+            overall = SafetyStatus.MARGINAL
+        else:
+            overall = SafetyStatus.SAFE
+
+        return overall, motions
+
     def _find_safe_speed(
         self,
         wave_height_m: float,
@@ -811,11 +846,11 @@ class SafetyConstraints:
         """
         # Try decreasing speeds
         for speed in range(15, int(min_speed) - 1, -1):
-            assessment = self.assess_safety(
+            status, _ = self._quick_status(
                 wave_height_m, wave_period_s, wave_dir_deg,
                 heading_deg, float(speed), is_laden
             )
-            if assessment.status != SafetyStatus.DANGEROUS:
+            if status != SafetyStatus.DANGEROUS:
                 return float(speed)
 
         return None
@@ -834,30 +869,30 @@ class SafetyConstraints:
 
         Returns degrees to alter course (positive = starboard).
         """
-        current_assessment = self.assess_safety(
+        current_status, current_motions = self._quick_status(
             wave_height_m, wave_period_s, wave_dir_deg,
             heading_deg, speed_kts, is_laden
         )
 
-        if current_assessment.status == SafetyStatus.SAFE:
+        if current_status == SafetyStatus.SAFE:
             return None
 
         # Try alterations up to 45 degrees each side
         best_change = None
-        best_roll = current_assessment.motions.roll_amplitude_deg
+        best_roll = current_motions.roll_amplitude_deg
 
         for change in [10, -10, 20, -20, 30, -30, 45, -45]:
             new_heading = (heading_deg + change) % 360
-            assessment = self.assess_safety(
+            status, motions = self._quick_status(
                 wave_height_m, wave_period_s, wave_dir_deg,
                 new_heading, speed_kts, is_laden
             )
 
-            if assessment.status == SafetyStatus.SAFE:
+            if status == SafetyStatus.SAFE:
                 return float(change)
 
-            if assessment.motions.roll_amplitude_deg < best_roll:
-                best_roll = assessment.motions.roll_amplitude_deg
+            if motions.roll_amplitude_deg < best_roll:
+                best_roll = motions.roll_amplitude_deg
                 best_change = float(change)
 
         return best_change

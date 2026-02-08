@@ -34,6 +34,26 @@ const CURRENT_COLOR_SCALE = [
   'rgb(250,130,30)',
 ];
 
+/** Compute particle density multiplier from zoom level.
+ *  Wind: sparse Windy-style. Currents: denser since particles move slowly. */
+function getParticleMultiplier(zoom: number, isWind: boolean): number {
+  if (isWind) {
+    if (zoom <= 3) return 1 / 1200;
+    if (zoom <= 4) return 1 / 800;
+    if (zoom === 5) return 1 / 500;
+    if (zoom === 6) return 1 / 300;
+    if (zoom <= 8) return 1 / 150;
+    return 1 / 80;
+  }
+  // Currents — ~4x denser than wind (slow-moving particles need more density)
+  if (zoom <= 3) return 1 / 300;
+  if (zoom <= 4) return 1 / 200;
+  if (zoom === 5) return 1 / 120;
+  if (zoom === 6) return 1 / 70;
+  if (zoom <= 8) return 1 / 40;
+  return 1 / 20;
+}
+
 export default function VelocityParticleLayer(props: VelocityParticleLayerProps) {
   const [isMounted, setIsMounted] = useState(false);
 
@@ -51,7 +71,16 @@ function VelocityParticleLayerInner({ data, type }: VelocityParticleLayerProps) 
   const L = require('leaflet');
   const map = useMap();
   const layerRef = useRef<any>(null);
+  const [zoom, setZoom] = useState<number>(map.getZoom());
 
+  // Track zoom changes
+  useEffect(() => {
+    const onZoom = () => setZoom(map.getZoom());
+    map.on('zoomend', onZoom);
+    return () => { map.off('zoomend', onZoom); };
+  }, [map]);
+
+  // Create / recreate velocity layer when data or zoom changes
   useEffect(() => {
     if (!data || data.length < 2) return;
 
@@ -81,7 +110,7 @@ function VelocityParticleLayerInner({ data, type }: VelocityParticleLayerProps) 
       colorScale: isWind ? WIND_COLOR_SCALE : CURRENT_COLOR_SCALE,
       lineWidth: isWind ? 1.5 : 1.5,
       particleAge: isWind ? 90 : 60,
-      particleMultiplier: isWind ? 1 / 100 : 1 / 150,
+      particleMultiplier: getParticleMultiplier(zoom, isWind),
       frameRate: 20,
       opacity: 0.97,
     });
@@ -95,7 +124,7 @@ function VelocityParticleLayerInner({ data, type }: VelocityParticleLayerProps) 
         layerRef.current = null;
       }
     };
-  }, [data, type, map, L]);
+  }, [data, type, map, L, zoom]);
 
   return null;
 }
