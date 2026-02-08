@@ -49,6 +49,10 @@ data/grib_cache/*.idx
 # Logs
 *.log
 
+# Environment (secrets)
+.env
+.cdsapirc
+
 # OS
 .DS_Store
 Thumbs.db
