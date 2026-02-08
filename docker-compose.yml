@@ -59,6 +59,12 @@ services:
       # Application
       LOG_LEVEL: ${LOG_LEVEL:-info}
       ENVIRONMENT: ${ENVIRONMENT:-development}
+      # Copernicus Weather Data
+      COPERNICUS_MOCK_MODE: ${COPERNICUS_MOCK_MODE:-true}
+      CDSAPI_URL: ${CDSAPI_URL:-https://cds.climate.copernicus.eu/api}
+      CDSAPI_KEY: ${CDSAPI_KEY:-}
+      COPERNICUSMARINE_SERVICE_USERNAME: ${COPERNICUSMARINE_SERVICE_USERNAME:-}
+      COPERNICUSMARINE_SERVICE_PASSWORD: ${COPERNICUSMARINE_SERVICE_PASSWORD:-}
     volumes:
       - ./data:/app/data
       - ./logs:/app/logs

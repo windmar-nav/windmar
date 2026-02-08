@@ -185,6 +185,16 @@ class CopernicusDataProvider:
         if end_time is None:
             end_time = start_time + timedelta(days=5)
 
+        # ERA5 is reanalysis data with ~5-day lag; clamp to latest available
+        era5_lag = timedelta(days=5)
+        latest_available = datetime.utcnow() - era5_lag
+        if start_time > latest_available:
+            logger.info(
+                f"ERA5 data not yet available for {start_time.date()}, "
+                f"using latest available: {latest_available.date()}"
+            )
+            start_time = latest_available
+
         # Generate cache filename
         cache_file = self._get_cache_path(
             "wind", lat_min, lat_max, lon_min, lon_max, start_time
@@ -373,6 +383,20 @@ class CopernicusDataProvider:
             else:
                 logger.info("Swell decomposition not available in this dataset")
 
+            # Replace NaN (land pixels) with 0.0 for JSON serialization
+            def _clean(arr):
+                return np.nan_to_num(arr, nan=0.0) if arr is not None else None
+
+            hs = _clean(hs)
+            tp = _clean(tp)
+            wave_dir = _clean(wave_dir)
+            ww_hs = _clean(ww_hs)
+            ww_tp = _clean(ww_tp)
+            ww_dir = _clean(ww_dir)
+            sw_hs = _clean(sw_hs)
+            sw_tp = _clean(sw_tp)
+            sw_dir = _clean(sw_dir)
+
             return WeatherData(
                 parameter="wave_height",
                 time=start_time,
@@ -476,6 +500,10 @@ class CopernicusDataProvider:
             elif len(uo.shape) == 3:
                 uo = uo[0]
                 vo = vo[0]
+
+            # Replace NaN (land pixels) with 0.0 for JSON serialization
+            uo = np.nan_to_num(uo, nan=0.0)
+            vo = np.nan_to_num(vo, nan=0.0)
 
             return WeatherData(
                 parameter="current",

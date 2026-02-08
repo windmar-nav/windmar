@@ -72,8 +72,10 @@ class Settings:
 
     # Copernicus Configuration
     copernicus_mock_mode: bool = field(default_factory=lambda: get_bool("COPERNICUS_MOCK_MODE", True))
-    copernicus_username: Optional[str] = field(default_factory=lambda: os.getenv("COPERNICUS_USERNAME"))
-    copernicus_password: Optional[str] = field(default_factory=lambda: os.getenv("COPERNICUS_PASSWORD"))
+    cdsapi_url: str = field(default_factory=lambda: os.getenv("CDSAPI_URL", "https://cds.climate.copernicus.eu/api"))
+    cdsapi_key: Optional[str] = field(default_factory=lambda: os.getenv("CDSAPI_KEY"))
+    copernicus_username: Optional[str] = field(default_factory=lambda: os.getenv("COPERNICUSMARINE_SERVICE_USERNAME"))
+    copernicus_password: Optional[str] = field(default_factory=lambda: os.getenv("COPERNICUSMARINE_SERVICE_PASSWORD"))
 
     # Calibration Configuration
     calibration_learning_rate: float = field(
@@ -115,10 +117,12 @@ class Settings:
 
         # Warn if Copernicus credentials missing in live mode
         if not self.copernicus_mock_mode:
-            if not self.copernicus_username or not self.copernicus_password:
+            has_cds = self.cdsapi_key is not None
+            has_cmems = self.copernicus_username is not None and self.copernicus_password is not None
+            if not has_cds and not has_cmems:
                 logging.warning(
-                    "Copernicus credentials not set, falling back to mock mode. "
-                    "Set COPERNICUS_USERNAME and COPERNICUS_PASSWORD for live data."
+                    "No Copernicus credentials set, falling back to mock mode. "
+                    "Set CDSAPI_KEY and/or COPERNICUSMARINE_SERVICE_USERNAME/PASSWORD for live data."
                 )
                 self.copernicus_mock_mode = True
 

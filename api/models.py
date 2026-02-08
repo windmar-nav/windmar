@@ -25,7 +25,7 @@ class APIKey(Base):
     expires_at = Column(DateTime, nullable=True)
     is_active = Column(Boolean, default=True, nullable=False, index=True)
     rate_limit = Column(Integer, default=1000)
-    metadata = Column(JSON, nullable=True)
+    extra_metadata = Column("metadata", JSON, nullable=True)
 
     def __repr__(self):
         return f"<APIKey(name='{self.name}', active={self.is_active})>"
@@ -55,7 +55,7 @@ class VesselSpec(Base):
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
     updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
     created_by = Column(UUID(as_uuid=True), nullable=True)
-    metadata = Column(JSON, nullable=True)
+    extra_metadata = Column("metadata", JSON, nullable=True)
 
     # Relationships
     routes = relationship("Route", back_populates="vessel")
@@ -86,7 +86,7 @@ class Route(Base):
     weather_data_source = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False, index=True)
     created_by = Column(UUID(as_uuid=True), nullable=True)
-    metadata = Column(JSON, nullable=True)
+    extra_metadata = Column("metadata", JSON, nullable=True)
 
     # Relationships
     vessel = relationship("VesselSpec", back_populates="routes")
@@ -113,7 +113,7 @@ class CalibrationData(Base):
     recorded_at = Column(DateTime, nullable=False, index=True)
     data_source = Column(String(100), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    metadata = Column(JSON, nullable=True)
+    extra_metadata = Column("metadata", JSON, nullable=True)
 
     # Relationships
     vessel = relationship("VesselSpec", back_populates="calibration_data")
@@ -140,7 +140,7 @@ class NoonReport(Base):
     weather_conditions = Column(JSON, nullable=True)
     report_time = Column(DateTime, nullable=False, index=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    metadata = Column(JSON, nullable=True)
+    extra_metadata = Column("metadata", JSON, nullable=True)
 
     # Relationships
     vessel = relationship("VesselSpec", back_populates="noon_reports")
