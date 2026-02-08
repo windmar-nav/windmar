@@ -1,53 +1,89 @@
-[tool.poetry]
+[project]
 name = "windmar"
-version = "1.0.0"
+version = "0.0.2"
 description = "Maritime route optimization for MR Product Tankers with weather-aware fuel consumption modeling"
-authors = ["WINDMAR Team"]
 readme = "README.md"
 license = "Apache-2.0"
-packages = [{ include = "src" }, { include = "api" }]
+requires-python = ">=3.10"
+authors = [{ name = "SL Mar" }]
 
-[tool.poetry.dependencies]
-python = "^3.10"
-numpy = "^1.24.0"
-scipy = "^1.11.0"
-pandas = "^2.0.0"
-openpyxl = "^3.1.0"
-requests = "^2.31.0"
-fastapi = "^0.109.0"
-uvicorn = { extras = ["standard"], version = "^0.27.0" }
-pydantic = "^2.5.0"
-pydantic-settings = "^2.1.0"
-python-dotenv = "^1.0.0"
+dependencies = [
+    # Core scientific computing
+    "numpy>=1.24.0",
+    "scipy>=1.10.0",
+    "pandas>=2.0.0",
 
-[tool.poetry.group.grib]
-optional = true
+    # GRIB file handling (GFS wind data)
+    "pygrib>=2.1.4",
 
-[tool.poetry.group.grib.dependencies]
-pygrib = "^2.1.0"
+    # Land mask for ocean detection
+    "global-land-mask>=1.0.0",
 
-[tool.poetry.group.dev.dependencies]
-pytest = "^7.4.0"
-pytest-cov = "^4.1.0"
-pytest-asyncio = "^0.23.0"
-httpx = "^0.26.0"
-black = "^24.1.0"
-ruff = "^0.1.0"
-mypy = "^1.8.0"
-pre-commit = "^3.6.0"
+    # HTTP requests for data download
+    "requests>=2.31.0",
 
-[tool.poetry.group.viz]
-optional = true
+    # Copernicus weather data (ERA5 + CMEMS)
+    "cdsapi>=0.7.0",
+    "copernicusmarine>=2.0.0",
+    "xarray>=2024.1.0",
+    "netcdf4>=1.6.0",
 
-[tool.poetry.group.viz.dependencies]
-matplotlib = "^3.8.0"
+    # Excel / CSV file parsing
+    "openpyxl>=3.1.0",
 
-[tool.poetry.scripts]
+    # Database & caching
+    "psycopg2-binary>=2.9.0",
+    "sqlalchemy>=2.0.0",
+    "pydantic>=2.5.0",
+    "pydantic-settings>=2.1.0",
+    "redis>=5.0.0",
+
+    # API framework
+    "fastapi>=0.109.0",
+    "uvicorn[standard]>=0.25.0",
+    "python-multipart>=0.0.6",
+    "slowapi>=0.1.9",
+
+    # Security
+    "defusedxml>=0.7.1",
+    "bcrypt>=4.1.0",
+    "python-jose[cryptography]>=3.3.0",
+
+    # Resilience & observability
+    "tenacity>=8.2.0",
+    "pybreaker>=1.0.0",
+    "httpx>=0.26.0",
+]
+
+[project.optional-dependencies]
+viz = [
+    "matplotlib>=3.7.0",
+    "cartopy>=0.21.0",
+    "Pillow>=10.0.0",
+]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "pytest-asyncio>=0.23.0",
+    "black>=23.0.0",
+    "mypy>=1.5.0",
+    "ruff>=0.1.0",
+    "pre-commit>=3.6.0",
+]
+
+[project.scripts]
 windmar-api = "api.main:run_server"
 
 [build-system]
-requires = ["poetry-core>=1.0.0"]
-build-backend = "poetry.core.masonry.api"
+requires = ["setuptools>=68.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools.packages.find]
+include = ["src*", "api*"]
+
+# =============================================================================
+# Tool Configuration
+# =============================================================================
 
 [tool.black]
 line-length = 88

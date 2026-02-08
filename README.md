@@ -179,7 +179,40 @@ Copy `.env.example` to `.env` and configure:
 | `AUTH_ENABLED` | Require API key authentication | true |
 | `RATE_LIMIT_PER_MINUTE` | API rate limit | 60 |
 
-For real weather data, set `COPERNICUS_MOCK_MODE=false` and provide Copernicus CMEMS credentials.
+### Weather Data Sources
+
+Windmar uses a three-tier provider chain that automatically falls back when a source is unavailable:
+
+| Data Type | Primary Source | Fallback | Credentials Required |
+|-----------|---------------|----------|---------------------|
+| **Wind** | NOAA GFS (0.25°, ~3.5h lag) | ERA5 reanalysis → Synthetic | None (GFS is free) |
+| **Waves** | CMEMS global wave model | Synthetic | CMEMS account |
+| **Currents** | CMEMS global physics model | Synthetic | CMEMS account |
+| **Forecast** | GFS f000–f120 (5-day, 3h steps) | — | None |
+
+**Wind data works out of the box** — GFS is fetched from NOAA NOMADS without authentication. For wave and current data, you need Copernicus Marine credentials.
+
+### Obtaining Weather Credentials
+
+**CMEMS (waves and currents):**
+1. Register at [marine.copernicus.eu](https://marine.copernicus.eu/)
+2. Set in `.env`:
+   ```
+   COPERNICUSMARINE_SERVICE_USERNAME=your_username
+   COPERNICUSMARINE_SERVICE_PASSWORD=your_password
+   ```
+
+**CDS ERA5 (wind fallback):**
+1. Register at [cds.climate.copernicus.eu](https://cds.climate.copernicus.eu/)
+2. Copy your Personal Access Token from your profile page
+3. Set in `.env`:
+   ```
+   CDSAPI_KEY=your_personal_access_token
+   ```
+
+Without these credentials, the system falls back to synthetic data automatically for waves and currents. Wind visualization always works via GFS.
+
+See the [Weather Data Documentation](https://quantcoder-fs.com/windmar/weather-data.html) for full technical details on data acquisition, GRIB processing, and the forecast timeline.
 
 ## API Endpoints
 

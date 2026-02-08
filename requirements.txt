@@ -1,5 +1,6 @@
 # =============================================================================
 # WINDMAR Dependencies
+# Generated from pyproject.toml — keep in sync for Docker builds.
 # =============================================================================
 
 # Core scientific computing
