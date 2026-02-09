@@ -139,20 +139,7 @@ export interface CurrentForecastFrames {
   lons: number[];
   ny: number;
   nx: number;
-  ocean_mask?: boolean[][];
-  ocean_mask_lats?: number[];
-  ocean_mask_lons?: number[];
   frames: Record<string, CurrentForecastFrame>;
-}
-
-export interface CurrentFieldData {
-  lats: number[];
-  lons: number[];
-  u: number[][];
-  v: number[][];
-  ocean_mask?: boolean[][];
-  ocean_mask_lats?: number[];
-  ocean_mask_lons?: number[];
 }
 
 export interface VelocityData {
@@ -169,7 +156,7 @@ export interface VelocityData {
     ny: number;
     refTime: string;
   };
-  data: (number | null)[];
+  data: number[];
 }
 
 export interface PointWeather {

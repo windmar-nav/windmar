@@ -101,18 +101,6 @@ def _apply_ocean_mask_velocity(u: np.ndarray, v: np.ndarray, lats: np.ndarray, l
         return u_masked, v_masked
     except ImportError:
         return u, v
-
-def _build_ocean_mask_grid(lats: list, lons: list) -> list:
-    """Build boolean ocean mask at exact grid coordinates.
-    Returns list[list[bool]] indexed [lat_idx][lon_idx]."""
-    try:
-        from global_land_mask import globe
-        lon_arr = np.array(lons)
-        lat_arr = np.array(lats)
-        lon_grid, lat_grid = np.meshgrid(lon_arr, lat_arr)
-        return globe.is_ocean(lat_grid, lon_grid).tolist()
-    except ImportError:
-        return [[True] * len(lons) for _ in lats]
 from src.compliance.cii import (
     CIICalculator, VesselType as CIIVesselType, CIIRating, CIIResult,
     CIIProjection, estimate_cii_from_route, annualize_voyage_cii
@@ -1819,42 +1807,21 @@ async def api_trigger_current_forecast_prefetch(
 
             import numpy as np
 
-            # Build ocean mask at subsampled grid resolution.
-            # Land cells are set to null so leaflet-velocity skips interpolation
-            # through them, preventing current arrows from bleeding onto land.
-            ocean = _build_ocean_mask_grid(shared_lats, shared_lons)
-
-            def _subsample_mask(arr):
-                """Subsample, round, null out land cells."""
+            def _subsample_round(arr):
                 if arr is None:
                     return None
-                sub = np.round(arr[::STEP, ::STEP], 2)
-                ny_s, nx_s = sub.shape
-                rows = []
-                for j in range(ny_s):
-                    row = []
-                    for i in range(nx_s):
-                        if j < len(ocean) and i < len(ocean[j]) and ocean[j][i]:
-                            row.append(float(sub[j, i]))
-                        else:
-                            row.append(None)
-                    rows.append(row)
-                return rows
+                sub = arr[::STEP, ::STEP]
+                return np.round(sub, 2).tolist()
 
             frames = {}
             for fh, wd in sorted(result.items()):
                 frame = {}
                 if wd.u_component is not None:
-                    frame["u"] = _subsample_mask(wd.u_component)
+                    frame["u"] = _subsample_round(wd.u_component)
                 if wd.v_component is not None:
-                    frame["v"] = _subsample_mask(wd.v_component)
+                    frame["v"] = _subsample_round(wd.v_component)
                 if frame:
                     frames[str(fh)] = frame
-
-            # High-res ocean mask for frontend WeatherGridLayer (same as wave forecast)
-            mask_lats, mask_lons, ocean_mask_hr = _build_ocean_mask(
-                lat_min, lat_max, lon_min, lon_max, step=0.05
-            )
 
             cache_key = f"current_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
             _current_cache_put(cache_key, {
@@ -1865,9 +1832,6 @@ async def api_trigger_current_forecast_prefetch(
                 "lons": shared_lons,
                 "ny": len(shared_lats),
                 "nx": len(shared_lons),
-                "ocean_mask": ocean_mask_hr,
-                "ocean_mask_lats": mask_lats,
-                "ocean_mask_lons": mask_lons,
                 "frames": frames,
             })
             logger.info(f"Current forecast cached: {len(frames)} frames")

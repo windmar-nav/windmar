@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Loader2 } from 'lucide-react';
-import { Position, WindFieldData, WaveFieldData, VelocityData, CurrentFieldData, CreateZoneRequest, WaveForecastFrames } from '@/lib/api';
+import { Position, WindFieldData, WaveFieldData, VelocityData, CreateZoneRequest, WaveForecastFrames } from '@/lib/api';
 
 // Dynamic imports for map components (client-side only)
 const MapContainer = dynamic(
@@ -60,7 +60,6 @@ export interface MapComponentProps {
   waveData: WaveFieldData | null;
   windVelocityData: VelocityData[] | null;
   currentVelocityData: VelocityData[] | null;
-  currentGridData: CurrentFieldData | null;
   showZones?: boolean;
   zoneKey?: number;
   isDrawingZone?: boolean;
@@ -85,7 +84,6 @@ export default function MapComponent({
   waveData,
   windVelocityData,
   currentVelocityData,
-  currentGridData,
   showZones = true,
   zoneKey = 0,
   isDrawingZone = false,
@@ -165,12 +163,8 @@ export default function MapComponent({
             waveData={waveData}
           />
         )}
-        {weatherLayer === 'currents' && currentGridData && (
-          <WeatherGridLayer
-            mode="currents"
-            currentData={currentGridData}
-            opacity={0.6}
-          />
+        {weatherLayer === 'currents' && currentVelocityData && (
+          <VelocityParticleLayer data={currentVelocityData} type="currents" />
         )}
 
         {/* Weather Legend */}

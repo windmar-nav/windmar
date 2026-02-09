@@ -8,7 +8,7 @@ import TabPanel, { ActiveTab } from '@/components/TabPanel';
 import RouteTab from '@/components/RouteTab';
 import AnalysisTab from '@/components/AnalysisTab';
 import MapOverlayControls from '@/components/MapOverlayControls';
-import { apiClient, Position, WindFieldData, WaveFieldData, VelocityData, CurrentFieldData, VoyageResponse, OptimizationResponse, CreateZoneRequest, WaveForecastFrames } from '@/lib/api';
+import { apiClient, Position, WindFieldData, WaveFieldData, VelocityData, VoyageResponse, OptimizationResponse, CreateZoneRequest, WaveForecastFrames } from '@/lib/api';
 import { getAnalyses, saveAnalysis, deleteAnalysis, updateAnalysisMonteCarlo, AnalysisEntry } from '@/lib/analysisStorage';
 import { debugLog } from '@/lib/debugLog';
 import DebugConsole from '@/components/DebugConsole';
@@ -42,7 +42,6 @@ export default function HomePage() {
   const [waveData, setWaveData] = useState<WaveFieldData | null>(null);
   const [windVelocityData, setWindVelocityData] = useState<VelocityData[] | null>(null);
   const [currentVelocityData, setCurrentVelocityData] = useState<VelocityData[] | null>(null);
-  const [currentGridData, setCurrentGridData] = useState<CurrentFieldData | null>(null);
   const [isLoadingWeather, setIsLoadingWeather] = useState(false);
 
   // Viewport state
@@ -80,50 +79,6 @@ export default function HomePage() {
     return 0.5;
   };
 
-  // Build CurrentFieldData from VelocityData (flat arrays → 2D grid)
-  const buildCurrentGrid = useCallback((
-    velData: VelocityData[] | null,
-    maskSource: WindFieldData | WaveFieldData | null,
-  ): CurrentFieldData | null => {
-    if (!velData || velData.length < 2) return null;
-    const uVel = velData[0];
-    const vVel = velData[1];
-    const { nx, ny, lo1, la1, la2, dx, dy } = uVel.header;
-
-    // Build lats south-to-north and lons west-to-east
-    const latSouth = Math.min(la1, la2);
-    const lats: number[] = [];
-    const lons: number[] = [];
-    for (let j = 0; j < ny; j++) lats.push(latSouth + j * dy);
-    for (let i = 0; i < nx; i++) lons.push(lo1 + i * dx);
-
-    // Reshape flat data to 2D, reversing rows if data starts from north
-    const u: number[][] = [];
-    const v: number[][] = [];
-    if (la1 > la2) {
-      // GRIB order: first row = north → reverse for south-to-north
-      for (let j = ny - 1; j >= 0; j--) {
-        u.push(uVel.data.slice(j * nx, (j + 1) * nx).map(x => x ?? 0) as number[]);
-        v.push(vVel.data.slice(j * nx, (j + 1) * nx).map(x => x ?? 0) as number[]);
-      }
-    } else {
-      for (let j = 0; j < ny; j++) {
-        u.push(uVel.data.slice(j * nx, (j + 1) * nx).map(x => x ?? 0) as number[]);
-        v.push(vVel.data.slice(j * nx, (j + 1) * nx).map(x => x ?? 0) as number[]);
-      }
-    }
-
-    return {
-      lats,
-      lons,
-      u,
-      v,
-      ocean_mask: maskSource?.ocean_mask,
-      ocean_mask_lats: maskSource?.ocean_mask_lats,
-      ocean_mask_lons: maskSource?.ocean_mask_lons,
-    };
-  }, []);
-
   // Keep a stable ref to the current viewport so callbacks don't need it as a dep
   const viewportRef = useRef(viewport);
   useEffect(() => { viewportRef.current = viewport; }, [viewport]);
@@ -156,8 +111,6 @@ export default function HomePage() {
       setWaveData(waves);
       setWindVelocityData(windVel);
       setCurrentVelocityData(currentVel);
-      // Build current grid data for WeatherGridLayer (uses ocean mask from wind/wave)
-      setCurrentGridData(buildCurrentGrid(currentVel, wind || waves));
     } catch (error) {
       debugLog('error', 'API', `Weather load failed: ${error}`);
     } finally {
@@ -229,7 +182,7 @@ export default function HomePage() {
     setWaveData(synth);
   }, [loadWeatherData]);
 
-  // Handle current forecast hour change — build grid data from forecast frame
+  // Handle current forecast hour change — build velocity data from forecast frame
   const handleCurrentForecastHourChange = useCallback((hour: number, allFrames: any | null) => {
     setForecastHour(hour);
     if (!allFrames) {
@@ -244,19 +197,36 @@ export default function HomePage() {
     }
     debugLog('info', 'CURRENT', `Frame T+${hour}h: u_sample=${frame.u?.[Math.floor(frame.u.length/2)]?.[0]?.toFixed(3)}`);
 
+    // Build VelocityData for the particle layer (u and v as separate entries)
     const lats = allFrames.lats as number[];
     const lons = allFrames.lons as number[];
-
-    // Build CurrentFieldData for WeatherGridLayer (2D arrays, ocean-masked)
-    setCurrentGridData({
-      lats,
-      lons,
-      u: (frame.u as (number | null)[][]).map((row: (number | null)[]) => row.map((v: number | null) => v ?? 0)),
-      v: (frame.v as (number | null)[][]).map((row: (number | null)[]) => row.map((v: number | null) => v ?? 0)),
-      ocean_mask: allFrames.ocean_mask,
-      ocean_mask_lats: allFrames.ocean_mask_lats,
-      ocean_mask_lons: allFrames.ocean_mask_lons,
-    });
+    const ny = lats.length;
+    const nx = lons.length;
+    const uFlat: number[] = [];
+    const vFlat: number[] = [];
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        uFlat.push(frame.u[j]?.[i] ?? 0);
+        vFlat.push(frame.v[j]?.[i] ?? 0);
+      }
+    }
+    const header = {
+      parameterCategory: 2,
+      parameterNumber: 2,
+      lo1: lons[0],
+      la1: lats[ny - 1],
+      lo2: lons[nx - 1],
+      la2: lats[0],
+      dx: lons.length > 1 ? Math.abs(lons[1] - lons[0]) : 1,
+      dy: lats.length > 1 ? Math.abs(lats[1] - lats[0]) : 1,
+      nx,
+      ny,
+      refTime: allFrames.run_time || '',
+    };
+    setCurrentVelocityData([
+      { header: { ...header, parameterNumber: 2 }, data: uFlat },
+      { header: { ...header, parameterNumber: 3 }, data: vFlat },
+    ]);
   }, [loadWeatherData]);
 
   // Handle RTZ import
@@ -513,7 +483,6 @@ export default function HomePage() {
                 waveData={waveData}
                 windVelocityData={windVelocityData}
                 currentVelocityData={currentVelocityData}
-                currentGridData={currentGridData}
                 showZones={showZones}
                 zoneKey={zoneKey}
                 isDrawingZone={isDrawingZone}
