@@ -1,10 +1,11 @@
 import type { Metadata } from 'next'
 import './globals.css'
 import { Providers } from './providers'
+import { VoyageProvider } from '@/components/VoyageContext'
 
 export const metadata: Metadata = {
-  title: 'WINDMAR - Maritime Route Optimizer',
-  description: 'Fuel-optimal route planning for MR Product Tankers',
+  title: 'WINDMAR - Marine Route Analysis',
+  description: 'Marine route analysis for MR Product Tankers',
 }
 
 export default function RootLayout({
@@ -25,7 +26,9 @@ export default function RootLayout({
         />
       </head>
       <body>
-        <Providers>{children}</Providers>
+        <Providers>
+          <VoyageProvider>{children}</VoyageProvider>
+        </Providers>
       </body>
     </html>
   )

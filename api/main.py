@@ -333,6 +333,8 @@ class OptimizationRequest(BaseModel):
     departure_time: Optional[datetime] = None
     optimization_target: str = Field("fuel", description="Minimize 'fuel' or 'time'")
     grid_resolution_deg: float = Field(0.5, ge=0.1, le=2.0, description="Grid resolution in degrees")
+    max_time_factor: float = Field(1.15, ge=1.0, le=2.0,
+        description="Max voyage time as multiple of direct time (1.15 = 15% longer allowed)")
 
 
 class WeatherProvenanceModel(BaseModel):
@@ -2439,7 +2441,11 @@ async def calculate_voyage(request: VoyageRequest):
     if len(request.waypoints) < 2:
         raise HTTPException(status_code=400, detail="At least 2 waypoints required")
 
+    import time as _time
+
     departure = request.departure_time or datetime.utcnow()
+    t_start = _time.monotonic()
+    logger.info(f"Voyage calculation started: {len(request.waypoints)} waypoints, speed={request.calm_speed_kts}kts, weather={request.use_weather}")
 
     # Create route from waypoints
     wps = [(wp.lat, wp.lon) for wp in request.waypoints]
@@ -2448,8 +2454,44 @@ async def calculate_voyage(request: VoyageRequest):
     # Reset data source tracking
     _voyage_data_sources = []
 
-    # Calculate voyage
-    wp_func = weather_provider if request.use_weather else None
+    # Pre-fetch weather grids once for entire route bounding box
+    wp_func = None
+    data_source_type = None
+    if request.use_weather:
+        margin = 3.0
+        lats = [wp.lat for wp in request.waypoints]
+        lons = [wp.lon for wp in request.waypoints]
+        lat_min = max(min(lats) - margin, -85)
+        lat_max = min(max(lats) + margin, 85)
+        lon_min = min(lons) - margin
+        lon_max = max(lons) + margin
+
+        t0 = _time.monotonic()
+        logger.info(f"  Pre-fetching weather grids for bbox [{lat_min:.1f},{lat_max:.1f},{lon_min:.1f},{lon_max:.1f}]")
+        wind = get_wind_field(lat_min, lat_max, lon_min, lon_max, 0.5, departure)
+        logger.info(f"  Wind loaded in {_time.monotonic()-t0:.1f}s")
+        t1 = _time.monotonic()
+        waves = get_wave_field(lat_min, lat_max, lon_min, lon_max, 0.5, wind)
+        logger.info(f"  Waves loaded in {_time.monotonic()-t1:.1f}s")
+        t2 = _time.monotonic()
+        currents = get_current_field(lat_min, lat_max, lon_min, lon_max, 0.5)
+        logger.info(f"  Currents loaded in {_time.monotonic()-t2:.1f}s. Total prefetch: {_time.monotonic()-t0:.1f}s")
+
+        grid_wx = GridWeatherProvider(wind, waves, currents)
+        data_source_type = "forecast"
+
+        # Wrapper that tracks data sources per leg
+        def grid_weather_provider(lat: float, lon: float, time: datetime):
+            global _voyage_data_sources
+            leg_wx = grid_wx.get_weather(lat, lon, time)
+            _voyage_data_sources.append({
+                'lat': lat, 'lon': lon, 'time': time.isoformat(),
+                'source': data_source_type, 'forecast_weight': 1.0,
+                'message': f'Pre-fetched grid ({data_source_type})',
+            })
+            return leg_wx
+
+        wp_func = grid_weather_provider
 
     result = voyage_calculator.calculate_voyage(
         route=route,
@@ -2458,6 +2500,7 @@ async def calculate_voyage(request: VoyageRequest):
         departure_time=departure,
         weather_provider=wp_func,
     )
+    logger.info(f"Voyage calculation completed in {_time.monotonic()-t_start:.1f}s: {len(result.legs)} legs, {result.total_distance_nm:.0f}nm, {result.total_fuel_mt:.1f}mt fuel")
 
     # Build data source summary
     forecast_legs = sum(1 for ds in _voyage_data_sources if ds['source'] == 'forecast')
@@ -2764,7 +2807,13 @@ async def optimize_route(request: OptimizationRequest):
                     f"availability: {', '.join(avail_parts)}, "
                     f"warnings: {wx_needs.gap_warnings}"
                 )
-                temporal_wx = assessor.provision(wx_needs)
+                # Skip temporal if wind (GFS) has no coverage — A* needs wind data
+                gfs_coverage = wx_needs.availability.get("gfs", {}).get("coverage_pct", 0)
+                if gfs_coverage < 10:
+                    logger.warning(f"GFS wind coverage too low ({gfs_coverage:.0f}%) — skipping temporal, falling back to single-snapshot")
+                    temporal_wx = None
+                else:
+                    temporal_wx = assessor.provision(wx_needs)
                 if temporal_wx is not None:
                     used_temporal = True
                     params_loaded = list(temporal_wx.grids.keys())

@@ -65,6 +65,7 @@ export interface MapComponentProps {
   windVelocityData: VelocityData[] | null;
   currentVelocityData: VelocityData[] | null;
   showZones?: boolean;
+  visibleZoneTypes?: string[];
   zoneKey?: number;
   isDrawingZone?: boolean;
   onSaveZone?: (request: CreateZoneRequest) => Promise<void>;
@@ -89,6 +90,7 @@ export default function MapComponent({
   windVelocityData,
   currentVelocityData,
   showZones = true,
+  visibleZoneTypes,
   zoneKey = 0,
   isDrawingZone = false,
   onSaveZone,
@@ -138,7 +140,7 @@ export default function MapComponent({
         {onViewportChange && <MapViewportProvider onViewportChange={onViewportChange} />}
 
         {/* Zone Layer */}
-        {showZones && <ZoneLayer key={zoneKey} visible={showZones} />}
+        {showZones && <ZoneLayer key={zoneKey} visible={showZones} visibleTypes={visibleZoneTypes} />}
 
         {/* Zone Editor (drawing) */}
         {isDrawingZone && onSaveZone && onCancelZone && (

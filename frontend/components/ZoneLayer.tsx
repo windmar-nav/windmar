@@ -28,10 +28,11 @@ const ZONE_TYPE_COLORS: Record<ZoneType, string> = {
 
 interface ZoneLayerProps {
   visible?: boolean;
+  visibleTypes?: string[];
   onZoneClick?: (zoneId: string, zoneName: string) => void;
 }
 
-export default function ZoneLayer({ visible = true, onZoneClick }: ZoneLayerProps) {
+export default function ZoneLayer({ visible = true, visibleTypes, onZoneClick }: ZoneLayerProps) {
   const [zones, setZones] = useState<ZoneGeoJSON | null>(null);
   const [loading, setLoading] = useState(true);
   const map = useMap();
@@ -153,10 +154,24 @@ export default function ZoneLayer({ visible = true, onZoneClick }: ZoneLayerProp
     return null;
   }
 
+  // Filter features by visible zone types if provided
+  const filteredData = visibleTypes && visibleTypes.length > 0
+    ? {
+        ...zones,
+        features: zones.features.filter(
+          (f) => visibleTypes.includes(f.properties.zone_type)
+        ),
+      }
+    : zones;
+
+  if (filteredData.features.length === 0) {
+    return null;
+  }
+
   return (
     <GeoJSON
-      key={JSON.stringify(zones)} // Force re-render when zones change
-      data={zones as GeoJSON.GeoJsonObject}
+      key={JSON.stringify(filteredData)} // Force re-render when zones or filter changes
+      data={filteredData as GeoJSON.GeoJsonObject}
       style={getZoneStyle}
       onEachFeature={onEachFeature}
     />

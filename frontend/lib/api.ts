@@ -286,6 +286,7 @@ export interface OptimizationRequest {
   departure_time?: string;
   optimization_target: 'fuel' | 'time';
   grid_resolution_deg: number;
+  max_time_factor: number;
 }
 
 export interface WeatherProvenance {

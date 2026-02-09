@@ -917,7 +917,22 @@ class SafetyConstraints:
         )
 
         if assessment.status == SafetyStatus.DANGEROUS:
-            return float('inf')  # Forbidden
+            # Graduated penalty based on severity of exceedance.
+            # Compute worst exceedance ratio across roll, pitch, accel.
+            roll_ratio = assessment.motions.roll_amplitude_deg / self.limits.max_roll_dangerous if self.limits.max_roll_dangerous > 0 else 0
+            pitch_ratio = assessment.motions.pitch_amplitude_deg / self.limits.max_pitch_dangerous if self.limits.max_pitch_dangerous > 0 else 0
+            exceedance = max(roll_ratio, pitch_ratio)
+
+            if exceedance > 1.5:
+                # Extreme conditions (>1.5x dangerous threshold) — block
+                return float('inf')
+            elif exceedance > 1.0:
+                # Scale penalty 2.0 → 5.0 as exceedance goes 1.0 → 1.5
+                penalty = 2.0 + (exceedance - 1.0) / 0.5 * 3.0
+                return penalty
+            else:
+                # Below dangerous threshold but still flagged dangerous
+                return 2.0
         elif assessment.status == SafetyStatus.MARGINAL:
             # Penalty based on how marginal
             roll_penalty = max(0, assessment.motions.roll_amplitude_deg - self.limits.max_roll_safe) / 10

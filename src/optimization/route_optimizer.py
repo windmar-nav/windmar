@@ -113,7 +113,7 @@ class RouteOptimizer:
     ]
 
     # Speed optimization settings
-    SPEED_RANGE_KTS = (6.0, 18.0)  # Min/max speeds to consider
+    SPEED_RANGE_KTS = (10.0, 16.5)  # Min/max speeds to consider (slow steaming to design+margin)
     SPEED_STEPS = 7  # Number of speeds to test per leg
 
     def __init__(
@@ -159,6 +159,9 @@ class RouteOptimizer:
         # Weather provider function (set before optimization)
         self.weather_provider: Optional[Callable] = None
 
+        # Time-value penalty (computed per voyage in optimize_route)
+        self._lambda_time: float = 0.0
+
     def optimize_route(
         self,
         origin: Tuple[float, float],
@@ -190,6 +193,21 @@ class RouteOptimizer:
         start_time = time.time()
 
         self.weather_provider = weather_provider
+
+        # Compute time-value penalty (lambda_time) for cost function.
+        # Every extra hour costs ~50% of the fuel burned at service speed.
+        # This prevents A* from choosing long detours that save marginal fuel.
+        service_speed = (
+            self.vessel_model.specs.service_speed_laden if is_laden
+            else self.vessel_model.specs.service_speed_ballast
+        )
+        service_fuel_result = self.vessel_model.calculate_fuel_consumption(
+            speed_kts=service_speed,
+            is_laden=is_laden,
+            weather=None,
+            distance_nm=service_speed,  # 1 hour at service speed
+        )
+        self._lambda_time = service_fuel_result['fuel_mt'] * 0.5
 
         # Build grid around origin-destination corridor
         grid = self._build_grid(origin, destination)
@@ -465,15 +483,19 @@ class RouteOptimizer:
             # Best case: calm water speed
             return distance_nm / self.vessel_model.specs.service_speed_laden
         else:
-            # Best case: calm water fuel consumption
-            # Use a conservative (low) estimate to ensure admissibility
+            # Best case: calm water fuel consumption (underestimate)
+            service_speed = self.vessel_model.specs.service_speed_laden
             result = self.vessel_model.calculate_fuel_consumption(
-                speed_kts=self.vessel_model.specs.service_speed_laden,
+                speed_kts=service_speed,
                 is_laden=True,
                 weather=None,
                 distance_nm=distance_nm,
             )
-            return result['fuel_mt'] * 0.8  # Underestimate for admissibility
+            fuel_heuristic = result['fuel_mt'] * 0.8  # Underestimate for admissibility
+
+            # Time component: generous speed estimate ensures underestimate
+            time_heuristic = distance_nm / (service_speed + 2.0)
+            return fuel_heuristic + self._lambda_time * time_heuristic
 
     def _calculate_move_cost(
         self,
@@ -574,7 +596,11 @@ class RouteOptimizer:
         if self.optimization_target == "time":
             return travel_time_hours * total_factor, travel_time_hours
         else:
-            return result['fuel_mt'] * total_factor, travel_time_hours
+            # Time-constrained fuel minimization:
+            # fuel cost + time penalty prevents detours that save marginal fuel
+            fuel_cost = result['fuel_mt'] * total_factor
+            time_penalty = self._lambda_time * travel_time_hours
+            return fuel_cost + time_penalty, travel_time_hours
 
     def _calculate_current_effect(
         self,
@@ -682,9 +708,9 @@ class RouteOptimizer:
                 # Minimize time, but check fuel penalty
                 score = time_hours
             else:
-                # Minimize fuel per nautical mile (efficiency)
-                fuel_per_nm = fuel_mt / distance_nm if distance_nm > 0 else fuel_mt
-                score = fuel_per_nm
+                # Time-constrained fuel minimization: trade off fuel vs time
+                # This picks 12-14 kts typically, not the slowest possible speed
+                score = fuel_mt + self._lambda_time * time_hours
 
             # Apply safety penalty for high speeds in heavy weather
             if self.enforce_safety and weather.sig_wave_height_m > 2.0:

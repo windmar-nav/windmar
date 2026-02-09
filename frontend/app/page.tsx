@@ -1,33 +1,29 @@
 'use client';
 
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import dynamic from 'next/dynamic';
 import Header from '@/components/Header';
-import Card from '@/components/Card';
-import TabPanel, { ActiveTab } from '@/components/TabPanel';
-import RouteTab from '@/components/RouteTab';
-import AnalysisTab from '@/components/AnalysisTab';
 import MapOverlayControls from '@/components/MapOverlayControls';
+import RouteIndicatorPanel from '@/components/RouteIndicatorPanel';
+import AnalysisSlidePanel from '@/components/AnalysisSlidePanel';
+import { useVoyage } from '@/components/VoyageContext';
 import { apiClient, Position, WindFieldData, WaveFieldData, VelocityData, VoyageResponse, OptimizationResponse, CreateZoneRequest, WaveForecastFrames } from '@/lib/api';
 import { getAnalyses, saveAnalysis, deleteAnalysis, updateAnalysisMonteCarlo, AnalysisEntry } from '@/lib/analysisStorage';
 import { debugLog } from '@/lib/debugLog';
 import DebugConsole from '@/components/DebugConsole';
 
-// Dynamic import for MapComponent (client-side only)
 const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
 
 type WeatherLayer = 'wind' | 'waves' | 'currents' | 'none';
 
 export default function HomePage() {
+  // Voyage context (shared with header dropdowns)
+  const { calmSpeed, isLaden, useWeather, zoneVisibility, isDrawingZone, setIsDrawingZone } = useVoyage();
+
   // Route state
   const [waypoints, setWaypoints] = useState<Position[]>([]);
   const [isEditing, setIsEditing] = useState(true);
   const [routeName, setRouteName] = useState('Custom Route');
-
-  // Voyage parameters
-  const [calmSpeed, setCalmSpeed] = useState(14.5);
-  const [isLaden, setIsLaden] = useState(true);
-  const [useWeather, setUseWeather] = useState(true);
 
   // Results
   const [isCalculating, setIsCalculating] = useState(false);
@@ -37,7 +33,7 @@ export default function HomePage() {
   const [isOptimizing, setIsOptimizing] = useState(false);
 
   // Weather visualization
-  const [weatherLayer, setWeatherLayer] = useState<WeatherLayer>('wind');
+  const [weatherLayer, setWeatherLayer] = useState<WeatherLayer>('none');
   const [windData, setWindData] = useState<WindFieldData | null>(null);
   const [waveData, setWaveData] = useState<WaveFieldData | null>(null);
   const [windVelocityData, setWindVelocityData] = useState<VelocityData[] | null>(null);
@@ -55,14 +51,10 @@ export default function HomePage() {
   const [forecastHour, setForecastHour] = useState(0);
 
   // Zone state
-  const [showZones, setShowZones] = useState(true);
-  const [isDrawingZone, setIsDrawingZone] = useState(false);
   const [zoneKey, setZoneKey] = useState(0);
 
-  // Tab state
-  const [activeTab, setActiveTab] = useState<ActiveTab>('route');
-
   // Analysis state
+  const [analysisOpen, setAnalysisOpen] = useState(false);
   const [analyses, setAnalyses] = useState<AnalysisEntry[]>([]);
   const [displayedAnalysisId, setDisplayedAnalysisId] = useState<string | null>(null);
   const [simulatingId, setSimulatingId] = useState<string | null>(null);
@@ -72,6 +64,13 @@ export default function HomePage() {
     setAnalyses(getAnalyses());
   }, []);
 
+  // Compute visible zone types from context
+  const visibleZoneTypes = useMemo(() => {
+    return Object.entries(zoneVisibility)
+      .filter(([, visible]) => visible)
+      .map(([type]) => type);
+  }, [zoneVisibility]);
+
   // Derive weather resolution from zoom level
   const getResolutionForZoom = (zoom: number): number => {
     if (zoom <= 4) return 2.0;
@@ -79,53 +78,103 @@ export default function HomePage() {
     return 0.5;
   };
 
-  // Keep a stable ref to the current viewport so callbacks don't need it as a dep
+  // Keep stable refs so callbacks don't need these as deps
   const viewportRef = useRef(viewport);
   useEffect(() => { viewportRef.current = viewport; }, [viewport]);
 
-  // Load weather data for current viewport (stable — no object deps)
-  const loadWeatherData = useCallback(async (vp?: typeof viewport) => {
+  const weatherLayerRef = useRef(weatherLayer);
+  useEffect(() => { weatherLayerRef.current = weatherLayer; }, [weatherLayer]);
+
+  const waypointsRef = useRef(waypoints);
+  useEffect(() => { waypointsRef.current = waypoints; }, [waypoints]);
+
+  // Route-aware bounds helpers
+  function getRouteBounds(wps: Position[], margin: number = 3) {
+    if (wps.length === 0) return null;
+    let latMin = Infinity, latMax = -Infinity, lonMin = Infinity, lonMax = -Infinity;
+    for (const wp of wps) {
+      latMin = Math.min(latMin, wp.lat);
+      latMax = Math.max(latMax, wp.lat);
+      lonMin = Math.min(lonMin, wp.lon);
+      lonMax = Math.max(lonMax, wp.lon);
+    }
+    return {
+      lat_min: Math.max(-85, latMin - margin),
+      lat_max: Math.min(85, latMax + margin),
+      lon_min: lonMin - margin,
+      lon_max: lonMax + margin,
+    };
+  }
+
+  function unionBounds(
+    a: { lat_min: number; lat_max: number; lon_min: number; lon_max: number },
+    b: { lat_min: number; lat_max: number; lon_min: number; lon_max: number } | null,
+  ) {
+    if (!b) return a;
+    return {
+      lat_min: Math.min(a.lat_min, b.lat_min),
+      lat_max: Math.max(a.lat_max, b.lat_max),
+      lon_min: Math.min(a.lon_min, b.lon_min),
+      lon_max: Math.max(a.lon_max, b.lon_max),
+    };
+  }
+
+  // Load weather data
+  const loadWeatherData = useCallback(async (vp?: typeof viewport, layer?: WeatherLayer) => {
     const v = vp || viewportRef.current;
-    if (!v) return;
+    const activeLayer = layer ?? weatherLayerRef.current;
+    if (!v || activeLayer === 'none') return;
+
+    const routeBounds = getRouteBounds(waypointsRef.current);
+    const effectiveBounds = unionBounds(v.bounds, routeBounds);
+
+    const params = {
+      lat_min: effectiveBounds.lat_min,
+      lat_max: effectiveBounds.lat_max,
+      lon_min: effectiveBounds.lon_min,
+      lon_max: effectiveBounds.lon_max,
+      resolution: getResolutionForZoom(v.zoom),
+    };
 
     setIsLoadingWeather(true);
     const t0 = performance.now();
-    debugLog('info', 'API', `Loading weather: zoom=${v.zoom}, bbox=[${v.bounds.lat_min.toFixed(1)},${v.bounds.lat_max.toFixed(1)},${v.bounds.lon_min.toFixed(1)},${v.bounds.lon_max.toFixed(1)}]`);
+    debugLog('info', 'API', `Loading ${activeLayer} weather: zoom=${v.zoom}, bbox=[${params.lat_min.toFixed(1)},${params.lat_max.toFixed(1)},${params.lon_min.toFixed(1)},${params.lon_max.toFixed(1)}]`);
     try {
-      const params = {
-        lat_min: v.bounds.lat_min,
-        lat_max: v.bounds.lat_max,
-        lon_min: v.bounds.lon_min,
-        lon_max: v.bounds.lon_max,
-        resolution: getResolutionForZoom(v.zoom),
-      };
-      const [wind, waves, windVel, currentVel] = await Promise.all([
-        apiClient.getWindField(params),
-        apiClient.getWaveField(params),
-        apiClient.getWindVelocity(params),
-        apiClient.getCurrentVelocity(params).catch(() => null),
-      ]);
-      const dt = (performance.now() - t0).toFixed(0);
-      debugLog('info', 'API', `Weather loaded in ${dt}ms: wind=${wind?.ny}x${wind?.nx}, waves=${waves?.ny}x${waves?.nx}, currents=${currentVel ? 'yes' : 'no'}`);
-      setWindData(wind);
-      setWaveData(waves);
-      setWindVelocityData(windVel);
-      setCurrentVelocityData(currentVel);
+      if (activeLayer === 'wind') {
+        const [wind, windVel] = await Promise.all([
+          apiClient.getWindField(params),
+          apiClient.getWindVelocity(params),
+        ]);
+        const dt = (performance.now() - t0).toFixed(0);
+        debugLog('info', 'API', `Wind loaded in ${dt}ms: grid=${wind?.ny}x${wind?.nx}`);
+        setWindData(wind);
+        setWindVelocityData(windVel);
+      } else if (activeLayer === 'waves') {
+        const waves = await apiClient.getWaveField(params);
+        const dt = (performance.now() - t0).toFixed(0);
+        debugLog('info', 'API', `Waves loaded in ${dt}ms: grid=${waves?.ny}x${waves?.nx}`);
+        setWaveData(waves);
+      } else if (activeLayer === 'currents') {
+        const currentVel = await apiClient.getCurrentVelocity(params).catch(() => null);
+        const dt = (performance.now() - t0).toFixed(0);
+        debugLog('info', 'API', `Currents loaded in ${dt}ms: ${currentVel ? 'yes' : 'no data'}`);
+        setCurrentVelocityData(currentVel);
+      }
     } catch (error) {
       debugLog('error', 'API', `Weather load failed: ${error}`);
     } finally {
       setIsLoadingWeather(false);
     }
-  }, []); // stable — reads viewport from ref
+  }, []);
 
-  // Reload weather when viewport changes
+  // Reload weather when viewport or active layer changes
   useEffect(() => {
-    if (viewport) {
-      loadWeatherData(viewport);
+    if (viewport && weatherLayer !== 'none') {
+      loadWeatherData(viewport, weatherLayer);
     }
-  }, [viewport]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [viewport, weatherLayer]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Handle wind forecast hour change from timeline (stable)
+  // Handle wind forecast hour change from timeline
   const handleForecastHourChange = useCallback((hour: number, data: VelocityData[] | null) => {
     setForecastHour(hour);
     if (data) {
@@ -135,7 +184,7 @@ export default function HomePage() {
     }
   }, [loadWeatherData]);
 
-  // Handle wave forecast hour change — construct WaveFieldData from frame
+  // Handle wave forecast hour change
   const handleWaveForecastHourChange = useCallback((hour: number, allFrames: WaveForecastFrames | null) => {
     setForecastHour(hour);
     if (!allFrames) {
@@ -149,7 +198,6 @@ export default function HomePage() {
       return;
     }
 
-    // Sample a value from the middle of the grid to verify data changes
     const midRow = Math.floor((frame.data?.length || 0) / 2);
     const sample = frame.data?.[midRow]?.[0]?.toFixed(2) ?? 'null';
     debugLog('info', 'WAVE', `Frame T+${hour}h: sample=${sample}, grid=${allFrames.ny}x${allFrames.nx}`);
@@ -182,7 +230,7 @@ export default function HomePage() {
     setWaveData(synth);
   }, [loadWeatherData]);
 
-  // Handle current forecast hour change — build velocity data from forecast frame
+  // Handle current forecast hour change
   const handleCurrentForecastHourChange = useCallback((hour: number, allFrames: any | null) => {
     setForecastHour(hour);
     if (!allFrames) {
@@ -197,7 +245,6 @@ export default function HomePage() {
     }
     debugLog('info', 'CURRENT', `Frame T+${hour}h: u_sample=${frame.u?.[Math.floor(frame.u.length/2)]?.[0]?.toFixed(3)}`);
 
-    // Build VelocityData for the particle layer (u and v as separate entries)
     const lats = allFrames.lats as number[];
     const lons = allFrames.lons as number[];
     const ny = lats.length;
@@ -250,7 +297,7 @@ export default function HomePage() {
     setDisplayedAnalysisId(null);
   };
 
-  // Calculate voyage → create analysis entry
+  // Calculate voyage
   const handleCalculate = async () => {
     if (waypoints.length < 2) {
       alert('Please add at least 2 waypoints');
@@ -258,6 +305,8 @@ export default function HomePage() {
     }
 
     setIsCalculating(true);
+    const t0 = performance.now();
+    debugLog('info', 'VOYAGE', `Start Calculation: ${waypoints.length} waypoints, speed=${calmSpeed}kts, weather=${useWeather}`);
     try {
       const result = await apiClient.calculateVoyage({
         waypoints,
@@ -265,8 +314,9 @@ export default function HomePage() {
         is_laden: isLaden,
         use_weather: useWeather,
       });
+      const dt = ((performance.now() - t0) / 1000).toFixed(1);
+      debugLog('info', 'VOYAGE', `Calculation completed in ${dt}s: ${result.total_distance_nm}nm, ${result.total_time_hours.toFixed(1)}h, ${result.total_fuel_mt.toFixed(1)}mt fuel`);
 
-      // Save analysis entry
       const entry = saveAnalysis(
         routeName,
         waypoints,
@@ -274,19 +324,19 @@ export default function HomePage() {
         result,
       );
 
-      // Refresh analyses list and switch to analysis tab
       setAnalyses(getAnalyses());
       setDisplayedAnalysisId(entry.id);
-      setActiveTab('analysis');
+      setAnalysisOpen(true);
     } catch (error) {
-      console.error('Voyage calculation failed:', error);
+      const dt = ((performance.now() - t0) / 1000).toFixed(1);
+      debugLog('error', 'VOYAGE', `Calculation failed after ${dt}s: ${error}`);
       alert('Voyage calculation failed. Please check the backend is running.');
     } finally {
       setIsCalculating(false);
     }
   };
 
-  // Optimize route using A*
+  // Optimize route
   const handleOptimize = async () => {
     if (waypoints.length < 2) {
       alert('Please add at least 2 waypoints (origin and destination)');
@@ -307,6 +357,7 @@ export default function HomePage() {
         is_laden: isLaden,
         optimization_target: 'fuel',
         grid_resolution_deg: 0.5,
+        max_time_factor: 1.15,
       });
 
       const dt = ((performance.now() - t0) / 1000).toFixed(1);
@@ -317,7 +368,6 @@ export default function HomePage() {
         ? `Fuel savings: ${result.fuel_savings_pct.toFixed(1)}%`
         : 'No savings found (direct route is optimal)';
 
-      // Weather provenance info
       let wxInfo = '';
       if (result.temporal_weather && result.weather_provenance?.length) {
         const sources = result.weather_provenance.map(
@@ -338,7 +388,7 @@ export default function HomePage() {
     }
   };
 
-  // Apply optimized route as waypoints
+  // Apply optimized route
   const applyOptimizedRoute = () => {
     if (optimizationResult) {
       setWaypoints(optimizationResult.waypoints);
@@ -360,7 +410,6 @@ export default function HomePage() {
       setDisplayedAnalysisId(null);
     } else {
       setDisplayedAnalysisId(id);
-      // Load the analysis waypoints onto the map
       const analysis = analyses.find(a => a.id === id);
       if (analysis) {
         setWaypoints(analysis.waypoints);
@@ -417,96 +466,84 @@ export default function HomePage() {
     return sum + R * c;
   }, 0);
 
-  // Determine if map should show editable waypoints
-  const mapEditing = activeTab === 'route' ? isEditing : false;
+  // Get displayed analysis for route indicator
+  const displayedAnalysis = displayedAnalysisId
+    ? analyses.find(a => a.id === displayedAnalysisId)
+    : null;
 
   return (
     <div className="min-h-screen bg-gradient-maritime">
       <Header />
       <DebugConsole />
 
-      <main className="px-4 pt-20 pb-4 h-screen flex flex-col">
-        <div className="flex-1 grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-3 min-h-0">
-          {/* Left — Tab Panel */}
-          <div className="min-h-0 bg-maritime-medium/50 backdrop-blur-sm rounded-lg border border-white/5 overflow-hidden">
-            <TabPanel activeTab={activeTab} onTabChange={setActiveTab}>
-              {activeTab === 'route' ? (
-                <RouteTab
-                  waypoints={waypoints}
-                  onWaypointsChange={setWaypoints}
-                  isEditing={isEditing}
-                  onIsEditingChange={setIsEditing}
-                  routeName={routeName}
-                  onRouteImport={handleRouteImport}
-                  onLoadRoute={handleLoadRoute}
-                  onClearRoute={handleClearRoute}
-                  totalDistance={totalDistance}
-                  calmSpeed={calmSpeed}
-                  onCalmSpeedChange={setCalmSpeed}
-                  isLaden={isLaden}
-                  onIsLadenChange={setIsLaden}
-                  useWeather={useWeather}
-                  onUseWeatherChange={setUseWeather}
-                  isCalculating={isCalculating}
-                  onCalculate={handleCalculate}
-                  isOptimizing={isOptimizing}
-                  onOptimize={handleOptimize}
-                  optimizationResult={optimizationResult}
-                  onApplyOptimizedRoute={applyOptimizedRoute}
-                  showZones={showZones}
-                  onShowZonesChange={setShowZones}
-                  isDrawingZone={isDrawingZone}
-                  onIsDrawingZoneChange={setIsDrawingZone}
-                />
-              ) : (
-                <AnalysisTab
-                  analyses={analyses}
-                  displayedAnalysisId={displayedAnalysisId}
-                  onShowOnMap={handleShowOnMap}
-                  onDelete={handleDeleteAnalysis}
-                  onRunSimulation={handleRunSimulation}
-                  simulatingId={simulatingId}
-                />
-              )}
-            </TabPanel>
-          </div>
+      <main className="pt-16 h-screen">
+        <div className="h-full">
+          <MapComponent
+            waypoints={waypoints}
+            onWaypointsChange={setWaypoints}
+            isEditing={isEditing}
+            weatherLayer={weatherLayer}
+            windData={windData}
+            waveData={waveData}
+            windVelocityData={windVelocityData}
+            currentVelocityData={currentVelocityData}
+            showZones={visibleZoneTypes.length > 0}
+            visibleZoneTypes={visibleZoneTypes}
+            zoneKey={zoneKey}
+            isDrawingZone={isDrawingZone}
+            onSaveZone={handleSaveZone}
+            onCancelZone={() => setIsDrawingZone(false)}
+            forecastEnabled={forecastEnabled}
+            onForecastClose={() => setForecastEnabled(false)}
+            onForecastHourChange={handleForecastHourChange}
+            onWaveForecastHourChange={handleWaveForecastHourChange}
+            onCurrentForecastHourChange={handleCurrentForecastHourChange}
+            onViewportChange={setViewport}
+            viewportBounds={viewport?.bounds ?? null}
+          >
+            <MapOverlayControls
+              weatherLayer={weatherLayer}
+              onWeatherLayerChange={setWeatherLayer}
+              forecastEnabled={forecastEnabled}
+              onForecastToggle={() => setForecastEnabled(!forecastEnabled)}
+              isLoadingWeather={isLoadingWeather}
+              onRefresh={loadWeatherData}
+              analysisOpen={analysisOpen}
+              onAnalysisToggle={() => setAnalysisOpen(!analysisOpen)}
+            />
 
-          {/* Right — Map */}
-          <div className="min-h-0">
-            <Card className="h-full min-h-[500px]">
-              <MapComponent
-                waypoints={waypoints}
-                onWaypointsChange={setWaypoints}
-                isEditing={mapEditing}
-                weatherLayer={weatherLayer}
-                windData={windData}
-                waveData={waveData}
-                windVelocityData={windVelocityData}
-                currentVelocityData={currentVelocityData}
-                showZones={showZones}
-                zoneKey={zoneKey}
-                isDrawingZone={isDrawingZone}
-                onSaveZone={handleSaveZone}
-                onCancelZone={() => setIsDrawingZone(false)}
-                forecastEnabled={forecastEnabled}
-                onForecastClose={() => setForecastEnabled(false)}
-                onForecastHourChange={handleForecastHourChange}
-                onWaveForecastHourChange={handleWaveForecastHourChange}
-                onCurrentForecastHourChange={handleCurrentForecastHourChange}
-                onViewportChange={setViewport}
-                viewportBounds={viewport?.bounds ?? null}
-              >
-                <MapOverlayControls
-                  weatherLayer={weatherLayer}
-                  onWeatherLayerChange={setWeatherLayer}
-                  forecastEnabled={forecastEnabled}
-                  onForecastToggle={() => setForecastEnabled(!forecastEnabled)}
-                  isLoadingWeather={isLoadingWeather}
-                  onRefresh={loadWeatherData}
-                />
-              </MapComponent>
-            </Card>
-          </div>
+            <RouteIndicatorPanel
+              waypoints={waypoints}
+              onWaypointsChange={setWaypoints}
+              routeName={routeName}
+              totalDistance={totalDistance}
+              isEditing={isEditing}
+              onIsEditingChange={setIsEditing}
+              isCalculating={isCalculating}
+              onCalculate={handleCalculate}
+              isOptimizing={isOptimizing}
+              onOptimize={handleOptimize}
+              optimizationResult={optimizationResult}
+              onApplyOptimizedRoute={applyOptimizedRoute}
+              onRouteImport={handleRouteImport}
+              onLoadRoute={handleLoadRoute}
+              onClearRoute={handleClearRoute}
+              analysisFuel={displayedAnalysis?.result.total_fuel_mt}
+              analysisTime={displayedAnalysis?.result.total_time_hours}
+              analysisAvgSpeed={displayedAnalysis?.result.avg_sog_kts}
+            />
+
+            <AnalysisSlidePanel
+              open={analysisOpen}
+              onClose={() => setAnalysisOpen(false)}
+              analyses={analyses}
+              displayedAnalysisId={displayedAnalysisId}
+              onShowOnMap={handleShowOnMap}
+              onDelete={handleDeleteAnalysis}
+              onRunSimulation={handleRunSimulation}
+              simulatingId={simulatingId}
+            />
+          </MapComponent>
         </div>
       </main>
     </div>
