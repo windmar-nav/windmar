@@ -47,6 +47,8 @@ from src.optimization.vessel_model import VesselModel, VesselSpecs
 from src.optimization.voyage import VoyageCalculator, LegWeather
 from src.optimization.route_optimizer import RouteOptimizer, OptimizedRoute
 from src.optimization.grid_weather_provider import GridWeatherProvider
+from src.optimization.temporal_weather_provider import TemporalGridWeatherProvider, WeatherProvenance
+from src.optimization.weather_assessment import RouteWeatherAssessment
 from src.optimization.monte_carlo import MonteCarloSimulator, MonteCarloResult as MCResult
 from src.optimization.vessel_calibration import (
     VesselCalibrator, NoonReport, CalibrationFactors, create_calibrated_model
@@ -331,6 +333,14 @@ class OptimizationRequest(BaseModel):
     grid_resolution_deg: float = Field(0.5, ge=0.1, le=2.0, description="Grid resolution in degrees")
 
 
+class WeatherProvenanceModel(BaseModel):
+    """Weather data source provenance metadata."""
+    source_type: str  # "forecast", "hindcast", "climatology", "blended"
+    model_name: str  # "GFS", "CMEMS_wave", etc.
+    forecast_lead_hours: float
+    confidence: str  # "high", "medium", "low"
+
+
 class OptimizationLegModel(BaseModel):
     """Optimized route leg details."""
     from_lat: float
@@ -349,6 +359,8 @@ class OptimizationLegModel(BaseModel):
     safety_status: Optional[str] = None
     roll_deg: Optional[float] = None
     pitch_deg: Optional[float] = None
+    # Weather provenance per leg
+    data_source: Optional[str] = None  # "forecast (high confidence)" etc.
 
 
 class SafetySummary(BaseModel):
@@ -383,6 +395,10 @@ class OptimizationResponse(BaseModel):
 
     # Safety assessment
     safety: Optional[SafetySummary] = None
+
+    # Weather provenance
+    weather_provenance: Optional[List[WeatherProvenanceModel]] = None
+    temporal_weather: bool = False  # True if time-varying weather was used
 
     # Metadata
     optimization_target: str
@@ -2217,19 +2233,52 @@ async def optimize_route(request: OptimizationRequest):
     route_optimizer.optimization_target = request.optimization_target
 
     try:
-        # Pre-fetch weather for the corridor bounding box (single bulk fetch)
-        margin = 5.0
-        lat_min = min(request.origin.lat, request.destination.lat) - margin
-        lat_max = max(request.origin.lat, request.destination.lat) + margin
-        lon_min = min(request.origin.lon, request.destination.lon) - margin
-        lon_max = max(request.origin.lon, request.destination.lon) + margin
-        lat_min, lat_max = max(lat_min, -85), min(lat_max, 85)
+        # ── Temporal weather provisioning (DB-first) ──────────────────
+        temporal_wx = None
+        provenance_models = None
+        used_temporal = False
 
-        wind = get_wind_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
-        waves = get_wave_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, wind)
-        currents = get_current_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg)
+        if db_weather is not None:
+            try:
+                assessor = RouteWeatherAssessment(db_weather=db_weather)
+                wx_needs = assessor.assess(
+                    origin=(request.origin.lat, request.origin.lon),
+                    destination=(request.destination.lat, request.destination.lon),
+                    departure_time=departure,
+                    calm_speed_kts=request.calm_speed_kts,
+                )
+                temporal_wx = assessor.provision(wx_needs)
+                if temporal_wx is not None:
+                    used_temporal = True
+                    provenance_models = [
+                        WeatherProvenanceModel(
+                            source_type=p.source_type,
+                            model_name=p.model_name,
+                            forecast_lead_hours=round(p.forecast_lead_hours, 1),
+                            confidence=p.confidence,
+                        )
+                        for p in temporal_wx.provenance.values()
+                    ]
+                    logger.info("Using temporal weather provider for route optimization")
+            except Exception as e:
+                logger.warning(f"Temporal weather provisioning failed, falling back: {e}")
 
-        grid_wx = GridWeatherProvider(wind, waves, currents)
+        # ── Fallback: single-snapshot GridWeatherProvider ─────────────
+        if temporal_wx is None:
+            margin = 5.0
+            lat_min = min(request.origin.lat, request.destination.lat) - margin
+            lat_max = max(request.origin.lat, request.destination.lat) + margin
+            lon_min = min(request.origin.lon, request.destination.lon) - margin
+            lon_max = max(request.origin.lon, request.destination.lon) + margin
+            lat_min, lat_max = max(lat_min, -85), min(lat_max, 85)
+
+            wind = get_wind_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
+            waves = get_wave_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, wind)
+            currents = get_current_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg)
+            grid_wx = GridWeatherProvider(wind, waves, currents)
+
+        # Select weather provider callable
+        wx_provider = temporal_wx.get_weather if temporal_wx else grid_wx.get_weather
 
         result = route_optimizer.optimize_route(
             origin=(request.origin.lat, request.origin.lon),
@@ -2237,14 +2286,25 @@ async def optimize_route(request: OptimizationRequest):
             departure_time=departure,
             calm_speed_kts=request.calm_speed_kts,
             is_laden=request.is_laden,
-            weather_provider=grid_wx.get_weather,
+            weather_provider=wx_provider,
         )
 
         # Format response
         waypoints = [Position(lat=wp[0], lon=wp[1]) for wp in result.waypoints]
 
+        # Compute cumulative time for provenance per leg
+        cum_time_h = 0.0
         legs = []
         for leg in result.leg_details:
+            # Per-leg provenance label
+            data_source_label = None
+            if used_temporal and temporal_wx is not None:
+                from datetime import timedelta as _td
+                leg_time = departure + _td(hours=cum_time_h + leg['time_hours'] / 2)
+                prov = temporal_wx.get_provenance(leg_time)
+                data_source_label = f"{prov.source_type} ({prov.confidence} confidence)"
+            cum_time_h += leg['time_hours']
+
             legs.append(OptimizationLegModel(
                 from_lat=leg['from'][0],
                 from_lon=leg['from'][1],
@@ -2255,12 +2315,13 @@ async def optimize_route(request: OptimizationRequest):
                 fuel_mt=round(leg['fuel_mt'], 3),
                 time_hours=round(leg['time_hours'], 2),
                 sog_kts=round(leg['sog_kts'], 1),
-                stw_kts=round(leg.get('stw_kts', leg['sog_kts']), 1),  # Optimized speed through water
+                stw_kts=round(leg.get('stw_kts', leg['sog_kts']), 1),
                 wind_speed_ms=round(leg['wind_speed_ms'], 1),
                 wave_height_m=round(leg['wave_height_m'], 1),
                 safety_status=leg.get('safety_status'),
                 roll_deg=round(leg['roll_deg'], 1) if leg.get('roll_deg') else None,
                 pitch_deg=round(leg['pitch_deg'], 1) if leg.get('pitch_deg') else None,
+                data_source=data_source_label,
             ))
 
         # Build safety summary
@@ -2286,6 +2347,8 @@ async def optimize_route(request: OptimizationRequest):
             avg_speed_kts=round(result.avg_speed_kts, 1),
             variable_speed_enabled=result.variable_speed_enabled,
             safety=safety_summary,
+            weather_provenance=provenance_models,
+            temporal_weather=used_temporal,
             optimization_target=request.optimization_target,
             grid_resolution_deg=request.grid_resolution_deg,
             cells_explored=result.cells_explored,

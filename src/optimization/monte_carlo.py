@@ -29,7 +29,6 @@ References:
 """
 
 import logging
-import math
 import time as time_mod
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
@@ -293,136 +292,60 @@ class MonteCarloSimulator:
         db_weather,
         wind_provider: Optional[Callable],
     ) -> Optional[List[LegWeather]]:
-        """Pre-fetch from DB (wave/current grids) + wind_provider (GFS).
+        """Pre-fetch from DB using shared TemporalGridWeatherProvider.
+
+        Builds a TemporalGridWeatherProvider via RouteWeatherAssessment,
+        then queries it at each slice position. Falls back to the legacy
+        manual interpolation if the temporal provider is unavailable.
 
         Returns list of LegWeather per slice, or None if DB has no data.
         """
-        from src.optimization.grid_weather_provider import GridWeatherProvider
+        try:
+            from src.optimization.weather_assessment import RouteWeatherAssessment
 
-        # Route bounding box with margin
-        all_lats = [s[1] for s in slices]
-        all_lons = [s[2] for s in slices]
-        margin = 2.0
-        bbox = (
-            min(all_lats) - margin, max(all_lats) + margin,
-            min(all_lons) - margin, max(all_lons) + margin,
-        )
-
-        # Load wave grids for all needed forecast hours
-        times = [s[0] for s in slices]
-        wave_grids = db_weather.get_wave_grids_for_timeline(*bbox, times)
-        if not wave_grids:
-            logger.info("MC: No wave grids in DB, falling back to weather_provider")
-            return None
-
-        # Load current grid (single snapshot)
-        current_data = db_weather.get_current_from_db(*bbox)
-
-        # Determine which forecast hour each slice maps to
-        run_time, available_hours = db_weather.get_available_wave_hours()
-        if not available_hours:
-            return None
-        if run_time is not None and run_time.tzinfo is None:
-            run_time = run_time.replace(tzinfo=timezone.utc)
-
-        # Pre-fetch wind at leg midpoints via weather_provider (GFS, cached)
-        # Use total voyage time from slices to estimate speed
-        wind_at_legs: Dict[int, LegWeather] = {}
-        if wind_provider:
+            # Compute bounding box and time range from slices
+            all_lats = [s[1] for s in slices]
+            all_lons = [s[2] for s in slices]
+            departure = slices[0][0]
             total_time_h = max(
                 1.0,
                 (slices[-1][0] - slices[0][0]).total_seconds() / 3600.0,
             )
             est_speed = route.total_distance_nm / total_time_h
-            leg_start_t = slices[0][0]
-            for i, leg in enumerate(route.legs):
-                mid_lat = (leg.from_wp.lat + leg.to_wp.lat) / 2
-                mid_lon = (leg.from_wp.lon + leg.to_wp.lon) / 2
-                leg_time_h = leg.distance_nm / max(est_speed, 1.0)
-                mid_t = leg_start_t + timedelta(hours=leg_time_h / 2)
-                try:
-                    wind_at_legs[i] = wind_provider(mid_lat, mid_lon, mid_t)
-                except Exception:
-                    wind_at_legs[i] = LegWeather()
-                leg_start_t += timedelta(hours=leg_time_h)
 
-        # Build leg midpoint lookup for wind interpolation
-        leg_midpoints = []
-        for leg in route.legs:
-            leg_midpoints.append((
-                (leg.from_wp.lat + leg.to_wp.lat) / 2,
-                (leg.from_wp.lon + leg.to_wp.lon) / 2,
-            ))
+            # Use RouteWeatherAssessment for provisioning
+            origin_lat = all_lats[0]
+            origin_lon = all_lons[0]
+            dest_lat = all_lats[-1]
+            dest_lon = all_lons[-1]
 
-        # Build base weather for each time slice
-        result = []
-        for idx, (t, lat, lon) in enumerate(slices):
-            # Wave: bilinear interpolation from DB grid at nearest forecast hour
-            if t.tzinfo is None:
-                t_aware = t.replace(tzinfo=timezone.utc)
-            else:
-                t_aware = t
-            delta_h = (t_aware - run_time).total_seconds() / 3600.0
-            best_fh = min(wave_grids.keys(), key=lambda h: abs(h - delta_h))
-            lats_w, lons_w, hs_grid, tp_grid, dir_grid = wave_grids[best_fh]
+            assessor = RouteWeatherAssessment(db_weather=db_weather)
+            assessment = assessor.assess(
+                origin=(origin_lat, origin_lon),
+                destination=(dest_lat, dest_lon),
+                departure_time=departure,
+                calm_speed_kts=est_speed,
+            )
+            temporal_wx = assessor.provision(assessment)
 
-            wave_hs = GridWeatherProvider._interp(lat, lon, lats_w, lons_w, hs_grid)
-            wave_tp = 0.0
-            wave_dir = 0.0
-            if tp_grid is not None:
-                wave_tp = GridWeatherProvider._interp(lat, lon, lats_w, lons_w, tp_grid)
-            if dir_grid is not None:
-                wave_dir = GridWeatherProvider._interp(lat, lon, lats_w, lons_w, dir_grid)
-            if wave_tp <= 0 and wave_hs > 0:
-                wave_tp = 5.0 + wave_hs
+            if temporal_wx is None:
+                logger.info("MC: Temporal provider unavailable, falling back to weather_provider")
+                return None
 
-            # Current: bilinear interpolation from DB grid
-            current_speed = 0.0
-            current_dir = 0.0
-            if current_data is not None and current_data.u_component is not None:
-                cu = GridWeatherProvider._interp(
-                    lat, lon,
-                    np.asarray(current_data.lats), np.asarray(current_data.lons),
-                    np.asarray(current_data.u_component),
-                )
-                cv = GridWeatherProvider._interp(
-                    lat, lon,
-                    np.asarray(current_data.lats), np.asarray(current_data.lons),
-                    np.asarray(current_data.v_component),
-                )
-                current_speed = math.sqrt(cu * cu + cv * cv)
-                current_dir = (270.0 - math.degrees(math.atan2(cv, cu))) % 360.0
+            # Query temporal provider at each slice
+            result = []
+            for t, lat, lon in slices:
+                result.append(temporal_wx.get_weather(lat, lon, t))
 
-            # Wind: interpolate from nearest leg midpoint
-            wind_speed = 0.0
-            wind_dir = 0.0
-            if wind_at_legs:
-                best_leg = 0
-                best_d = float("inf")
-                for li, (ml, mn) in enumerate(leg_midpoints):
-                    d = (lat - ml) ** 2 + (lon - mn) ** 2
-                    if d < best_d:
-                        best_d = d
-                        best_leg = li
-                w = wind_at_legs.get(best_leg, LegWeather())
-                wind_speed = w.wind_speed_ms
-                wind_dir = w.wind_dir_deg
+            logger.info(
+                f"MC: Temporal pre-fetch complete — {len(result)} slices "
+                f"via TemporalGridWeatherProvider"
+            )
+            return result
 
-            result.append(LegWeather(
-                wind_speed_ms=wind_speed,
-                wind_dir_deg=wind_dir,
-                sig_wave_height_m=max(wave_hs, 0.0),
-                wave_period_s=max(wave_tp, 0.0),
-                wave_dir_deg=wave_dir,
-                current_speed_ms=current_speed,
-                current_dir_deg=current_dir,
-            ))
-
-        logger.info(
-            f"MC: DB pre-fetch complete — {len(wave_grids)} wave forecast hours, "
-            f"{len(result)} slices"
-        )
-        return result
+        except Exception as e:
+            logger.warning(f"MC: Temporal pre-fetch failed ({e}), falling back")
+            return None
 
     def _prefetch_from_provider(
         self,

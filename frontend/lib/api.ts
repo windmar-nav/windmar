@@ -272,6 +272,13 @@ export interface OptimizationRequest {
   grid_resolution_deg: number;
 }
 
+export interface WeatherProvenance {
+  source_type: string;
+  model_name: string;
+  forecast_lead_hours: number;
+  confidence: 'high' | 'medium' | 'low';
+}
+
 export interface OptimizationLeg {
   from_lat: number;
   from_lon: number;
@@ -289,6 +296,8 @@ export interface OptimizationLeg {
   safety_status?: 'safe' | 'marginal' | 'dangerous';
   roll_deg?: number;
   pitch_deg?: number;
+  // Weather provenance per leg
+  data_source?: string;
 }
 
 export interface SafetySummary {
@@ -315,6 +324,9 @@ export interface OptimizationResponse {
   variable_speed_enabled: boolean;
   // Safety assessment
   safety?: SafetySummary;
+  // Weather provenance
+  weather_provenance?: WeatherProvenance[];
+  temporal_weather: boolean;
   optimization_target: string;
   grid_resolution_deg: number;
   cells_explored: number;

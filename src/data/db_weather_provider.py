@@ -390,6 +390,102 @@ class DbWeatherProvider:
         finally:
             conn.close()
 
+    def get_grids_for_timeline(
+        self,
+        source: str,
+        parameters: list,
+        lat_min: float,
+        lat_max: float,
+        lon_min: float,
+        lon_max: float,
+        forecast_hours: list,
+    ) -> dict:
+        """Load grids for arbitrary source/parameters/forecast hours.
+
+        Generalised version of get_wave_grids_for_timeline() that works for
+        any source (gfs, cmems_wave, cmems_current) and parameter set.
+
+        Returns:
+            Dict mapping parameter -> {forecast_hour -> (lats, lons, data_2d)}.
+            Missing parameter/hour combos are silently skipped.
+        """
+        run_id = self._find_latest_run(source)
+        if run_id is None:
+            return {}
+
+        conn = self._get_conn()
+        try:
+            # Determine which forecast hours actually exist for this run
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT array_agg(DISTINCT forecast_hour ORDER BY forecast_hour)
+                   FROM weather_grid_data WHERE run_id = %s""",
+                (run_id,),
+            )
+            row = cur.fetchone()
+            available_hours = set(row[0]) if row and row[0] else set()
+
+            # Map each requested hour to the closest available one
+            needed_hours = set()
+            for fh in forecast_hours:
+                if available_hours:
+                    best = min(available_hours, key=lambda h: abs(h - fh))
+                    needed_hours.add(best)
+
+            result: dict = {p: {} for p in parameters}
+            for fh in sorted(needed_hours):
+                for param in parameters:
+                    grid = self._load_grid(conn, run_id, fh, param)
+                    if grid is None:
+                        continue
+                    lats, lons, data = grid
+                    lats_c, lons_c, data_c = self._crop_grid(
+                        lats, lons, data, lat_min, lat_max, lon_min, lon_max
+                    )
+                    result[param][fh] = (lats_c, lons_c, data_c)
+
+            total_grids = sum(len(v) for v in result.values())
+            logger.info(
+                f"get_grids_for_timeline({source}): loaded {total_grids} grids "
+                f"for {len(parameters)} params × {len(needed_hours)} hours"
+            )
+            return result
+
+        except Exception as e:
+            logger.error(f"Failed to load grids for timeline ({source}): {e}")
+            return {}
+        finally:
+            conn.close()
+
+    def get_available_hours_by_source(self, source: str) -> tuple:
+        """Return (run_time, [forecast_hours]) for the latest complete run of a source.
+
+        Works for any source: 'gfs', 'cmems_wave', 'cmems_current'.
+        """
+        run_id = self._find_latest_run(source)
+        if run_id is None:
+            return None, []
+
+        conn = self._get_conn()
+        try:
+            cur = conn.cursor()
+            cur.execute(
+                """SELECT r.run_time, array_agg(DISTINCT g.forecast_hour ORDER BY g.forecast_hour)
+                   FROM weather_forecast_runs r
+                   JOIN weather_grid_data g ON g.run_id = r.id
+                   WHERE r.id = %s
+                   GROUP BY r.run_time""",
+                (run_id,),
+            )
+            row = cur.fetchone()
+            if row is None:
+                return None, []
+            return row[0], row[1] or []
+        except Exception:
+            return None, []
+        finally:
+            conn.close()
+
     def has_data(self) -> bool:
         """Check if any complete weather data exists in the database."""
         conn = self._get_conn()

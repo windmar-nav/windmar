@@ -190,6 +190,12 @@ class WeatherIngestionService:
                             ("wave_hs", wd.values),
                             ("wave_tp", wd.wave_period),
                             ("wave_dir", wd.wave_direction),
+                            ("swell_hs", wd.swell_height),
+                            ("swell_tp", wd.swell_period),
+                            ("swell_dir", wd.swell_direction),
+                            ("windwave_hs", wd.windwave_height),
+                            ("windwave_tp", wd.windwave_period),
+                            ("windwave_dir", wd.windwave_direction),
                         ]:
                             if arr is None:
                                 continue
@@ -261,6 +267,12 @@ class WeatherIngestionService:
                     ("wave_hs", wave_data.values),
                     ("wave_tp", wave_data.wave_period),
                     ("wave_dir", wave_data.wave_direction),
+                    ("swell_hs", wave_data.swell_height),
+                    ("swell_tp", wave_data.swell_period),
+                    ("swell_dir", wave_data.swell_direction),
+                    ("windwave_hs", wave_data.windwave_height),
+                    ("windwave_tp", wave_data.windwave_period),
+                    ("windwave_dir", wave_data.windwave_direction),
                 ]:
                     if arr is None:
                         continue
@@ -292,70 +304,152 @@ class WeatherIngestionService:
             conn.close()
 
     def ingest_currents(self):
-        """Fetch CMEMS current analysis (u, v)."""
+        """Fetch CMEMS current data.
+
+        Tries multi-timestep forecast first (0-120h, 3-hourly).
+        Falls back to single snapshot if forecast fetch is unavailable.
+        """
         source = "cmems_current"
         run_time = datetime.now(timezone.utc)
+
+        # Try multi-timestep forecast first
+        forecast_frames = None
+        if hasattr(self.copernicus_provider, "fetch_current_forecast"):
+            try:
+                logger.info("Attempting CMEMS current forecast download (0-120h)...")
+                forecast_frames = self.copernicus_provider.fetch_current_forecast(
+                    self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
+                )
+            except Exception as e:
+                logger.warning(f"Current forecast fetch failed, falling back to snapshot: {e}")
+
         conn = self._get_conn()
         try:
             cur = conn.cursor()
-            cur.execute(
-                """INSERT INTO weather_forecast_runs
-                   (source, run_time, status, grid_resolution,
-                    lat_min, lat_max, lon_min, lon_max, forecast_hours)
-                   VALUES (%s, %s, 'ingesting', %s, %s, %s, %s, %s, %s)
-                   ON CONFLICT (source, run_time) DO UPDATE
-                   SET status = 'ingesting', ingested_at = NOW()
-                   RETURNING id""",
-                (source, run_time, self.GRID_RESOLUTION,
-                 self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
-                 [0]),
-            )
-            run_id = cur.fetchone()[0]
-            conn.commit()
 
-            current_data = self.copernicus_provider.fetch_current_data(
-                self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
-            )
-            if current_data is None:
+            if forecast_frames:
+                # Multi-timestep path
+                available_hours = sorted(forecast_frames.keys())
                 cur.execute(
-                    "UPDATE weather_forecast_runs SET status = 'failed' WHERE id = %s",
+                    """INSERT INTO weather_forecast_runs
+                       (source, run_time, status, grid_resolution,
+                        lat_min, lat_max, lon_min, lon_max, forecast_hours)
+                       VALUES (%s, %s, 'ingesting', %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (source, run_time) DO UPDATE
+                       SET status = 'ingesting', ingested_at = NOW()
+                       RETURNING id""",
+                    (source, run_time, self.GRID_RESOLUTION,
+                     self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
+                     available_hours),
+                )
+                run_id = cur.fetchone()[0]
+                conn.commit()
+
+                ingested_hours = []
+                for fh in available_hours:
+                    try:
+                        cd = forecast_frames[fh]
+                        lats_blob = self._compress(np.asarray(cd.lats))
+                        lons_blob = self._compress(np.asarray(cd.lons))
+                        rows = len(cd.lats)
+                        cols = len(cd.lons)
+
+                        for param, arr in [
+                            ("current_u", cd.u_component),
+                            ("current_v", cd.v_component),
+                        ]:
+                            if arr is None:
+                                continue
+                            cur.execute(
+                                """INSERT INTO weather_grid_data
+                                   (run_id, forecast_hour, parameter, lats, lons, data, shape_rows, shape_cols)
+                                   VALUES (%s, %s, %s, %s, %s, %s, %s, %s)
+                                   ON CONFLICT (run_id, forecast_hour, parameter)
+                                   DO UPDATE SET data = EXCLUDED.data,
+                                                lats = EXCLUDED.lats,
+                                                lons = EXCLUDED.lons,
+                                                shape_rows = EXCLUDED.shape_rows,
+                                                shape_cols = EXCLUDED.shape_cols""",
+                                (run_id, fh, param, lats_blob, lons_blob,
+                                 self._compress(np.asarray(arr)), rows, cols),
+                            )
+                        ingested_hours.append(fh)
+                        conn.commit()
+                        logger.debug(f"Ingested CMEMS current f{fh:03d}")
+                    except Exception as e:
+                        logger.error(f"Failed to ingest current f{fh:03d}: {e}")
+                        conn.rollback()
+
+                status = "complete" if ingested_hours else "failed"
+                cur.execute(
+                    "UPDATE weather_forecast_runs SET status = %s, forecast_hours = %s WHERE id = %s",
+                    (status, ingested_hours, run_id),
+                )
+                conn.commit()
+                logger.info(
+                    f"CMEMS current forecast ingestion {status}: "
+                    f"{len(ingested_hours)}/{len(available_hours)} hours"
+                )
+            else:
+                # Single-snapshot fallback
+                cur.execute(
+                    """INSERT INTO weather_forecast_runs
+                       (source, run_time, status, grid_resolution,
+                        lat_min, lat_max, lon_min, lon_max, forecast_hours)
+                       VALUES (%s, %s, 'ingesting', %s, %s, %s, %s, %s, %s)
+                       ON CONFLICT (source, run_time) DO UPDATE
+                       SET status = 'ingesting', ingested_at = NOW()
+                       RETURNING id""",
+                    (source, run_time, self.GRID_RESOLUTION,
+                     self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
+                     [0]),
+                )
+                run_id = cur.fetchone()[0]
+                conn.commit()
+
+                current_data = self.copernicus_provider.fetch_current_data(
+                    self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
+                )
+                if current_data is None:
+                    cur.execute(
+                        "UPDATE weather_forecast_runs SET status = 'failed' WHERE id = %s",
+                        (run_id,),
+                    )
+                    conn.commit()
+                    logger.warning("CMEMS current fetch returned None")
+                    return
+
+                lats_blob = self._compress(np.asarray(current_data.lats))
+                lons_blob = self._compress(np.asarray(current_data.lons))
+                rows = len(current_data.lats)
+                cols = len(current_data.lons)
+
+                for param, arr in [
+                    ("current_u", current_data.u_component),
+                    ("current_v", current_data.v_component),
+                ]:
+                    if arr is None:
+                        continue
+                    cur.execute(
+                        """INSERT INTO weather_grid_data
+                           (run_id, forecast_hour, parameter, lats, lons, data, shape_rows, shape_cols)
+                           VALUES (%s, 0, %s, %s, %s, %s, %s, %s)
+                           ON CONFLICT (run_id, forecast_hour, parameter)
+                           DO UPDATE SET data = EXCLUDED.data,
+                                        lats = EXCLUDED.lats,
+                                        lons = EXCLUDED.lons,
+                                        shape_rows = EXCLUDED.shape_rows,
+                                        shape_cols = EXCLUDED.shape_cols""",
+                        (run_id, param, lats_blob, lons_blob,
+                         self._compress(np.asarray(arr)), rows, cols),
+                    )
+
+                cur.execute(
+                    "UPDATE weather_forecast_runs SET status = 'complete' WHERE id = %s",
                     (run_id,),
                 )
                 conn.commit()
-                logger.warning("CMEMS current fetch returned None")
-                return
-
-            lats_blob = self._compress(np.asarray(current_data.lats))
-            lons_blob = self._compress(np.asarray(current_data.lons))
-            rows = len(current_data.lats)
-            cols = len(current_data.lons)
-
-            for param, arr in [
-                ("current_u", current_data.u_component),
-                ("current_v", current_data.v_component),
-            ]:
-                if arr is None:
-                    continue
-                cur.execute(
-                    """INSERT INTO weather_grid_data
-                       (run_id, forecast_hour, parameter, lats, lons, data, shape_rows, shape_cols)
-                       VALUES (%s, 0, %s, %s, %s, %s, %s, %s)
-                       ON CONFLICT (run_id, forecast_hour, parameter)
-                       DO UPDATE SET data = EXCLUDED.data,
-                                    lats = EXCLUDED.lats,
-                                    lons = EXCLUDED.lons,
-                                    shape_rows = EXCLUDED.shape_rows,
-                                    shape_cols = EXCLUDED.shape_cols""",
-                    (run_id, param, lats_blob, lons_blob,
-                     self._compress(np.asarray(arr)), rows, cols),
-                )
-
-            cur.execute(
-                "UPDATE weather_forecast_runs SET status = 'complete' WHERE id = %s",
-                (run_id,),
-            )
-            conn.commit()
-            logger.info("CMEMS current ingestion complete")
+                logger.info("CMEMS current snapshot ingestion complete (forecast unavailable)")
 
         except Exception as e:
             logger.error(f"Current ingestion failed: {e}")

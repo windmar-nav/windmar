@@ -250,7 +250,18 @@ export default function HomePage() {
         ? `Fuel savings: ${result.fuel_savings_pct.toFixed(1)}%`
         : 'No savings found (direct route is optimal)';
 
-      alert(`Route optimized!\n\n${savings}\nCells explored: ${result.cells_explored}\nTime: ${result.optimization_time_ms.toFixed(0)}ms`);
+      // Weather provenance info
+      let wxInfo = '';
+      if (result.temporal_weather && result.weather_provenance?.length) {
+        const sources = result.weather_provenance.map(
+          (p) => `${p.model_name}: ${p.confidence} confidence (${p.forecast_lead_hours}h lead)`
+        ).join('\n  ');
+        wxInfo = `\n\nWeather: Time-varying (temporal)\n  ${sources}`;
+      } else {
+        wxInfo = '\n\nWeather: Single snapshot';
+      }
+
+      alert(`Route optimized!\n\n${savings}\nCells explored: ${result.cells_explored}\nTime: ${result.optimization_time_ms.toFixed(0)}ms${wxInfo}`);
 
     } catch (error) {
       console.error('Route optimization failed:', error);

@@ -640,6 +640,121 @@ class CopernicusDataProvider:
             logger.error(f"Failed to parse current data: {e}")
             return None
 
+    # ------------------------------------------------------------------
+    # Current forecast (multi-timestep)
+    # ------------------------------------------------------------------
+    CURRENT_FORECAST_HOURS = list(range(0, 121, 3))  # 0-120h every 3h
+
+    def fetch_current_forecast(
+        self,
+        lat_min: float,
+        lat_max: float,
+        lon_min: float,
+        lon_max: float,
+    ) -> Optional[Dict[int, "WeatherData"]]:
+        """
+        Fetch 0-120h surface current forecast from CMEMS in a single download.
+
+        Uses the CMEMS physics dataset (hourly means, 1/12 deg resolution).
+
+        Returns:
+            Dict mapping forecast_hour -> WeatherData with u/v current components,
+            or None on failure.
+        """
+        if not self._has_copernicusmarine or not self._has_xarray:
+            logger.warning("CMEMS API not available for current forecast")
+            return None
+
+        import copernicusmarine
+        import xarray as xr
+
+        now = datetime.utcnow()
+        start_dt = now - timedelta(hours=1)
+        end_dt = now + timedelta(hours=122)
+
+        cache_key = now.strftime("%Y%m%d_%H")
+        cache_file = (
+            self.cache_dir
+            / f"current_forecast_{cache_key}_lat{lat_min:.0f}_{lat_max:.0f}_lon{lon_min:.0f}_{lon_max:.0f}.nc"
+        )
+
+        try:
+            if cache_file.exists():
+                logger.info(f"Loading current forecast from cache: {cache_file}")
+                ds = xr.open_dataset(cache_file)
+            else:
+                logger.info(f"Downloading CMEMS current forecast {start_dt} -> {end_dt}")
+                ds = copernicusmarine.open_dataset(
+                    dataset_id=self.CMEMS_PHYSICS_DATASET,
+                    variables=["uo", "vo"],
+                    minimum_longitude=lon_min,
+                    maximum_longitude=lon_max,
+                    minimum_latitude=lat_min,
+                    maximum_latitude=lat_max,
+                    start_datetime=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                    end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                    minimum_depth=0,
+                    maximum_depth=10,
+                    username=self.cmems_username,
+                    password=self.cmems_password,
+                )
+                if ds is None:
+                    logger.error("CMEMS returned None for current forecast")
+                    return None
+                ds.to_netcdf(cache_file)
+                ds.close()
+                logger.info(f"Current forecast cached: {cache_file}")
+                ds = xr.open_dataset(cache_file)
+
+            lats = ds["latitude"].values
+            lons = ds["longitude"].values
+            times = ds["time"].values
+
+            import pandas as pd
+
+            base_time = pd.Timestamp(times[0]).to_pydatetime()
+            frames: Dict[int, WeatherData] = {}
+
+            for t_idx in range(len(times)):
+                ts = pd.Timestamp(times[t_idx]).to_pydatetime()
+                fh = round((ts - base_time).total_seconds() / 3600)
+                if fh < 0 or fh > 120 or fh % 3 != 0:
+                    continue
+
+                uo = ds["uo"].values
+                vo = ds["vo"].values
+
+                # Handle depth dimension
+                if len(uo.shape) == 4:
+                    uo_2d = uo[t_idx, 0]
+                    vo_2d = vo[t_idx, 0]
+                elif len(uo.shape) == 3:
+                    uo_2d = uo[t_idx]
+                    vo_2d = vo[t_idx]
+                else:
+                    continue
+
+                uo_2d = np.nan_to_num(uo_2d, nan=0.0)
+                vo_2d = np.nan_to_num(vo_2d, nan=0.0)
+
+                frames[fh] = WeatherData(
+                    parameter="current",
+                    time=ts,
+                    lats=lats,
+                    lons=lons,
+                    values=np.sqrt(uo_2d ** 2 + vo_2d ** 2),
+                    unit="m/s",
+                    u_component=uo_2d,
+                    v_component=vo_2d,
+                )
+
+            logger.info(f"Current forecast: {len(frames)} frames extracted (hours: {sorted(frames.keys())})")
+            return frames if frames else None
+
+        except Exception as e:
+            logger.error(f"Failed to fetch current forecast: {e}")
+            return None
+
     def get_weather_at_point(
         self,
         lat: float,
