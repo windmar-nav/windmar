@@ -10,6 +10,8 @@ import AnalysisTab from '@/components/AnalysisTab';
 import MapOverlayControls from '@/components/MapOverlayControls';
 import { apiClient, Position, WindFieldData, WaveFieldData, VelocityData, VoyageResponse, OptimizationResponse, CreateZoneRequest, WaveForecastFrames } from '@/lib/api';
 import { getAnalyses, saveAnalysis, deleteAnalysis, updateAnalysisMonteCarlo, AnalysisEntry } from '@/lib/analysisStorage';
+import { debugLog } from '@/lib/debugLog';
+import DebugConsole from '@/components/DebugConsole';
 
 // Dynamic import for MapComponent (client-side only)
 const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
@@ -87,6 +89,8 @@ export default function HomePage() {
     if (!v) return;
 
     setIsLoadingWeather(true);
+    const t0 = performance.now();
+    debugLog('info', 'API', `Loading weather: zoom=${v.zoom}, bbox=[${v.bounds.lat_min.toFixed(1)},${v.bounds.lat_max.toFixed(1)},${v.bounds.lon_min.toFixed(1)},${v.bounds.lon_max.toFixed(1)}]`);
     try {
       const params = {
         lat_min: v.bounds.lat_min,
@@ -101,12 +105,14 @@ export default function HomePage() {
         apiClient.getWindVelocity(params),
         apiClient.getCurrentVelocity(params).catch(() => null),
       ]);
+      const dt = (performance.now() - t0).toFixed(0);
+      debugLog('info', 'API', `Weather loaded in ${dt}ms: wind=${wind?.ny}x${wind?.nx}, waves=${waves?.ny}x${waves?.nx}, currents=${currentVel ? 'yes' : 'no'}`);
       setWindData(wind);
       setWaveData(waves);
       setWindVelocityData(windVel);
       setCurrentVelocityData(currentVel);
     } catch (error) {
-      console.error('Failed to load weather:', error);
+      debugLog('error', 'API', `Weather load failed: ${error}`);
     } finally {
       setIsLoadingWeather(false);
     }
@@ -132,12 +138,21 @@ export default function HomePage() {
   // Handle wave forecast hour change — construct WaveFieldData from frame
   const handleWaveForecastHourChange = useCallback((hour: number, allFrames: WaveForecastFrames | null) => {
     setForecastHour(hour);
-    if (!allFrames || hour === 0) {
+    if (!allFrames) {
+      debugLog('warn', 'WAVE', `Hour ${hour}: no frame data available`);
       if (hour === 0) loadWeatherData();
       return;
     }
     const frame = allFrames.frames[String(hour)];
-    if (!frame) return;
+    if (!frame) {
+      debugLog('warn', 'WAVE', `Hour ${hour}: frame not found in ${Object.keys(allFrames.frames).length} frames`);
+      return;
+    }
+
+    // Sample a value from the middle of the grid to verify data changes
+    const midRow = Math.floor((frame.data?.length || 0) / 2);
+    const sample = frame.data?.[midRow]?.[0]?.toFixed(2) ?? 'null';
+    debugLog('info', 'WAVE', `Frame T+${hour}h: sample=${sample}, grid=${allFrames.ny}x${allFrames.nx}`);
 
     const synth: WaveFieldData = {
       parameter: 'wave_height',
@@ -165,6 +180,53 @@ export default function HomePage() {
       colorscale: allFrames.colorscale,
     };
     setWaveData(synth);
+  }, [loadWeatherData]);
+
+  // Handle current forecast hour change — build velocity data from forecast frame
+  const handleCurrentForecastHourChange = useCallback((hour: number, allFrames: any | null) => {
+    setForecastHour(hour);
+    if (!allFrames) {
+      debugLog('warn', 'CURRENT', `Hour ${hour}: no frame data available`);
+      if (hour === 0) loadWeatherData();
+      return;
+    }
+    const frame = allFrames.frames?.[String(hour)];
+    if (!frame || !frame.u || !frame.v) {
+      debugLog('warn', 'CURRENT', `Hour ${hour}: frame not found or missing u/v`);
+      return;
+    }
+    debugLog('info', 'CURRENT', `Frame T+${hour}h: u_sample=${frame.u?.[Math.floor(frame.u.length/2)]?.[0]?.toFixed(3)}`);
+
+    // Build VelocityData for the particle layer (u and v as separate entries)
+    const lats = allFrames.lats as number[];
+    const lons = allFrames.lons as number[];
+    const ny = lats.length;
+    const nx = lons.length;
+    const uFlat: number[] = [];
+    const vFlat: number[] = [];
+    for (let j = 0; j < ny; j++) {
+      for (let i = 0; i < nx; i++) {
+        uFlat.push(frame.u[j]?.[i] ?? 0);
+        vFlat.push(frame.v[j]?.[i] ?? 0);
+      }
+    }
+    const header = {
+      parameterCategory: 2,
+      parameterNumber: 2,
+      lo1: lons[0],
+      la1: lats[ny - 1],
+      lo2: lons[nx - 1],
+      la2: lats[0],
+      dx: lons.length > 1 ? Math.abs(lons[1] - lons[0]) : 1,
+      dy: lats.length > 1 ? Math.abs(lats[1] - lats[0]) : 1,
+      nx,
+      ny,
+      refTime: allFrames.run_time || '',
+    };
+    setCurrentVelocityData([
+      { header: { ...header, parameterNumber: 2 }, data: uFlat },
+      { header: { ...header, parameterNumber: 3 }, data: vFlat },
+    ]);
   }, [loadWeatherData]);
 
   // Handle RTZ import
@@ -234,6 +296,9 @@ export default function HomePage() {
     setIsOptimizing(true);
     setOptimizationResult(null);
 
+    const t0 = performance.now();
+    debugLog('info', 'ROUTE', `Optimizing: ${waypoints[0].lat.toFixed(2)},${waypoints[0].lon.toFixed(2)} → ${waypoints[waypoints.length-1].lat.toFixed(2)},${waypoints[waypoints.length-1].lon.toFixed(2)}, speed=${calmSpeed}kts`);
+
     try {
       const result = await apiClient.optimizeRoute({
         origin: waypoints[0],
@@ -244,6 +309,8 @@ export default function HomePage() {
         grid_resolution_deg: 0.5,
       });
 
+      const dt = ((performance.now() - t0) / 1000).toFixed(1);
+      debugLog('info', 'ROUTE', `Optimized in ${dt}s: ${result.waypoints.length} waypoints, ${result.cells_explored} cells, temporal=${result.temporal_weather}, savings=${result.fuel_savings_pct?.toFixed(1)}%`);
       setOptimizationResult(result);
 
       const savings = result.fuel_savings_pct > 0
@@ -264,7 +331,7 @@ export default function HomePage() {
       alert(`Route optimized!\n\n${savings}\nCells explored: ${result.cells_explored}\nTime: ${result.optimization_time_ms.toFixed(0)}ms${wxInfo}`);
 
     } catch (error) {
-      console.error('Route optimization failed:', error);
+      debugLog('error', 'ROUTE', `Optimization failed: ${error}`);
       alert('Route optimization failed. Please check the backend is running.');
     } finally {
       setIsOptimizing(false);
@@ -356,6 +423,7 @@ export default function HomePage() {
   return (
     <div className="min-h-screen bg-gradient-maritime">
       <Header />
+      <DebugConsole />
 
       <main className="px-4 pt-20 pb-4 h-screen flex flex-col">
         <div className="flex-1 grid grid-cols-1 lg:grid-cols-[360px_1fr] gap-3 min-h-0">
@@ -424,6 +492,7 @@ export default function HomePage() {
                 onForecastClose={() => setForecastEnabled(false)}
                 onForecastHourChange={handleForecastHourChange}
                 onWaveForecastHourChange={handleWaveForecastHourChange}
+                onCurrentForecastHourChange={handleCurrentForecastHourChange}
                 onViewportChange={setViewport}
                 viewportBounds={viewport?.bounds ?? null}
               >

@@ -709,6 +709,11 @@ class RouteOptimizer:
                 best_fuel = fuel_mt
                 best_time = time_hours
 
+        # Fallback if no valid speed found (all skipped by safety or SOG)
+        if not results or best_time == float('inf'):
+            fallback_sog = max(min_speed + current_effect, 0.5)
+            return min_speed, 0.0, distance_nm / fallback_sog
+
         # If we have a target time constraint, adjust speed
         if target_time_hours is not None and best_time > target_time_hours:
             # Need to go faster - find minimum speed that meets target

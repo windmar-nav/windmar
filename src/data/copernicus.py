@@ -301,8 +301,16 @@ class CopernicusDataProvider:
         # Check cache
         if cache_file.exists():
             logger.info(f"Loading wave data from cache: {cache_file}")
-            ds = xr.open_dataset(cache_file)
+            try:
+                ds = xr.open_dataset(cache_file)
+            except Exception as e:
+                logger.warning(f"Corrupted wave cache, deleting and re-downloading: {e}")
+                cache_file.unlink(missing_ok=True)
+                ds = None
         else:
+            ds = None
+
+        if ds is None:
             logger.info("Downloading wave data from CMEMS...")
 
             try:
@@ -443,6 +451,10 @@ class CopernicusDataProvider:
         import copernicusmarine
         import xarray as xr
 
+        # Cap bbox to avoid multi-GB downloads
+        lat_min, lat_max, lon_min, lon_max = self._cap_bbox(lat_min, lat_max, lon_min, lon_max, max_span=40.0)
+        logger.info(f"Wave forecast bbox (capped): lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
+
         now = datetime.utcnow()
         # CMEMS analysis+forecast dataset — request next 120 hours
         start_dt = now - timedelta(hours=1)  # slight overlap to ensure t=0
@@ -454,8 +466,16 @@ class CopernicusDataProvider:
         try:
             if cache_file.exists():
                 logger.info(f"Loading wave forecast from cache: {cache_file}")
-                ds = xr.open_dataset(cache_file)
+                try:
+                    ds = xr.open_dataset(cache_file)
+                except Exception as e:
+                    logger.warning(f"Corrupted wave forecast cache, deleting and re-downloading: {e}")
+                    cache_file.unlink(missing_ok=True)
+                    ds = None
             else:
+                ds = None
+
+            if ds is None:
                 logger.info(f"Downloading CMEMS wave forecast {start_dt} → {end_dt}")
                 ds = copernicusmarine.open_dataset(
                     dataset_id=self.CMEMS_WAVE_DATASET,
@@ -476,10 +496,19 @@ class CopernicusDataProvider:
                 if ds is None:
                     logger.error("CMEMS returned None for wave forecast")
                     return None
+                # Load into memory first to avoid hung lazy reads during to_netcdf
+                logger.info("Loading wave forecast data into memory...")
+                ds = ds.load()
                 ds.to_netcdf(cache_file)
                 ds.close()
                 logger.info(f"Wave forecast cached: {cache_file}")
-                # Reopen from local file to avoid lazy remote reads
+                # Validate file isn't truncated (should be at least 1MB for any real forecast)
+                fsize = cache_file.stat().st_size
+                if fsize < 1_000_000:
+                    logger.warning(f"Wave forecast cache suspiciously small ({fsize} bytes), deleting")
+                    cache_file.unlink(missing_ok=True)
+                    return None
+                # Reopen from local file
                 ds = xr.open_dataset(cache_file)
 
             # Extract coordinate arrays
@@ -577,8 +606,16 @@ class CopernicusDataProvider:
 
         if cache_file.exists():
             logger.info(f"Loading current data from cache: {cache_file}")
-            ds = xr.open_dataset(cache_file)
+            try:
+                ds = xr.open_dataset(cache_file)
+            except Exception as e:
+                logger.warning(f"Corrupted current cache, deleting and re-downloading: {e}")
+                cache_file.unlink(missing_ok=True)
+                ds = None
         else:
+            ds = None
+
+        if ds is None:
             logger.info("Downloading current data from CMEMS...")
 
             try:
@@ -645,6 +682,19 @@ class CopernicusDataProvider:
     # ------------------------------------------------------------------
     CURRENT_FORECAST_HOURS = list(range(0, 121, 3))  # 0-120h every 3h
 
+    @staticmethod
+    def _cap_bbox(lat_min, lat_max, lon_min, lon_max, max_span=40.0):
+        """Cap bounding box to max_span degrees, centered on the original bbox."""
+        lat_mid = (lat_min + lat_max) / 2
+        lon_mid = (lon_min + lon_max) / 2
+        half = max_span / 2
+        return (
+            max(lat_mid - half, -85),
+            min(lat_mid + half, 85),
+            max(lon_mid - half, -180),
+            min(lon_mid + half, 180),
+        )
+
     def fetch_current_forecast(
         self,
         lat_min: float,
@@ -656,6 +706,7 @@ class CopernicusDataProvider:
         Fetch 0-120h surface current forecast from CMEMS in a single download.
 
         Uses the CMEMS physics dataset (hourly means, 1/12 deg resolution).
+        Bbox is capped to 40° span to keep data volume manageable (~500MB).
 
         Returns:
             Dict mapping forecast_hour -> WeatherData with u/v current components,
@@ -667,6 +718,10 @@ class CopernicusDataProvider:
 
         import copernicusmarine
         import xarray as xr
+
+        # Cap bbox to avoid multi-GB downloads
+        lat_min, lat_max, lon_min, lon_max = self._cap_bbox(lat_min, lat_max, lon_min, lon_max, max_span=40.0)
+        logger.info(f"Current forecast bbox (capped): lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
 
         now = datetime.utcnow()
         start_dt = now - timedelta(hours=1)
@@ -681,8 +736,16 @@ class CopernicusDataProvider:
         try:
             if cache_file.exists():
                 logger.info(f"Loading current forecast from cache: {cache_file}")
-                ds = xr.open_dataset(cache_file)
+                try:
+                    ds = xr.open_dataset(cache_file)
+                except Exception as e:
+                    logger.warning(f"Corrupted current forecast cache, deleting and re-downloading: {e}")
+                    cache_file.unlink(missing_ok=True)
+                    ds = None
             else:
+                ds = None
+
+            if ds is None:
                 logger.info(f"Downloading CMEMS current forecast {start_dt} -> {end_dt}")
                 ds = copernicusmarine.open_dataset(
                     dataset_id=self.CMEMS_PHYSICS_DATASET,
@@ -701,9 +764,17 @@ class CopernicusDataProvider:
                 if ds is None:
                     logger.error("CMEMS returned None for current forecast")
                     return None
+                # Load into memory first to avoid hung lazy reads during to_netcdf
+                logger.info("Loading current forecast data into memory...")
+                ds = ds.load()
                 ds.to_netcdf(cache_file)
                 ds.close()
                 logger.info(f"Current forecast cached: {cache_file}")
+                fsize = cache_file.stat().st_size
+                if fsize < 1_000_000:
+                    logger.warning(f"Current forecast cache suspiciously small ({fsize} bytes), deleting")
+                    cache_file.unlink(missing_ok=True)
+                    return None
                 ds = xr.open_dataset(cache_file)
 
             lats = ds["latitude"].values

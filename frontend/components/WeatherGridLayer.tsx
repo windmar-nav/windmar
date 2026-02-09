@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { WindFieldData, WaveFieldData } from '@/lib/api';
+import { debugLog } from '@/lib/debugLog';
 
 interface WeatherGridLayerProps {
   mode: 'wind' | 'waves';
@@ -144,40 +145,18 @@ function WeatherGridLayerInner({
   const map = useMap();
   const layerRef = useRef<any>(null);
 
+  // Store data in refs so createTile always reads the latest values
+  // without triggering a full layer destroy/recreate cycle.
+  const windDataRef = useRef(windData);
+  const waveDataRef = useRef(waveData);
+  useEffect(() => { windDataRef.current = windData; }, [windData]);
+  useEffect(() => { waveDataRef.current = waveData; }, [waveData]);
+
+  // Create the GridLayer ONCE per mode/map/opacity — NOT per data change.
+  // The createTile closure reads data from refs, so it always gets current values.
   useEffect(() => {
-    const data = mode === 'wind' ? windData : waveData;
-    if (!data) return;
-
-    const lats = data.lats;
-    const lons = data.lons;
-    const ny = lats.length;
-    const nx = lons.length;
-
-    // High-res ocean mask (separate grid from weather data)
-    const oceanMask = data.ocean_mask;
-    const maskLats = data.ocean_mask_lats || lats;
-    const maskLons = data.ocean_mask_lons || lons;
-    const maskNy = maskLats.length;
-    const maskNx = maskLons.length;
-    const maskLatMin = maskLats[0];
-    const maskLatMax = maskLats[maskNy - 1];
-    const maskLonMin = maskLons[0];
-    const maskLonMax = maskLons[maskNx - 1];
-
-    // Determine data arrays
-    const isWind = mode === 'wind' && windData;
-    const uData = isWind ? (windData as WindFieldData).u : null;
-    const vData = isWind ? (windData as WindFieldData).v : null;
-    const waveValues = mode === 'waves' && waveData ? (waveData as WaveFieldData).data : null;
-    const waveDir = mode === 'waves' && waveData ? (waveData as WaveFieldData).direction : null;
-
-    // Compute lat/lon ranges
-    const latMin = lats[0];
-    const latMax = lats[ny - 1];
-    const lonMin = lons[0];
-    const lonMax = lons[nx - 1];
-
-    // Downsampled tile size for performance
+    const currentMode = mode;
+    const currentShowArrows = showArrows;
     const DS = 64; // render at 64x64, upscale to 256x256
 
     const WeatherTileLayer = L.GridLayer.extend({
@@ -186,8 +165,43 @@ function WeatherGridLayerInner({
         tile.width = 256;
         tile.height = 256;
 
+        // Read latest data from refs
+        const currentWindData = windDataRef.current;
+        const currentWaveData = waveDataRef.current;
+        const data = currentMode === 'wind' ? currentWindData : currentWaveData;
+        if (!data) return tile;
+
         const ctx = tile.getContext('2d');
         if (!ctx) return tile;
+
+        const lats = data.lats;
+        const lons = data.lons;
+        const ny = lats.length;
+        const nx = lons.length;
+
+        // High-res ocean mask (separate grid from weather data)
+        const oceanMask = data.ocean_mask;
+        const maskLats = data.ocean_mask_lats || lats;
+        const maskLons = data.ocean_mask_lons || lons;
+        const maskNy = maskLats.length;
+        const maskNx = maskLons.length;
+        const maskLatMin = maskLats[0];
+        const maskLatMax = maskLats[maskNy - 1];
+        const maskLonMin = maskLons[0];
+        const maskLonMax = maskLons[maskNx - 1];
+
+        // Determine data arrays
+        const isWind = currentMode === 'wind' && currentWindData;
+        const uData = isWind ? (currentWindData as WindFieldData).u : null;
+        const vData = isWind ? (currentWindData as WindFieldData).v : null;
+        const waveValues = currentMode === 'waves' && currentWaveData ? (currentWaveData as WaveFieldData).data : null;
+        const waveDir = currentMode === 'waves' && currentWaveData ? (currentWaveData as WaveFieldData).direction : null;
+
+        // Compute lat/lon ranges
+        const latMin = lats[0];
+        const latMax = lats[ny - 1];
+        const lonMin = lons[0];
+        const lonMax = lons[nx - 1];
 
         // Create offscreen canvas at downsampled resolution
         const offscreen = document.createElement('canvas');
@@ -289,7 +303,7 @@ function WeatherGridLayerInner({
         ctx.drawImage(offscreen, 0, 0, DS, DS, 0, 0, 256, 256);
 
         // Draw wind arrows on top (sparse, every ~40px)
-        if (showArrows && mode === 'wind' && uData && vData) {
+        if (currentShowArrows && currentMode === 'wind' && uData && vData) {
           const arrowSpacing = 40;
           ctx.save();
           for (let ay = arrowSpacing / 2; ay < 256; ay += arrowSpacing) {
@@ -353,8 +367,8 @@ function WeatherGridLayerInner({
         }
 
         // Draw swell & wind-wave direction triangles (Windy-style filled triangles)
-        if (showArrows && mode === 'waves') {
-          const waveW = waveData as any; // access decomposition fields
+        if (currentShowArrows && currentMode === 'waves') {
+          const waveW = currentWaveData as any; // access decomposition fields
           const swellDir = waveW?.swell?.direction as number[][] | undefined;
           const swellHt = waveW?.swell?.height as number[][] | undefined;
           const wwDir = waveW?.windwave?.direction as number[][] | undefined;
@@ -467,7 +481,24 @@ function WeatherGridLayerInner({
         layerRef.current = null;
       }
     };
-  }, [mode, windData, waveData, opacity, map, L]);
+  }, [mode, opacity, map, L, showArrows]); // NOT windData/waveData — data is read from refs
+
+  // When data changes, just redraw tiles (no layer destroy/recreate).
+  // This is the key fix: avoids creating hundreds of canvas elements per frame change.
+  const redrawCountRef = useRef(0);
+  useEffect(() => {
+    if (layerRef.current) {
+      redrawCountRef.current++;
+      const data = mode === 'wind' ? windData : waveData;
+      const sample = mode === 'waves' && waveData?.data
+        ? waveData.data[Math.floor(waveData.data.length / 2)]?.[0]?.toFixed(2) ?? '?'
+        : mode === 'wind' && windData?.u
+          ? windData.u[Math.floor(windData.u.length / 2)]?.[0]?.toFixed(2) ?? '?'
+          : '?';
+      debugLog('debug', 'RENDER', `GridLayer redraw #${redrawCountRef.current}: mode=${mode}, sample=${sample}, hasLayer=${!!layerRef.current}`);
+      layerRef.current.redraw();
+    }
+  }, [windData, waveData, mode]);
 
   return null;
 }

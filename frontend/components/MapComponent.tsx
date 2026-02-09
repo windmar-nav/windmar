@@ -69,6 +69,7 @@ export interface MapComponentProps {
   onForecastClose?: () => void;
   onForecastHourChange?: (hour: number, data: VelocityData[] | null) => void;
   onWaveForecastHourChange?: (hour: number, allFrames: WaveForecastFrames | null) => void;
+  onCurrentForecastHourChange?: (hour: number, allFrames: any | null) => void;
   onViewportChange?: (viewport: { bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number }; zoom: number }) => void;
   viewportBounds?: { lat_min: number; lat_max: number; lon_min: number; lon_max: number } | null;
   children?: React.ReactNode;
@@ -92,6 +93,7 @@ export default function MapComponent({
   onForecastClose,
   onForecastHourChange,
   onWaveForecastHourChange,
+  onCurrentForecastHourChange,
   onViewportChange,
   viewportBounds = null,
   children,
@@ -188,6 +190,7 @@ export default function MapComponent({
           onClose={onForecastClose}
           onForecastHourChange={onForecastHourChange}
           onWaveForecastHourChange={onWaveForecastHourChange}
+          onCurrentForecastHourChange={onCurrentForecastHourChange}
           layerType={weatherLayer === 'none' ? 'wind' : weatherLayer}
           viewportBounds={viewportBounds}
         />

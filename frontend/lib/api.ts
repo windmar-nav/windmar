@@ -126,6 +126,22 @@ export interface WaveForecastFrames {
   frames: Record<string, WaveForecastFrame>;
 }
 
+export interface CurrentForecastFrame {
+  u?: number[][];
+  v?: number[][];
+}
+
+export interface CurrentForecastFrames {
+  run_time: string;
+  total_hours: number;
+  cached_hours: number;
+  lats: number[];
+  lons: number[];
+  ny: number;
+  nx: number;
+  frames: Record<string, CurrentForecastFrame>;
+}
+
 export interface VelocityData {
   header: {
     parameterCategory: number;
@@ -750,6 +766,37 @@ export const apiClient = {
     lon_max?: number;
   } = {}): Promise<WaveForecastFrames> {
     const response = await api.get<WaveForecastFrames>('/api/weather/forecast/wave/frames', { params });
+    return response.data;
+  },
+
+  // Current forecast
+  async getCurrentForecastStatus(params: {
+    lat_min?: number;
+    lat_max?: number;
+    lon_min?: number;
+    lon_max?: number;
+  } = {}): Promise<ForecastStatus> {
+    const response = await api.get<ForecastStatus>('/api/weather/forecast/current/status', { params });
+    return response.data;
+  },
+
+  async triggerCurrentForecastPrefetch(params: {
+    lat_min?: number;
+    lat_max?: number;
+    lon_min?: number;
+    lon_max?: number;
+  } = {}): Promise<{ status: string; message: string }> {
+    const response = await api.post('/api/weather/forecast/current/prefetch', null, { params });
+    return response.data;
+  },
+
+  async getCurrentForecastFrames(params: {
+    lat_min?: number;
+    lat_max?: number;
+    lon_min?: number;
+    lon_max?: number;
+  } = {}): Promise<CurrentForecastFrames> {
+    const response = await api.get<CurrentForecastFrames>('/api/weather/forecast/current/frames', { params });
     return response.data;
   },
 

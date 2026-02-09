@@ -153,12 +153,18 @@ class GridWeatherProvider:
         di = fi - i0
         dj = fj - j0
 
-        # Bilinear interpolation
+        # Bilinear interpolation (handle NaN from coastal/land cells)
+        corners = [data[i0, j0], data[i1, j0], data[i0, j1], data[i1, j1]]
+        if any(np.isnan(c) for c in corners):
+            # Average only the valid (non-NaN) corners
+            valid = [float(c) for c in corners if not np.isnan(c)]
+            return sum(valid) / len(valid) if valid else 0.0
+
         val = (
-            data[i0, j0] * (1 - di) * (1 - dj)
-            + data[i1, j0] * di * (1 - dj)
-            + data[i0, j1] * (1 - di) * dj
-            + data[i1, j1] * di * dj
+            corners[0] * (1 - di) * (1 - dj)
+            + corners[1] * di * (1 - dj)
+            + corners[2] * (1 - di) * dj
+            + corners[3] * di * dj
         )
 
         return float(val)

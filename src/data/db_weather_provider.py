@@ -164,14 +164,20 @@ class DbWeatherProvider:
             conn.close()
 
     def _find_latest_run(self, source: str) -> Optional[int]:
-        """Find the latest complete forecast run ID for a source."""
+        """Find the best complete forecast run ID for a source.
+
+        Prefers runs with the most forecast hours (multi-timestep over snapshots).
+        Among runs with equal hour count, picks the most recent.
+        """
         conn = self._get_conn()
         try:
             cur = conn.cursor()
             cur.execute(
                 """SELECT id FROM weather_forecast_runs
                    WHERE source = %s AND status = 'complete'
-                   ORDER BY ingested_at DESC LIMIT 1""",
+                   ORDER BY array_length(forecast_hours, 1) DESC NULLS LAST,
+                            ingested_at DESC
+                   LIMIT 1""",
                 (source,),
             )
             row = cur.fetchone()

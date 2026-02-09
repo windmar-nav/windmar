@@ -12,7 +12,9 @@ License: Apache 2.0 - See LICENSE file
 """
 
 import asyncio
+import collections
 import io
+import json
 import logging
 import math
 import os
@@ -28,7 +30,7 @@ except ImportError:
     redis_lib = None
 from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile, File, Query, Response, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, JSONResponse
+from fastapi.responses import PlainTextResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel, Field
 from fastapi.exceptions import RequestValidationError
 from slowapi.errors import RateLimitExceeded
@@ -939,6 +941,65 @@ async def root():
     }
 
 
+# =============================================================================
+# Server-Side Event Log Stream (for frontend DebugConsole)
+# =============================================================================
+_log_buffer: collections.deque = collections.deque(maxlen=200)
+_log_event = asyncio.Event()
+
+class _BufferHandler(logging.Handler):
+    """Captures log records into a ring buffer for SSE streaming."""
+    def emit(self, record):
+        try:
+            entry = {
+                "ts": record.created,
+                "level": record.levelname.lower(),
+                "msg": self.format(record),
+            }
+            _log_buffer.append(entry)
+            # Signal waiting SSE clients (thread-safe via asyncio)
+            try:
+                _log_event.set()
+            except Exception:
+                pass
+        except Exception:
+            pass
+
+_buf_handler = _BufferHandler()
+_buf_handler.setLevel(logging.INFO)
+_buf_handler.setFormatter(logging.Formatter("%(message)s"))
+logging.getLogger().addHandler(_buf_handler)
+logging.getLogger("uvicorn.access").addHandler(_buf_handler)
+
+
+@app.get("/api/logs/stream", tags=["System"])
+async def log_stream():
+    """SSE endpoint streaming backend log entries to the frontend console."""
+    async def _generate():
+        last_idx = len(_log_buffer)
+        # Send recent history first
+        for entry in list(_log_buffer)[-50:]:
+            yield f"data: {json.dumps(entry)}\n\n"
+        while True:
+            _log_event.clear()
+            try:
+                await asyncio.wait_for(_log_event.wait(), timeout=15.0)
+            except asyncio.TimeoutError:
+                yield ": keepalive\n\n"
+                continue
+            # Drain new entries
+            buf = list(_log_buffer)
+            for entry in buf[last_idx:]:
+                yield f"data: {json.dumps(entry)}\n\n"
+            last_idx = len(buf)
+
+    return StreamingResponse(
+        _generate(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
+    )
+
+
 @app.get("/api/health", tags=["System"])
 async def health_check():
     """
@@ -1438,6 +1499,8 @@ async def api_get_wave_forecast_status(
     cached = _wave_cache_get(cache_key)
     total_hours = 41  # 0-120h every 3h
 
+    prefetch_running = _is_wave_prefetch_running()
+
     if cached:
         cached_hours = len(cached.get("frames", {}))
         return {
@@ -1446,7 +1509,7 @@ async def api_get_wave_forecast_status(
             "total_hours": total_hours,
             "cached_hours": cached_hours,
             "complete": cached_hours >= total_hours,
-            "prefetch_running": _wave_prefetch_running,
+            "prefetch_running": prefetch_running,
             "hours": [],
         }
 
@@ -1456,7 +1519,7 @@ async def api_get_wave_forecast_status(
         "total_hours": total_hours,
         "cached_hours": 0,
         "complete": False,
-        "prefetch_running": _wave_prefetch_running,
+        "prefetch_running": prefetch_running,
         "hours": [],
     }
 
@@ -1472,6 +1535,10 @@ async def api_trigger_wave_forecast_prefetch(
     """Trigger background download of CMEMS wave forecast (0-120h)."""
     global _wave_prefetch_running
 
+    # Check Redis distributed lock first (cross-worker), then local lock
+    if _is_wave_prefetch_running():
+        return {"status": "already_running", "message": "Wave prefetch is already in progress"}
+
     lock = _get_wave_prefetch_lock()
     if not lock.acquire(blocking=False):
         return {"status": "already_running", "message": "Wave prefetch is already in progress"}
@@ -1482,7 +1549,17 @@ async def api_trigger_wave_forecast_prefetch(
         pflock = _get_wave_prefetch_lock()
         if not pflock.acquire(blocking=False):
             return
+
+        r = _get_redis()
         try:
+            # Acquire Redis distributed lock (expires after 20 min as safety)
+            if r is not None:
+                acquired = r.set(_REDIS_PREFETCH_LOCK, "1", nx=True, ex=1200)
+                if not acquired:
+                    pflock.release()
+                    return
+                r.setex(_REDIS_PREFETCH_STATUS, 1200, "1")
+
             _wave_prefetch_running = True
             logger.info("CMEMS wave forecast prefetch started")
 
@@ -1551,10 +1628,23 @@ async def api_trigger_wave_forecast_prefetch(
             })
             logger.info(f"Wave forecast cached: {len(frames)} frames")
 
+            # Store full-resolution frames in PostgreSQL for route optimizer
+            if weather_ingestion is not None:
+                try:
+                    logger.info("Ingesting wave forecast frames into PostgreSQL...")
+                    weather_ingestion.ingest_wave_forecast_frames(result)
+                except Exception as db_e:
+                    logger.error(f"Wave forecast DB ingestion failed: {db_e}")
+
         except Exception as e:
             logger.error(f"Wave forecast prefetch failed: {e}")
         finally:
             _wave_prefetch_running = False
+            if r is not None:
+                try:
+                    r.delete(_REDIS_PREFETCH_LOCK, _REDIS_PREFETCH_STATUS)
+                except Exception:
+                    pass
             pflock.release()
 
     background_tasks.add_task(_do_wave_prefetch)
@@ -1582,6 +1672,213 @@ async def api_get_wave_forecast_frames(
             "ny": 0,
             "nx": 0,
             "colorscale": {"min": 0, "max": 6, "colors": []},
+            "frames": {},
+        }
+
+    return cached
+
+
+# =========================================================================
+# Current Forecast Endpoints (CMEMS)
+# =========================================================================
+
+_current_prefetch_running = False
+_current_prefetch_lock = None
+_CURRENT_CACHE_DIR = Path("/tmp/windmar_current_cache")
+_CURRENT_CACHE_DIR.mkdir(exist_ok=True)
+
+_REDIS_CURRENT_PREFETCH_LOCK = "windmar:current_prefetch_lock"
+_REDIS_CURRENT_PREFETCH_STATUS = "windmar:current_prefetch_running"
+
+def _get_current_prefetch_lock():
+    global _current_prefetch_lock
+    if _current_prefetch_lock is None:
+        import threading
+        _current_prefetch_lock = threading.Lock()
+    return _current_prefetch_lock
+
+def _is_current_prefetch_running() -> bool:
+    r = _get_redis()
+    if r is not None:
+        try:
+            return r.exists(_REDIS_CURRENT_PREFETCH_STATUS) > 0
+        except Exception:
+            pass
+    return _current_prefetch_running
+
+def _current_cache_path(cache_key: str) -> Path:
+    return _CURRENT_CACHE_DIR / f"{cache_key}.json"
+
+def _current_cache_get(cache_key: str) -> dict | None:
+    p = _current_cache_path(cache_key)
+    if p.exists():
+        try:
+            import json as _json
+            return _json.loads(p.read_text())
+        except Exception:
+            return None
+    return None
+
+def _current_cache_put(cache_key: str, data: dict):
+    import json as _json
+    p = _current_cache_path(cache_key)
+    tmp = p.with_suffix(".tmp")
+    tmp.write_text(_json.dumps(data))
+    tmp.rename(p)
+
+
+@app.get("/api/weather/forecast/current/status")
+async def api_get_current_forecast_status(
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-15.0),
+    lon_max: float = Query(40.0),
+):
+    """Get current forecast prefetch status."""
+    cache_key = f"current_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
+    cached = _current_cache_get(cache_key)
+    total_hours = 41
+
+    prefetch_running = _is_current_prefetch_running()
+
+    if cached:
+        cached_hours = len(cached.get("frames", {}))
+        return {
+            "total_hours": total_hours,
+            "cached_hours": cached_hours,
+            "complete": cached_hours >= total_hours,
+            "prefetch_running": prefetch_running,
+        }
+
+    return {
+        "total_hours": total_hours,
+        "cached_hours": 0,
+        "complete": False,
+        "prefetch_running": prefetch_running,
+    }
+
+
+@app.post("/api/weather/forecast/current/prefetch")
+async def api_trigger_current_forecast_prefetch(
+    background_tasks: BackgroundTasks,
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-15.0),
+    lon_max: float = Query(40.0),
+):
+    """Trigger background download of CMEMS current forecast (0-120h)."""
+    global _current_prefetch_running
+
+    if _is_current_prefetch_running():
+        return {"status": "already_running", "message": "Current prefetch is already in progress"}
+
+    lock = _get_current_prefetch_lock()
+    if not lock.acquire(blocking=False):
+        return {"status": "already_running", "message": "Current prefetch is already in progress"}
+    lock.release()
+
+    def _do_current_prefetch():
+        global _current_prefetch_running
+        pflock = _get_current_prefetch_lock()
+        if not pflock.acquire(blocking=False):
+            return
+
+        r = _get_redis()
+        try:
+            if r is not None:
+                acquired = r.set(_REDIS_CURRENT_PREFETCH_LOCK, "1", nx=True, ex=1200)
+                if not acquired:
+                    pflock.release()
+                    return
+                r.setex(_REDIS_CURRENT_PREFETCH_STATUS, 1200, "1")
+
+            _current_prefetch_running = True
+            logger.info("CMEMS current forecast prefetch started")
+
+            result = copernicus_provider.fetch_current_forecast(lat_min, lat_max, lon_min, lon_max)
+            if result is None:
+                logger.error("Current forecast fetch returned None")
+                return
+
+            first_wd = next(iter(result.values()))
+            STEP = 4
+            shared_lats = first_wd.lats[::STEP].tolist()
+            shared_lons = first_wd.lons[::STEP].tolist()
+
+            import numpy as np
+
+            def _subsample_round(arr):
+                if arr is None:
+                    return None
+                sub = arr[::STEP, ::STEP]
+                return np.round(sub, 2).tolist()
+
+            frames = {}
+            for fh, wd in sorted(result.items()):
+                frame = {}
+                if wd.u_component is not None:
+                    frame["u"] = _subsample_round(wd.u_component)
+                if wd.v_component is not None:
+                    frame["v"] = _subsample_round(wd.v_component)
+                if frame:
+                    frames[str(fh)] = frame
+
+            cache_key = f"current_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
+            _current_cache_put(cache_key, {
+                "run_time": first_wd.time.isoformat() if first_wd.time else "",
+                "total_hours": 41,
+                "cached_hours": len(frames),
+                "lats": shared_lats,
+                "lons": shared_lons,
+                "ny": len(shared_lats),
+                "nx": len(shared_lons),
+                "frames": frames,
+            })
+            logger.info(f"Current forecast cached: {len(frames)} frames")
+
+            # Store full-resolution frames in PostgreSQL for route optimizer
+            if weather_ingestion is not None:
+                try:
+                    logger.info("Ingesting current forecast frames into PostgreSQL...")
+                    weather_ingestion.ingest_current_forecast_frames(result)
+                except Exception as db_e:
+                    logger.error(f"Current forecast DB ingestion failed: {db_e}")
+
+        except Exception as e:
+            logger.error(f"Current forecast prefetch failed: {e}")
+        finally:
+            _current_prefetch_running = False
+            if r is not None:
+                try:
+                    r.delete(_REDIS_CURRENT_PREFETCH_LOCK, _REDIS_CURRENT_PREFETCH_STATUS)
+                except Exception:
+                    pass
+            pflock.release()
+
+    background_tasks.add_task(_do_current_prefetch)
+    return {"status": "started", "message": "Current forecast prefetch triggered in background"}
+
+
+@app.get("/api/weather/forecast/current/frames")
+async def api_get_current_forecast_frames(
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-15.0),
+    lon_max: float = Query(40.0),
+):
+    """Return all cached CMEMS current forecast frames."""
+    cache_key = f"current_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
+    cached = _current_cache_get(cache_key)
+
+    if not cached:
+        return {
+            "run_time": "",
+            "total_hours": 41,
+            "cached_hours": 0,
+            "lats": [],
+            "lons": [],
+            "ny": 0,
+            "nx": 0,
             "frames": {},
         }
 
@@ -2247,9 +2544,22 @@ async def optimize_route(request: OptimizationRequest):
                     departure_time=departure,
                     calm_speed_kts=request.calm_speed_kts,
                 )
+                avail_parts = [f"{s}: {v.get('coverage_pct',0):.0f}%" for s,v in wx_needs.availability.items()]
+                logger.info(
+                    f"Weather assessment: {wx_needs.estimated_passage_hours:.0f}h passage, "
+                    f"need hours {wx_needs.required_forecast_hours[:5]}..., "
+                    f"availability: {', '.join(avail_parts)}, "
+                    f"warnings: {wx_needs.gap_warnings}"
+                )
                 temporal_wx = assessor.provision(wx_needs)
                 if temporal_wx is not None:
                     used_temporal = True
+                    params_loaded = list(temporal_wx.grids.keys())
+                    hours_per_param = {p: sorted(temporal_wx.grids[p].keys()) for p in params_loaded[:3]}
+                    logger.info(
+                        f"Temporal provider: {len(params_loaded)} params ({params_loaded}), "
+                        f"hours sample: {hours_per_param}"
+                    )
                     provenance_models = [
                         WeatherProvenanceModel(
                             source_type=p.source_type,
@@ -2260,11 +2570,14 @@ async def optimize_route(request: OptimizationRequest):
                         for p in temporal_wx.provenance.values()
                     ]
                     logger.info("Using temporal weather provider for route optimization")
+                else:
+                    logger.warning("Temporal provisioning returned None — falling back to single-snapshot")
             except Exception as e:
-                logger.warning(f"Temporal weather provisioning failed, falling back: {e}")
+                logger.warning(f"Temporal weather provisioning failed, falling back: {e}", exc_info=True)
 
         # ── Fallback: single-snapshot GridWeatherProvider ─────────────
         if temporal_wx is None:
+            import time as _time
             margin = 5.0
             lat_min = min(request.origin.lat, request.destination.lat) - margin
             lat_max = max(request.origin.lat, request.destination.lat) + margin
@@ -2272,9 +2585,16 @@ async def optimize_route(request: OptimizationRequest):
             lon_max = max(request.origin.lon, request.destination.lon) + margin
             lat_min, lat_max = max(lat_min, -85), min(lat_max, 85)
 
+            logger.info(f"Fallback: loading single-snapshot weather for bbox [{lat_min:.1f},{lat_max:.1f},{lon_min:.1f},{lon_max:.1f}]")
+            t0 = _time.monotonic()
             wind = get_wind_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
+            logger.info(f"  Wind loaded in {_time.monotonic()-t0:.1f}s: source={getattr(wind, 'source', '?')}")
+            t1 = _time.monotonic()
             waves = get_wave_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, wind)
+            logger.info(f"  Waves loaded in {_time.monotonic()-t1:.1f}s")
+            t2 = _time.monotonic()
             currents = get_current_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg)
+            logger.info(f"  Currents loaded in {_time.monotonic()-t2:.1f}s. Total fallback: {_time.monotonic()-t0:.1f}s")
             grid_wx = GridWeatherProvider(wind, waves, currents)
 
         # Select weather provider callable
@@ -2983,6 +3303,34 @@ async def check_path_zones(
 
 _ingestion_running = False
 
+# Redis distributed lock keys
+_REDIS_INGESTION_LOCK = "windmar:ingestion_lock"
+_REDIS_INGESTION_STATUS = "windmar:ingestion_running"
+_REDIS_PREFETCH_LOCK = "windmar:wave_prefetch_lock"
+_REDIS_PREFETCH_STATUS = "windmar:wave_prefetch_running"
+
+
+def _is_ingestion_running() -> bool:
+    """Check ingestion status via Redis (cross-worker)."""
+    r = _get_redis()
+    if r is not None:
+        try:
+            return r.exists(_REDIS_INGESTION_STATUS) > 0
+        except Exception:
+            pass
+    return _ingestion_running
+
+
+def _is_wave_prefetch_running() -> bool:
+    """Check wave prefetch status via Redis (cross-worker)."""
+    r = _get_redis()
+    if r is not None:
+        try:
+            return r.exists(_REDIS_PREFETCH_STATUS) > 0
+        except Exception:
+            pass
+    return _wave_prefetch_running
+
 
 @app.on_event("startup")
 async def startup_event():
@@ -2996,24 +3344,47 @@ async def startup_event():
 
 
 async def _ingestion_loop():
-    """Background task: ingest weather every 6 hours."""
-    global _ingestion_running
+    """Background task: ingest weather every 6 hours.
 
-    # Wait 30s after startup to let other services initialize
-    await asyncio.sleep(30)
+    Uses a Redis distributed lock (SET NX EX) so only ONE worker across
+    all uvicorn processes runs ingestion at a time.
+    """
+    global _ingestion_running
+    import random
+
+    # Stagger startup across workers (30-60s) to reduce lock contention
+    await asyncio.sleep(30 + random.uniform(0, 30))
 
     while True:
         if weather_ingestion is None:
             break
+
+        r = _get_redis()
+        acquired = False
         try:
+            if r is not None:
+                # Try to acquire distributed lock (expires after 30 min as safety)
+                acquired = r.set(_REDIS_INGESTION_LOCK, "1", nx=True, ex=1800)
+                if not acquired:
+                    logger.debug("Another worker holds ingestion lock, skipping")
+                    await asyncio.sleep(6 * 3600)
+                    continue
+                # Mark as running (visible to status endpoint on any worker)
+                r.setex(_REDIS_INGESTION_STATUS, 1800, "1")
+
             _ingestion_running = True
-            logger.info("Background weather ingestion starting")
+            logger.info("Background weather ingestion starting (this worker acquired lock)")
             await asyncio.to_thread(weather_ingestion.ingest_all)
             logger.info("Background weather ingestion complete")
         except Exception as e:
             logger.error(f"Background weather ingestion failed: {e}")
         finally:
             _ingestion_running = False
+            if r is not None:
+                try:
+                    r.delete(_REDIS_INGESTION_LOCK, _REDIS_INGESTION_STATUS)
+                except Exception:
+                    pass
 
         await asyncio.sleep(6 * 3600)  # 6 hours
 
@@ -3026,18 +3397,29 @@ async def trigger_weather_ingestion():
     if weather_ingestion is None:
         raise HTTPException(status_code=503, detail="Weather ingestion not configured (no PostgreSQL)")
 
-    if _ingestion_running:
+    if _is_ingestion_running():
         return {"status": "already_running", "message": "Ingestion is already in progress"}
 
     async def _run():
         global _ingestion_running
+        r = _get_redis()
         try:
+            if r is not None:
+                acquired = r.set(_REDIS_INGESTION_LOCK, "1", nx=True, ex=1800)
+                if not acquired:
+                    return
+                r.setex(_REDIS_INGESTION_STATUS, 1800, "1")
             _ingestion_running = True
             await asyncio.to_thread(weather_ingestion.ingest_all)
         except Exception as e:
             logger.error(f"Manual ingestion failed: {e}")
         finally:
             _ingestion_running = False
+            if r is not None:
+                try:
+                    r.delete(_REDIS_INGESTION_LOCK, _REDIS_INGESTION_STATUS)
+                except Exception:
+                    pass
 
     asyncio.create_task(_run())
     return {"status": "started", "message": "Weather ingestion triggered in background"}
@@ -3057,7 +3439,7 @@ async def get_ingestion_status():
 
     return {
         "configured": True,
-        "ingesting": _ingestion_running,
+        "ingesting": _is_ingestion_running(),
         "freshness": freshness,
         **status,
     }

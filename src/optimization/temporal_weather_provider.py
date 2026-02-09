@@ -171,7 +171,10 @@ class TemporalGridWeatherProvider:
         lon: float,
         forecast_hour: float,
     ) -> float:
-        """Trilinear interpolation: spatial bilinear at two bracketing hours, then linear time blend."""
+        """Trilinear interpolation: spatial bilinear at two bracketing hours, then linear time blend.
+
+        Returns 0.0 for NaN/inf results (coastal grid cells with missing data).
+        """
         if param not in self.grids or not self._sorted_hours.get(param):
             return 0.0
 
@@ -181,11 +184,13 @@ class TemporalGridWeatherProvider:
         # Clamp to available range
         if forecast_hour <= hours[0]:
             lats, lons, data = hour_map[hours[0]]
-            return GridWeatherProvider._interp(lat, lon, lats, lons, data)
+            v = GridWeatherProvider._interp(lat, lon, lats, lons, data)
+            return v if math.isfinite(v) else 0.0
 
         if forecast_hour >= hours[-1]:
             lats, lons, data = hour_map[hours[-1]]
-            return GridWeatherProvider._interp(lat, lon, lats, lons, data)
+            v = GridWeatherProvider._interp(lat, lon, lats, lons, data)
+            return v if math.isfinite(v) else 0.0
 
         # Find bracketing hours
         idx = 0
@@ -203,6 +208,12 @@ class TemporalGridWeatherProvider:
 
         v0 = GridWeatherProvider._interp(lat, lon, lats0, lons0, data0)
         v1 = GridWeatherProvider._interp(lat, lon, lats1, lons1, data1)
+
+        # Handle NaN/inf from coastal grid cells
+        if not math.isfinite(v0):
+            v0 = 0.0
+        if not math.isfinite(v1):
+            v1 = 0.0
 
         # Temporal linear blend
         span = h1 - h0
