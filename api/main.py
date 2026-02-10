@@ -1489,6 +1489,43 @@ def _wave_cache_put(cache_key: str, data: dict):
     tmp.rename(p)  # atomic on same filesystem
 
 
+def _cache_covers_bounds(cached_data: dict, lat_min: float, lat_max: float,
+                         lon_min: float, lon_max: float, min_coverage: float = 0.8) -> bool:
+    """Check whether cached data covers the requested bounding box.
+
+    Returns True if the cached lat/lon range covers at least *min_coverage*
+    fraction of the requested span on both axes.  This prevents stale DB data
+    from a previous (different-area) session being served as if it matches the
+    current viewport.
+    """
+    lats = cached_data.get("lats", [])
+    lons = cached_data.get("lons", [])
+    if not lats or not lons:
+        return False
+    data_lat_min, data_lat_max = min(lats), max(lats)
+    data_lon_min, data_lon_max = min(lons), max(lons)
+
+    req_lat_span = max(lat_max - lat_min, 0.01)
+    req_lon_span = max(lon_max - lon_min, 0.01)
+
+    # Overlap on each axis
+    lat_overlap = max(0, min(data_lat_max, lat_max) - max(data_lat_min, lat_min))
+    lon_overlap = max(0, min(data_lon_max, lon_max) - max(data_lon_min, lon_min))
+
+    lat_cov = lat_overlap / req_lat_span
+    lon_cov = lon_overlap / req_lon_span
+
+    covers = lat_cov >= min_coverage and lon_cov >= min_coverage
+    if not covers:
+        logger.info(
+            f"Cache coverage insufficient: lat {lat_cov:.0%} lon {lon_cov:.0%} "
+            f"(need {min_coverage:.0%}). cached=[{data_lat_min:.1f}-{data_lat_max:.1f},"
+            f"{data_lon_min:.1f}-{data_lon_max:.1f}] requested=[{lat_min:.1f}-{lat_max:.1f},"
+            f"{lon_min:.1f}-{lon_max:.1f}]"
+        )
+    return covers
+
+
 def _rebuild_wave_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
     """Rebuild wave forecast file cache from PostgreSQL data."""
     if db_weather is None:
@@ -1511,7 +1548,8 @@ def _rebuild_wave_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
 
     first_fh = min(grids["wave_hs"].keys())
     lats_full, lons_full, _ = grids["wave_hs"][first_fh]
-    STEP = 4
+    max_dim = max(len(lats_full), len(lons_full))
+    STEP = max(1, round(max_dim / 250))
     shared_lats = lats_full[::STEP].tolist()
     shared_lons = lons_full[::STEP].tolist()
 
@@ -1592,7 +1630,8 @@ def _rebuild_current_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max
 
     first_fh = min(grids["current_u"].keys())
     lats_full, lons_full, _ = grids["current_u"][first_fh]
-    STEP = 4
+    max_dim = max(len(lats_full), len(lons_full))
+    STEP = max(1, round(max_dim / 250))
     sub_lats = lats_full[::STEP]  # numpy, S→N order
     sub_lons = lons_full[::STEP]
 
@@ -1656,28 +1695,9 @@ async def api_get_wave_forecast_status(
             "hours": [],
         }
 
-    # Fallback: check PostgreSQL for previously ingested data
-    if db_weather is not None:
-        db_run_time, db_hours = db_weather.get_available_hours_by_source("cmems_wave")
-        if db_hours:
-            rt = ""
-            rh = "00"
-            if db_run_time:
-                try:
-                    rt = db_run_time.strftime("%Y%m%d")
-                    rh = db_run_time.strftime("%H")
-                except Exception:
-                    pass
-            return {
-                "run_date": rt,
-                "run_hour": rh,
-                "total_hours": total_hours,
-                "cached_hours": len(db_hours),
-                "complete": len(db_hours) >= total_hours,
-                "prefetch_running": prefetch_running,
-                "hours": [],
-            }
-
+    # DB may have data from a different viewport — don't report complete.
+    # Only the file cache (keyed by current viewport bounds, populated by
+    # the prefetch) is authoritative for completion.
     return {
         "run_date": "",
         "run_hour": "00",
@@ -1727,19 +1747,25 @@ async def api_trigger_wave_forecast_prefetch(
 
             _wave_prefetch_running = True
 
-            # Skip CMEMS download if file cache already populated (e.g. rebuilt from DB)
+            # Skip CMEMS download if file cache already covers the requested area
             cache_key_chk = f"wave_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
             existing = _wave_cache_get(cache_key_chk)
-            if existing and len(existing.get("frames", {})) >= 41:
+            if existing and len(existing.get("frames", {})) >= 41 and _cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
                 logger.info("Wave forecast file cache already complete, skipping CMEMS download")
                 return
 
             # Also try to rebuild from DB before downloading from CMEMS
-            if not existing and db_weather is not None:
+            if db_weather is not None:
                 rebuilt = _rebuild_wave_cache_from_db(cache_key_chk, lat_min, lat_max, lon_min, lon_max)
-                if rebuilt and len(rebuilt.get("frames", {})) >= 41:
+                if rebuilt and len(rebuilt.get("frames", {})) >= 41 and _cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
                     logger.info("Wave forecast rebuilt from DB, skipping CMEMS download")
                     return
+
+            # Remove stale file cache entry so status endpoint doesn't report old data
+            stale_path = _wave_cache_path(cache_key_chk)
+            if stale_path.exists():
+                stale_path.unlink(missing_ok=True)
+                logger.info(f"Removed stale wave cache: {cache_key_chk}")
 
             logger.info("CMEMS wave forecast prefetch started")
 
@@ -1755,7 +1781,10 @@ async def api_trigger_wave_forecast_prefetch(
 
             # Get shared coordinates from first frame, subsampled for JSON size
             first_wd = next(iter(result.values()))
-            STEP = 4  # subsample every 4th point (16x reduction)
+            # Dynamic STEP: keep ~250 grid points per axis regardless of bbox span
+            max_dim = max(len(first_wd.lats), len(first_wd.lons))
+            STEP = max(1, round(max_dim / 250))
+            logger.info(f"Wave forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
             shared_lats = first_wd.lats[::STEP].tolist()
             shared_lons = first_wd.lons[::STEP].tolist()
 
@@ -1936,17 +1965,9 @@ async def api_get_current_forecast_status(
             "prefetch_running": prefetch_running,
         }
 
-    # Fallback: check PostgreSQL for previously ingested data
-    if db_weather is not None:
-        _, db_hours = db_weather.get_available_hours_by_source("cmems_current")
-        if db_hours:
-            return {
-                "total_hours": total_hours,
-                "cached_hours": len(db_hours),
-                "complete": len(db_hours) >= total_hours,
-                "prefetch_running": prefetch_running,
-            }
-
+    # DB may have data from a different viewport — don't report complete.
+    # Only the file cache (keyed by current viewport bounds, populated by
+    # the prefetch) is authoritative for completion.
     return {
         "total_hours": total_hours,
         "cached_hours": 0,
@@ -1991,19 +2012,25 @@ async def api_trigger_current_forecast_prefetch(
 
             _current_prefetch_running = True
 
-            # Skip CMEMS download if file cache already populated (e.g. rebuilt from DB)
+            # Skip CMEMS download if file cache already covers the requested area
             cache_key_chk = f"current_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
             existing = _current_cache_get(cache_key_chk)
-            if existing and len(existing.get("frames", {})) >= 41:
+            if existing and len(existing.get("frames", {})) >= 41 and _cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
                 logger.info("Current forecast file cache already complete, skipping CMEMS download")
                 return
 
             # Also try to rebuild from DB before downloading from CMEMS
-            if not existing and db_weather is not None:
+            if db_weather is not None:
                 rebuilt = _rebuild_current_cache_from_db(cache_key_chk, lat_min, lat_max, lon_min, lon_max)
-                if rebuilt and len(rebuilt.get("frames", {})) >= 41:
+                if rebuilt and len(rebuilt.get("frames", {})) >= 41 and _cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
                     logger.info("Current forecast rebuilt from DB, skipping CMEMS download")
                     return
+
+            # Remove stale file cache entry so status endpoint doesn't report old data
+            stale_path = _current_cache_path(cache_key_chk)
+            if stale_path.exists():
+                stale_path.unlink(missing_ok=True)
+                logger.info(f"Removed stale current cache: {cache_key_chk}")
 
             logger.info("CMEMS current forecast prefetch started")
 
@@ -2013,7 +2040,10 @@ async def api_trigger_current_forecast_prefetch(
                 return
 
             first_wd = next(iter(result.values()))
-            STEP = 4
+            # Dynamic STEP: keep ~250 grid points per axis regardless of bbox span
+            max_dim = max(len(first_wd.lats), len(first_wd.lons))
+            STEP = max(1, round(max_dim / 250))
+            logger.info(f"Current forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
             sub_lats = first_wd.lats[::STEP]  # numpy, S→N
             sub_lons = first_wd.lons[::STEP]
 

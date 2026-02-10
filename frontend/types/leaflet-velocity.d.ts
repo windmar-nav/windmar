@@ -26,6 +26,8 @@ declare module 'leaflet-velocity' {
     onRemove?: () => void;
   }
 
-  const velocityLayer: (options?: VelocityLayerOptions) => L.Layer;
+  const velocityLayer: (options?: VelocityLayerOptions) => L.Layer & {
+    setData(data: object[]): void;
+  };
   export default velocityLayer;
 }

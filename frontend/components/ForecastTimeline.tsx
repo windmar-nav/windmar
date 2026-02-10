@@ -69,8 +69,9 @@ export default function ForecastTimeline({
   const playIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const pollIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  // Snapshot viewport bounds into a ref
+  // Snapshot viewport bounds into a ref — never let it revert to null once set
   const boundsRef = useRef<ViewportBounds | null>(viewportBounds ?? null);
+  const hasBounds = boundsRef.current !== null;
   useEffect(() => {
     if (viewportBounds) boundsRef.current = viewportBounds;
   }, [viewportBounds]);
@@ -85,7 +86,7 @@ export default function ForecastTimeline({
   // ------------------------------------------------------------------
   const loadWindFrames = useCallback(async () => {
     try {
-      const bp = boundsRef.current || {};
+      const bp = boundsRef.current ?? {};
       const data: ForecastFrames = await apiClient.getForecastFrames(bp);
       setWindFrames(data.frames);
       setRunTime(`${data.run_date} ${data.run_hour}Z`);
@@ -105,7 +106,7 @@ export default function ForecastTimeline({
     try {
       debugLog('info', 'WAVE', 'Loading wave forecast frames from API...');
       const t0 = performance.now();
-      const bp = boundsRef.current || {};
+      const bp = boundsRef.current ?? {};
       const data: WaveForecastFrames = await apiClient.getWaveForecastFrames(bp);
       const dt = ((performance.now() - t0) / 1000).toFixed(1);
       const frameKeys = Object.keys(data.frames);
@@ -148,10 +149,10 @@ export default function ForecastTimeline({
   // Wind prefetch effect
   // ------------------------------------------------------------------
   useEffect(() => {
-    if (!visible || !isWindMode) return;
+    if (!visible || !isWindMode || !boundsRef.current) return;
 
     let cancelled = false;
-    const bp = boundsRef.current || {};
+    const bp = boundsRef.current;
 
     const start = async () => {
       setIsLoading(true);
@@ -180,16 +181,16 @@ export default function ForecastTimeline({
 
     start();
     return () => { cancelled = true; if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; } };
-  }, [visible, isWindMode, loadWindFrames]);
+  }, [visible, isWindMode, hasBounds, loadWindFrames]);
 
   // ------------------------------------------------------------------
   // Wave prefetch effect
   // ------------------------------------------------------------------
   useEffect(() => {
-    if (!visible || !isWaveMode) return;
+    if (!visible || !isWaveMode || !boundsRef.current) return;
 
     let cancelled = false;
-    const bp = boundsRef.current || {};
+    const bp = boundsRef.current;
 
     const start = async () => {
       setIsLoading(true);
@@ -217,7 +218,7 @@ export default function ForecastTimeline({
 
     start();
     return () => { cancelled = true; if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; } };
-  }, [visible, isWaveMode, loadWaveFrames]);
+  }, [visible, isWaveMode, hasBounds, loadWaveFrames]);
 
   // ------------------------------------------------------------------
   // Current forecast: load all frames
@@ -226,7 +227,7 @@ export default function ForecastTimeline({
     try {
       debugLog('info', 'CURRENT', 'Loading current forecast frames from API...');
       const t0 = performance.now();
-      const bp = boundsRef.current || {};
+      const bp = boundsRef.current ?? {};
       const data: CurrentForecastFrames = await apiClient.getCurrentForecastFrames(bp);
       const dt = ((performance.now() - t0) / 1000).toFixed(1);
       const frameKeys = Object.keys(data.frames);
@@ -258,10 +259,10 @@ export default function ForecastTimeline({
   // Current prefetch effect
   // ------------------------------------------------------------------
   useEffect(() => {
-    if (!visible || !isCurrentMode) return;
+    if (!visible || !isCurrentMode || !boundsRef.current) return;
 
     let cancelled = false;
-    const bp = boundsRef.current || {};
+    const bp = boundsRef.current;
 
     const start = async () => {
       setIsLoading(true);
@@ -290,7 +291,7 @@ export default function ForecastTimeline({
 
     start();
     return () => { cancelled = true; if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; } };
-  }, [visible, isCurrentMode, loadCurrentFrames]);
+  }, [visible, isCurrentMode, hasBounds, loadCurrentFrames]);
 
   // ------------------------------------------------------------------
   // Play/pause

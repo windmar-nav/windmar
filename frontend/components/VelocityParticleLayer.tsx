@@ -141,6 +141,44 @@ function VelocityParticleLayerInner({ data, type }: VelocityParticleLayerProps) 
       opacity: 0.97,
     });
 
+    // Patch setData with canvas snapshot bridge — prevents blank flash
+    // between forecast frames (#21). Before clearing, we screenshot the
+    // current canvas onto a temporary overlay. The original _clearAndRestart
+    // runs underneath (clearing + async grid rebuild). Once the new animation
+    // renders its first frames (~150ms), the snapshot is removed.
+    layer.setData = function(newData: any) {
+        const ctx = this._context;
+        if (ctx && this._windy) {
+            const canvas = ctx.canvas as HTMLCanvasElement;
+            const parent = canvas.parentNode as HTMLElement | null;
+            if (parent) {
+                const snap = document.createElement('canvas');
+                snap.width = canvas.width;
+                snap.height = canvas.height;
+                snap.style.cssText = canvas.style.cssText;
+                snap.style.pointerEvents = 'none';
+                const sc = snap.getContext('2d');
+                if (sc) {
+                    sc.drawImage(canvas, 0, 0);
+                    parent.insertBefore(snap, canvas.nextSibling);
+                    // Remove snapshot after new animation has rendered
+                    setTimeout(() => {
+                        snap.style.transition = 'opacity 0.15s ease-out';
+                        snap.style.opacity = '0';
+                        setTimeout(() => snap.remove(), 160);
+                    }, 120);
+                }
+            }
+        }
+        // Original setData logic (clear canvas + restart animation)
+        this.options.data = newData;
+        if (this._windy) {
+            this._windy.setData(newData);
+            this._clearAndRestart();
+        }
+        this.fire('load');
+    };
+
     layer.addTo(map);
     layerRef.current = layer;
 

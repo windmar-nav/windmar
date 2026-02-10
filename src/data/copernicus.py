@@ -451,9 +451,7 @@ class CopernicusDataProvider:
         import copernicusmarine
         import xarray as xr
 
-        # Cap bbox to avoid multi-GB downloads
-        lat_min, lat_max, lon_min, lon_max = self._cap_bbox(lat_min, lat_max, lon_min, lon_max, max_span=40.0)
-        logger.info(f"Wave forecast bbox (capped): lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
+        logger.info(f"Wave forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
 
         now = datetime.utcnow()
         # CMEMS analysis+forecast dataset — request next 120 hours
@@ -719,9 +717,7 @@ class CopernicusDataProvider:
         import copernicusmarine
         import xarray as xr
 
-        # Cap bbox to avoid multi-GB downloads
-        lat_min, lat_max, lon_min, lon_max = self._cap_bbox(lat_min, lat_max, lon_min, lon_max, max_span=40.0)
-        logger.info(f"Current forecast bbox (capped): lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
+        logger.info(f"Current forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
 
         now = datetime.utcnow()
         start_dt = now - timedelta(hours=1)

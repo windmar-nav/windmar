@@ -25,14 +25,14 @@ export default function MapViewportProvider({ onViewportChange }: MapViewportPro
     const b = map.getBounds();
     const latSpan = b.getNorth() - b.getSouth();
     const lngSpan = b.getEast() - b.getWest();
-    const margin = 0.1;
+    const margin = 0.25;
 
     onViewportChange({
       bounds: {
         lat_min: Math.max(-85, b.getSouth() - latSpan * margin),
         lat_max: Math.min(85, b.getNorth() + latSpan * margin),
-        lon_min: b.getWest() - lngSpan * margin,
-        lon_max: b.getEast() + lngSpan * margin,
+        lon_min: Math.max(-180, b.getWest() - lngSpan * margin),
+        lon_max: Math.min(180, b.getEast() + lngSpan * margin),
       },
       zoom: map.getZoom(),
     });
