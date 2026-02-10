@@ -397,6 +397,11 @@ export default function HomePage() {
     }
   };
 
+  // Dismiss optimized route (keep original)
+  const dismissOptimizedRoute = () => {
+    setOptimizationResult(null);
+  };
+
   // Save new zone
   const handleSaveZone = async (request: CreateZoneRequest) => {
     await apiClient.createZone(request);
@@ -482,6 +487,7 @@ export default function HomePage() {
             waypoints={waypoints}
             onWaypointsChange={setWaypoints}
             isEditing={isEditing}
+            optimizedWaypoints={optimizationResult?.waypoints}
             weatherLayer={weatherLayer}
             windData={windData}
             waveData={waveData}
@@ -525,6 +531,7 @@ export default function HomePage() {
               onOptimize={handleOptimize}
               optimizationResult={optimizationResult}
               onApplyOptimizedRoute={applyOptimizedRoute}
+              onDismissOptimizedRoute={dismissOptimizedRoute}
               onRouteImport={handleRouteImport}
               onLoadRoute={handleLoadRoute}
               onClearRoute={handleClearRoute}

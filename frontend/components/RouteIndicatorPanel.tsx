@@ -22,6 +22,7 @@ interface RouteIndicatorPanelProps {
   onOptimize: () => void;
   optimizationResult: OptimizationResponse | null;
   onApplyOptimizedRoute: () => void;
+  onDismissOptimizedRoute: () => void;
   onRouteImport: (waypoints: Position[], name: string) => void;
   onLoadRoute: (waypoints: Position[]) => void;
   onClearRoute: () => void;
@@ -44,6 +45,7 @@ export default function RouteIndicatorPanel({
   onOptimize,
   optimizationResult,
   onApplyOptimizedRoute,
+  onDismissOptimizedRoute,
   onRouteImport,
   onLoadRoute,
   onClearRoute,
@@ -231,24 +233,60 @@ export default function RouteIndicatorPanel({
           </button>
         </div>
 
-        {/* Apply optimized route */}
+        {/* Optimized route comparison */}
         {optimizationResult && (
           <div className="px-3 pb-3">
             <div className="p-2 bg-green-500/10 border border-green-500/30 rounded-lg mb-2">
-              <div className="flex justify-between text-xs">
-                <span className="text-green-400 font-medium">Route Optimized</span>
-                <span className="text-green-400">{optimizationResult.fuel_savings_pct.toFixed(1)}% savings</span>
+              <div className="flex justify-between text-xs mb-2">
+                <span className="text-green-400 font-medium">Route Comparison</span>
+                <span className="text-green-400">{optimizationResult.fuel_savings_pct.toFixed(1)}% fuel savings</span>
               </div>
-              <div className="text-xs text-gray-400 mt-1">
-                {optimizationResult.total_distance_nm.toFixed(0)} nm · {optimizationResult.waypoints.length} WPs · {optimizationResult.avg_speed_kts.toFixed(1)} kts avg
-              </div>
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="text-gray-500">
+                    <th className="text-left font-normal pb-1"></th>
+                    <th className="text-right font-normal pb-1 text-blue-400">Original</th>
+                    <th className="text-right font-normal pb-1 text-green-400">Optimized</th>
+                  </tr>
+                </thead>
+                <tbody className="text-gray-300">
+                  <tr>
+                    <td>Distance</td>
+                    <td className="text-right">{totalDistance.toFixed(0)} nm</td>
+                    <td className="text-right">{optimizationResult.total_distance_nm.toFixed(0)} nm</td>
+                  </tr>
+                  <tr>
+                    <td>Fuel</td>
+                    <td className="text-right">{optimizationResult.direct_fuel_mt.toFixed(1)} mt</td>
+                    <td className="text-right">{optimizationResult.total_fuel_mt.toFixed(1)} mt</td>
+                  </tr>
+                  <tr>
+                    <td>Time</td>
+                    <td className="text-right">{optimizationResult.direct_time_hours.toFixed(1)} h</td>
+                    <td className="text-right">{optimizationResult.total_time_hours.toFixed(1)} h</td>
+                  </tr>
+                  <tr>
+                    <td>Waypoints</td>
+                    <td className="text-right">{waypoints.length}</td>
+                    <td className="text-right">{optimizationResult.waypoints.length}</td>
+                  </tr>
+                </tbody>
+              </table>
             </div>
-            <button
-              onClick={onApplyOptimizedRoute}
-              className="w-full py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors"
-            >
-              Apply Optimized Route
-            </button>
+            <div className="flex gap-2">
+              <button
+                onClick={onDismissOptimizedRoute}
+                className="flex-1 py-2 text-sm border border-white/20 text-gray-300 rounded-lg hover:bg-white/5 transition-colors"
+              >
+                Dismiss
+              </button>
+              <button
+                onClick={onApplyOptimizedRoute}
+                className="flex-1 py-2 text-sm bg-green-600 text-white rounded-lg hover:bg-green-500 transition-colors"
+              >
+                Apply
+              </button>
+            </div>
           </div>
         )}
 

@@ -49,6 +49,10 @@ const MapViewportProvider = dynamic(
   () => import('@/components/MapViewportProvider'),
   { ssr: false }
 );
+const Polyline = dynamic(
+  () => import('react-leaflet').then((mod) => mod.Polyline),
+  { ssr: false }
+);
 
 const DEFAULT_CENTER: [number, number] = [45, 10];
 const DEFAULT_ZOOM = 5;
@@ -75,6 +79,7 @@ export interface MapComponentProps {
   onForecastHourChange?: (hour: number, data: VelocityData[] | null) => void;
   onWaveForecastHourChange?: (hour: number, allFrames: WaveForecastFrames | null) => void;
   onCurrentForecastHourChange?: (hour: number, allFrames: any | null) => void;
+  optimizedWaypoints?: Position[];
   onViewportChange?: (viewport: { bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number }; zoom: number }) => void;
   viewportBounds?: { lat_min: number; lat_max: number; lon_min: number; lon_max: number } | null;
   children?: React.ReactNode;
@@ -100,6 +105,7 @@ export default function MapComponent({
   onForecastHourChange,
   onWaveForecastHourChange,
   onCurrentForecastHourChange,
+  optimizedWaypoints,
   onViewportChange,
   viewportBounds = null,
   children,
@@ -193,6 +199,19 @@ export default function MapComponent({
           onWaypointsChange={onWaypointsChange}
           isEditing={isEditing}
         />
+
+        {/* Optimized route overlay (green dashed) */}
+        {optimizedWaypoints && optimizedWaypoints.length >= 2 && (
+          <Polyline
+            positions={optimizedWaypoints.map(wp => [wp.lat, wp.lon] as [number, number])}
+            pathOptions={{
+              color: '#22c55e',
+              weight: 3,
+              opacity: 0.85,
+              dashArray: '8, 6',
+            }}
+          />
+        )}
       </MapContainer>
 
       {/* Floating overlay controls */}
