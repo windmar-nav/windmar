@@ -660,6 +660,7 @@ class RouteOptimizer(BaseOptimizer):
         bearing_deg: float,
         is_laden: bool,
         target_time_hours: Optional[float] = None,
+        calm_speed_kts: Optional[float] = None,
     ) -> Tuple[float, float, float]:
         """
         Find optimal speed for a leg considering weather conditions.
@@ -673,17 +674,21 @@ class RouteOptimizer(BaseOptimizer):
             bearing_deg: Vessel heading
             is_laden: Loading condition
             target_time_hours: Optional target time for this leg
+            calm_speed_kts: User's calm-water speed (caps max STW)
 
         Returns:
             Tuple of (optimal_speed_kts, fuel_mt, time_hours)
         """
         min_speed, max_speed = self.SPEED_RANGE_KTS
 
-        # Adjust speed range based on vessel capabilities
-        if is_laden:
-            max_speed = min(max_speed, self.vessel_model.specs.service_speed_laden + 2)
+        # Cap at user's calm speed — optimizer finds better paths, not faster engines
+        if calm_speed_kts is not None:
+            max_speed = min(max_speed, calm_speed_kts)
         else:
-            max_speed = min(max_speed, self.vessel_model.specs.service_speed_ballast + 2)
+            if is_laden:
+                max_speed = min(max_speed, self.vessel_model.specs.service_speed_laden)
+            else:
+                max_speed = min(max_speed, self.vessel_model.specs.service_speed_ballast)
 
         # Build weather dict
         weather_dict = {
@@ -976,6 +981,7 @@ class RouteOptimizer(BaseOptimizer):
                     weather=weather,
                     bearing_deg=bearing,
                     is_laden=is_laden,
+                    calm_speed_kts=calm_speed_kts,
                 )
                 leg_speed = optimal_speed
             else:
@@ -1140,6 +1146,7 @@ class RouteOptimizer(BaseOptimizer):
                 bearing_deg=bearing,
                 is_laden=is_laden,
                 target_time_hours=leg_target_time,
+                calm_speed_kts=calm_speed_kts,
             )
 
             speed_profile.append(leg_speed)

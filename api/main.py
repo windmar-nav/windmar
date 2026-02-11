@@ -2949,7 +2949,12 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
         active_optimizer = visir_optimizer
     else:
         active_optimizer = route_optimizer
-    active_optimizer.resolution_deg = request.grid_resolution_deg
+    # VISIR uses coarser resolution (1°) — 0.5° grids have connectivity gaps
+    # around narrow passages (e.g., Brittany/English Channel) at 8-connected
+    active_optimizer.resolution_deg = (
+        max(request.grid_resolution_deg, 1.0) if engine_name == "visir"
+        else request.grid_resolution_deg
+    )
     active_optimizer.optimization_target = request.optimization_target
 
     try:

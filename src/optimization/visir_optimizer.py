@@ -94,7 +94,7 @@ class VisirOptimizer(BaseOptimizer):
     DEFAULT_RESOLUTION_DEG = 1.0
     DEFAULT_TIME_STEP_HOURS = 3.0   # temporal resolution of the graph
     DEFAULT_MAX_NODES = 100_000
-    SPEED_RANGE_KTS = (10.0, 18.0)  # practical speed range (avoids extreme slow-steaming)
+    SPEED_RANGE_KTS = (10.0, 18.0)  # practical speed range for graph exploration
     SPEED_STEPS = 3                  # candidate speeds per edge
 
     # 8-connected grid directions (row_delta, col_delta)
@@ -142,7 +142,7 @@ class VisirOptimizer(BaseOptimizer):
         weather_provider: Callable[[float, float, datetime], LegWeather],
         max_cells: int = DEFAULT_MAX_NODES,
         avoid_land: bool = True,
-        max_time_factor: float = 1.15,
+        max_time_factor: float = 1.30,
     ) -> OptimizedRoute:
         t0 = _time.time()
 
@@ -155,6 +155,8 @@ class VisirOptimizer(BaseOptimizer):
         if start_rc is None or end_rc is None:
             raise ValueError("Origin or destination outside grid bounds")
 
+        logger.info(f"VISIR start_rc={start_rc} -> {grid[start_rc]}, end_rc={end_rc} -> {grid[end_rc]}")
+
         # 3. Estimate max time steps needed
         #    Chebyshev distance × 2 to account for routing around obstacles
         chebyshev = max(abs(start_rc[0] - end_rc[0]), abs(start_rc[1] - end_rc[1]))
@@ -162,6 +164,8 @@ class VisirOptimizer(BaseOptimizer):
         min_speed = self.SPEED_RANGE_KTS[0]
         gc_time_steps = int(math.ceil((gc_dist / min_speed) * 1.5 / self.time_step_hours))
         max_time_steps = max(chebyshev * 2, gc_time_steps, 8)
+        logger.info(f"VISIR gc_dist={gc_dist:.0f}nm, max_time_steps={max_time_steps}, "
+                     f"max_voyage_hours={gc_dist / max(calm_speed_kts, 0.1) * max_time_factor:.1f}h")
 
         # 4. Compute time budget: direct time at calm speed × max_time_factor
         direct_time_hours = gc_dist / max(calm_speed_kts, 0.1)
@@ -190,39 +194,28 @@ class VisirOptimizer(BaseOptimizer):
         waypoints = [(n.lat, n.lon) for n in path]
         waypoints = self.smooth_path(waypoints)
 
-        # 6. Compute detailed leg stats using shared base method
-        #    Estimate total route distance to compute min speed for time budget
-        route_dist = sum(
-            self.haversine(waypoints[i][0], waypoints[i][1],
-                           waypoints[i+1][0], waypoints[i+1][1])
-            for i in range(len(waypoints) - 1)
-        )
-        route_min_speed = route_dist / max(max_voyage_hours, 0.1)
-
+        # 6. Compute detailed leg stats using shared base method.
+        #    For stats, cap STW at calm_speed_kts — the Dijkstra may have used
+        #    higher speeds internally to traverse the graph, but the reported
+        #    speed should not exceed the user's setting.
         def find_speed(dist, weather, bearing, is_laden):
-            edge = self._best_edge(dist, bearing, weather, calm_speed_kts, is_laden,
-                                   min_speed_kts=route_min_speed)
-            if edge is not None:
-                cost, hours, speed = edge
-                # Recompute actual fuel at chosen speed for stats
-                weather_dict = {
-                    'wind_speed_ms': weather.wind_speed_ms,
-                    'wind_dir_deg': weather.wind_dir_deg,
-                    'heading_deg': bearing,
-                    'sig_wave_height_m': weather.sig_wave_height_m,
-                    'wave_dir_deg': weather.wave_dir_deg,
-                }
-                res = self.vessel_model.calculate_fuel_consumption(
-                    speed_kts=speed, is_laden=is_laden,
-                    weather=weather_dict, distance_nm=dist,
-                )
-                return speed, res['fuel_mt'], hours
-            # Fallback: calm speed
+            # Use calm_speed as max STW for stats
+            stw = min(calm_speed_kts, self.vessel_model.specs.service_speed_laden + 2
+                      if is_laden else self.vessel_model.specs.service_speed_ballast + 2)
+            weather_dict = {
+                'wind_speed_ms': weather.wind_speed_ms,
+                'wind_dir_deg': weather.wind_dir_deg,
+                'heading_deg': bearing,
+                'sig_wave_height_m': weather.sig_wave_height_m,
+                'wave_dir_deg': weather.wave_dir_deg,
+            }
             res = self.vessel_model.calculate_fuel_consumption(
-                speed_kts=calm_speed_kts, is_laden=is_laden,
-                weather=None, distance_nm=dist,
+                speed_kts=stw, is_laden=is_laden,
+                weather=weather_dict, distance_nm=dist,
             )
-            return calm_speed_kts, res['fuel_mt'], dist / max(calm_speed_kts, 0.1)
+            ce = self.current_effect(bearing, weather.current_speed_ms, weather.current_dir_deg)
+            sog = max(stw + ce, 0.1)
+            return stw, res['fuel_mt'], dist / sog
 
         (
             total_fuel, total_time, total_dist,
@@ -247,7 +240,7 @@ class VisirOptimizer(BaseOptimizer):
         elapsed_ms = (_time.time() - t0) * 1000
         fuel_sav = ((direct_fuel - total_fuel) / direct_fuel * 100) if direct_fuel > 0 else 0
         time_sav = ((direct_time - total_time) / direct_time * 100) if direct_time > 0 else 0
-        avg_speed = sum(speed_profile) / len(speed_profile) if speed_profile else calm_speed_kts
+        avg_speed = total_dist / total_time if total_time > 0 else calm_speed_kts
 
         return OptimizedRoute(
             waypoints=waypoints,
@@ -280,7 +273,7 @@ class VisirOptimizer(BaseOptimizer):
         self,
         origin: Tuple[float, float],
         destination: Tuple[float, float],
-        margin_deg: float = 3.0,
+        margin_deg: float = 5.0,
         filter_land: bool = True,
     ) -> Tuple[Dict[Tuple[int, int], Tuple[float, float]], Dict[str, float]]:
         """
@@ -399,8 +392,17 @@ class VisirOptimizer(BaseOptimizer):
             row=start_rc[0], col=start_rc[1], time_step=0,
         )
 
-        # Compute admissible heuristic: min fuel per nm in calm conditions
-        # (cheapest possible cost for any remaining distance)
+        # Time-value penalty: each extra hour "costs" the fuel of 1 hour at
+        # calm speed.  This prevents slow-steaming by making detour time
+        # expensive, the same approach used by the A* engine.
+        service_fuel_res = self.vessel_model.calculate_fuel_consumption(
+            speed_kts=calm_speed_kts, is_laden=is_laden,
+            weather=None, distance_nm=calm_speed_kts,  # 1 hour
+        )
+        lambda_time = service_fuel_res["fuel_mt"]
+
+        # Compute admissible heuristic: min (fuel + time penalty) per nm
+        # in calm conditions across all candidate speeds
         min_spd, max_spd = self.SPEED_RANGE_KTS
         min_cost_per_nm = float("inf")
         for speed_kts in np.linspace(min_spd, max_spd, self.SPEED_STEPS * 2):
@@ -408,10 +410,12 @@ class VisirOptimizer(BaseOptimizer):
                 speed_kts=float(speed_kts), is_laden=is_laden,
                 weather=None, distance_nm=100.0,
             )
-            cost_per_nm = res["fuel_mt"] / 100.0
+            fuel_per_nm = res["fuel_mt"] / 100.0
+            time_per_nm = 1.0 / float(speed_kts)  # hours per nm
+            cost_per_nm = fuel_per_nm + lambda_time * time_per_nm
             min_cost_per_nm = min(min_cost_per_nm, cost_per_nm)
 
-        # Cache heuristic per spatial cell (haversine to dest × min fuel rate)
+        # Cache heuristic per spatial cell (haversine to dest × min cost rate)
         h_cache: Dict[Tuple[int, int], float] = {}
 
         def heuristic(rc: Tuple[int, int]) -> float:
@@ -459,12 +463,12 @@ class VisirOptimizer(BaseOptimizer):
 
                 nb_lat, nb_lon = grid[nb_rc]
 
-                # Check if edge crosses land (cached per spatial edge)
+                # No edge land check for VISIR's coarse 1° grid — cells are
+                # ocean-only, and full path checks disconnect narrow passages.
+                # smooth_path handles minor coastal clips in post-processing.
                 spatial_edge = ((cur.row, cur.col), nb_rc)
                 if spatial_edge not in zone_cache:
-                    if not is_path_clear(cur.lat, cur.lon, nb_lat, nb_lon):
-                        zone_cache[spatial_edge] = float("inf")
-                    elif self.enforce_zones:
+                    if self.enforce_zones:
                         zp, _ = self.zone_checker.get_path_penalty(
                             cur.lat, cur.lon, nb_lat, nb_lon,
                         )
@@ -489,26 +493,19 @@ class VisirOptimizer(BaseOptimizer):
                 # --- Try candidate speeds (voluntary speed reduction) ---
                 cached_zone_factor = zone_cache[spatial_edge]
 
-                # Compute minimum required speed to stay within time budget
-                elapsed_so_far = (cur.time - departure_time).total_seconds() / 3600.0
-                remaining_hours = max_voyage_hours - elapsed_so_far
-                # Remaining great-circle distance from neighbor to destination
-                remaining_dist = self.haversine(nb_lat, nb_lon, end_lat, end_lon)
-                total_remaining = remaining_dist + dist_nm
-                min_req_speed = total_remaining / max(remaining_hours, 0.1)
-
                 best_edge = self._best_edge(
                     dist_nm, brg, weather, calm_speed_kts, is_laden,
                     zone_factor=cached_zone_factor,
-                    min_speed_kts=min_req_speed,
+                    lambda_time=lambda_time,
                 )
                 if best_edge is None:
-                    continue  # all speeds unsafe or too slow for budget
+                    continue  # all speeds unsafe
 
                 edge_cost, travel_hours, chosen_speed = best_edge
 
                 # Map travel time to the next discrete time step
                 nb_time = cur.time + timedelta(hours=travel_hours)
+
                 nb_ts = cur.time_step + max(1, round(travel_hours / self.time_step_hours))
                 if nb_ts > max_time_steps:
                     continue  # exceeds time horizon
@@ -527,6 +524,10 @@ class VisirOptimizer(BaseOptimizer):
                     f_score = tentative_g + heuristic(nb_rc)
                     heapq.heappush(pq, _QueueEntry(cost=f_score, node=nb_node, speed_kts=chosen_speed))
 
+        reason = "max_nodes" if explored >= max_nodes else "pq_empty"
+        logger.warning(f"VISIR search failed: reason={reason}, explored={explored}, "
+                       f"pq_size={len(pq)}, cost_so_far_size={len(cost_so_far)}, "
+                       f"max_time_steps={max_time_steps}")
         return None, explored
 
     # ------------------------------------------------------------------
@@ -541,19 +542,19 @@ class VisirOptimizer(BaseOptimizer):
         calm_speed_kts: float,
         is_laden: bool,
         zone_factor: float = 1.0,
-        min_speed_kts: float = 0.0,
+        lambda_time: float = 0.0,
     ) -> Optional[Tuple[float, float, float]]:
         """
-        Evaluate candidate speeds and return the cheapest safe option
-        at or above *min_speed_kts*.
+        Evaluate candidate speeds and return the cheapest safe option.
 
         Parameters
         ----------
         zone_factor : pre-computed zone penalty for this edge (from cache).
-        min_speed_kts : floor speed to enforce time budget constraints.
+        lambda_time : time-value penalty (fuel-equivalent cost per hour).
+            Prevents slow-steaming by making extra hours expensive.
 
         Returns ``(cost, travel_hours, chosen_speed)`` or *None* if
-        no safe speed exists at the required minimum speed.
+        no safe speed exists.
         """
         min_spd, max_spd = self.SPEED_RANGE_KTS
         if is_laden:
@@ -593,8 +594,6 @@ class VisirOptimizer(BaseOptimizer):
             sog = speed_kts + ce
             if sog <= 0.5:
                 continue
-            if sog < min_speed_kts:
-                continue  # too slow for the remaining time budget
 
             hours = dist_nm / sog
 
@@ -607,7 +606,7 @@ class VisirOptimizer(BaseOptimizer):
             fuel = result["fuel_mt"]
 
             if self.optimization_target == "fuel":
-                score = fuel * zone_factor
+                score = (fuel + lambda_time * hours) * zone_factor
             else:
                 score = hours * zone_factor
 
