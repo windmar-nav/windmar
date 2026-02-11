@@ -484,6 +484,11 @@ class RouteOptimizer(BaseOptimizer):
 
                 neighbor_cell = grid[neighbor_key]
 
+                # Block edges whose straight line crosses land
+                if not is_path_clear(current.cell.lat, current.cell.lon,
+                                     neighbor_cell.lat, neighbor_cell.lon):
+                    continue
+
                 # Calculate cost to move to neighbor
                 move_cost, travel_time = self._calculate_move_cost(
                     from_cell=current.cell,
@@ -783,10 +788,10 @@ class RouteOptimizer(BaseOptimizer):
         Removes unnecessary waypoints while keeping path shape.
         Ensures simplified path doesn't cross land.
 
-        Default tolerance is 1 grid cell diagonal (~42nm at 0.5°).
+        Default tolerance is half a grid cell (~15nm at 0.5°).
         """
         if tolerance_nm is None:
-            tolerance_nm = self.resolution_deg * 60 * 1.4  # ~1 cell diagonal
+            tolerance_nm = self.resolution_deg * 60 * 0.5  # half cell width
         if len(waypoints) <= 2:
             return waypoints
 
@@ -850,7 +855,23 @@ class RouteOptimizer(BaseOptimizer):
         # (grid staircase artifacts that Douglas-Peucker keeps)
         smoothed = self._remove_small_turns(smoothed, min_turn_deg=15.0, check_land=check_land)
 
-        return smoothed
+        # Third pass: subdivide long segments to prevent Mercator rendering
+        # from crossing land (straight lines diverge from geographic path)
+        max_seg_nm = 120.0
+        result = [smoothed[0]]
+        for i in range(1, len(smoothed)):
+            prev = result[-1]
+            cur = smoothed[i]
+            seg_nm = self.haversine(prev[0], prev[1], cur[0], cur[1])
+            if seg_nm > max_seg_nm:
+                n_sub = int(math.ceil(seg_nm / max_seg_nm))
+                for j in range(1, n_sub):
+                    t = j / n_sub
+                    mid_lat = prev[0] + t * (cur[0] - prev[0])
+                    mid_lon = prev[1] + t * (cur[1] - prev[1])
+                    result.append((mid_lat, mid_lon))
+            result.append(cur)
+        return result
 
     def _remove_small_turns(
         self,

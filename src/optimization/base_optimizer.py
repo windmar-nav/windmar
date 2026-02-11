@@ -222,7 +222,29 @@ class BaseOptimizer(ABC):
                 return left[:-1] + right
             return [pts[0], pts[-1]]
 
-        return simplify(waypoints, tolerance_nm)
+        smoothed = simplify(waypoints, tolerance_nm)
+
+        # Subdivide long segments to prevent Mercator rendering from
+        # crossing land (straight lines in screen-space diverge from
+        # the geographic path on segments > ~120 nm).
+        max_seg_nm = 120.0
+        result = [smoothed[0]]
+        for i in range(1, len(smoothed)):
+            prev = result[-1]
+            cur = smoothed[i]
+            # Approximate distance in nm (Pythagorean on lat/lon, 60nm per degree)
+            dlat = (cur[0] - prev[0]) * 60
+            dlon = (cur[1] - prev[1]) * 60 * math.cos(math.radians((prev[0] + cur[0]) / 2))
+            seg_nm = math.sqrt(dlat * dlat + dlon * dlon)
+            if seg_nm > max_seg_nm:
+                n_sub = int(math.ceil(seg_nm / max_seg_nm))
+                for j in range(1, n_sub):
+                    t = j / n_sub
+                    mid_lat = prev[0] + t * (cur[0] - prev[0])
+                    mid_lon = prev[1] + t * (cur[1] - prev[1])
+                    result.append((mid_lat, mid_lon))
+            result.append(cur)
+        return result
 
     # -------------------------------------------------------------------
     # Route statistics (shared by all engines)

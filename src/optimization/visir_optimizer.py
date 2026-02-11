@@ -37,7 +37,7 @@ from src.optimization.seakeeping import (
     SafetyStatus,
     create_default_safety_constraints,
 )
-from src.data.land_mask import is_ocean
+from src.data.land_mask import is_ocean, is_path_clear
 from src.data.regulatory_zones import get_zone_checker, ZoneChecker
 
 logger = logging.getLogger(__name__)
@@ -458,6 +458,22 @@ class VisirOptimizer(BaseOptimizer):
                     continue
 
                 nb_lat, nb_lon = grid[nb_rc]
+
+                # Check if edge crosses land (cached per spatial edge)
+                spatial_edge = ((cur.row, cur.col), nb_rc)
+                if spatial_edge not in zone_cache:
+                    if not is_path_clear(cur.lat, cur.lon, nb_lat, nb_lon):
+                        zone_cache[spatial_edge] = float("inf")
+                    elif self.enforce_zones:
+                        zp, _ = self.zone_checker.get_path_penalty(
+                            cur.lat, cur.lon, nb_lat, nb_lon,
+                        )
+                        zone_cache[spatial_edge] = zp
+                    else:
+                        zone_cache[spatial_edge] = 1.0
+                if zone_cache[spatial_edge] == float("inf"):
+                    continue  # land crossing or exclusion zone
+
                 dist_nm = self.haversine(cur.lat, cur.lon, nb_lat, nb_lon)
                 brg = self.bearing(cur.lat, cur.lon, nb_lat, nb_lon)
 
@@ -471,19 +487,7 @@ class VisirOptimizer(BaseOptimizer):
                     weather = LegWeather()
 
                 # --- Try candidate speeds (voluntary speed reduction) ---
-                # Look up cached zone penalty for this spatial edge
-                spatial_edge = ((cur.row, cur.col), nb_rc)
-                if spatial_edge not in zone_cache:
-                    if self.enforce_zones:
-                        zp, _ = self.zone_checker.get_path_penalty(
-                            cur.lat, cur.lon, nb_lat, nb_lon,
-                        )
-                        zone_cache[spatial_edge] = zp
-                    else:
-                        zone_cache[spatial_edge] = 1.0
                 cached_zone_factor = zone_cache[spatial_edge]
-                if cached_zone_factor == float("inf"):
-                    continue  # exclusion zone
 
                 # Compute minimum required speed to stay within time budget
                 elapsed_so_far = (cur.time - departure_time).total_seconds() / 3600.0

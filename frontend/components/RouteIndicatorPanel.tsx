@@ -261,9 +261,9 @@ export default function RouteIndicatorPanel({
 
           const astarFuel = getScenarioVal(astar, 'total_fuel_mt') ?? astar?.total_fuel_mt;
           const visirFuel = getScenarioVal(visir, 'total_fuel_mt') ?? visir?.total_fuel_mt;
-          // Compute savings vs the displayed Original baseline (not the backend's direct-route comparison)
-          const astarSavings = baselineFuel > 0 && astarFuel != null ? ((baselineFuel - (astarFuel as number)) / baselineFuel) * 100 : 0;
-          const visirSavings = baselineFuel > 0 && visirFuel != null ? ((baselineFuel - (visirFuel as number)) / baselineFuel) * 100 : 0;
+          // Fuel change vs Original: negative = reduction (good), positive = increase (bad)
+          const astarFuelChange = baselineFuel > 0 && astarFuel != null ? (((astarFuel as number) - baselineFuel) / baselineFuel) * 100 : 0;
+          const visirFuelChange = baselineFuel > 0 && visirFuel != null ? (((visirFuel as number) - baselineFuel) / baselineFuel) * 100 : 0;
 
           return (
             <div className="px-3 pb-3">
@@ -325,16 +325,16 @@ export default function RouteIndicatorPanel({
                       {visir && <td className="text-right">{(visirFuel as number).toFixed(1)} mt</td>}
                     </tr>
                     <tr className="font-medium">
-                      <td>Savings</td>
+                      <td>Fuel &Delta;</td>
                       <td className="text-right">-</td>
                       {astar && (
-                        <td className={`text-right ${(astarSavings as number) > 0 ? 'text-green-400' : 'text-amber-400'}`}>
-                          {(astarSavings as number) > 0 ? '+' : ''}{(astarSavings as number).toFixed(1)}%
+                        <td className={`text-right ${(astarFuelChange as number) < 0 ? 'text-green-400' : 'text-amber-400'}`}>
+                          {(astarFuelChange as number) > 0 ? '+' : ''}{(astarFuelChange as number).toFixed(1)}%
                         </td>
                       )}
                       {visir && (
-                        <td className={`text-right ${(visirSavings as number) > 0 ? 'text-orange-400' : 'text-amber-400'}`}>
-                          {(visirSavings as number) > 0 ? '+' : ''}{(visirSavings as number).toFixed(1)}%
+                        <td className={`text-right ${(visirFuelChange as number) < 0 ? 'text-orange-400' : 'text-amber-400'}`}>
+                          {(visirFuelChange as number) > 0 ? '+' : ''}{(visirFuelChange as number).toFixed(1)}%
                         </td>
                       )}
                     </tr>
