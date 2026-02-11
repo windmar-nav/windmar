@@ -195,6 +195,10 @@ class VisirOptimizer(BaseOptimizer):
         waypoints = [(n.lat, n.lon) for n in path]
         waypoints = self.smooth_path(waypoints)
 
+        # Pin endpoints to actual origin/destination (grid cells may be offset)
+        waypoints[0] = origin
+        waypoints[-1] = destination
+
         # 6. Compute detailed leg stats using shared base method.
         #    For stats, cap STW at calm_speed_kts — the Dijkstra may have used
         #    higher speeds internally to traverse the graph, but the reported

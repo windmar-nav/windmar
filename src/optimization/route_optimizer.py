@@ -225,6 +225,10 @@ class RouteOptimizer(BaseOptimizer):
         waypoints = [(cell.lat, cell.lon) for cell in path]
         waypoints = self._smooth_path(waypoints)
 
+        # Pin endpoints to actual origin/destination (grid cells may be offset)
+        waypoints[0] = origin
+        waypoints[-1] = destination
+
         # "Direct" route = user's original waypoints if provided, else straight line
         direct_wps = list(route_waypoints) if route_waypoints and len(route_waypoints) > 2 else [origin, destination]
 
