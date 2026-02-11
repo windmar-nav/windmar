@@ -14,13 +14,16 @@ A maritime route optimization platform for Medium Range (MR) Product Tankers. Mi
 - Configurable vessel specifications (default: 49,000 DWT MR tanker)
 
 ### Route Optimization
-- A\* grid-based pathfinding with configurable resolution (0.25-2.0 degrees)
-- Dual speed-strategy comparison: **Same Speed** (arrive earlier) vs **Match ETA** (maximize fuel savings)
-- Voyage baseline gating — requires voyage calculation before optimization
-- Variable speed optimization (6-18 knots per leg)
+- **Dual-engine optimization**: A\* grid search + VISIR-style Dijkstra with time-expanded graph
+- All 6 route variants computed per request (2 engines × 3 safety weights: fuel / balanced / safety)
+- Sequential execution with progressive UI updates as each route completes
+- A\* grid at 0.2° (~12nm) resolution; VISIR at 0.25° (~15nm) — aligned with professional routing software (VISIR-2, StormGeo)
+- Distance-adaptive land mask sampling (~1 check per 2nm, auto-scaled per segment length)
+- Per-edge land crossing checks on both engines using `global-land-mask` (1km resolution)
+- Voluntary speed reduction (VSR) in heavy weather (VISIR engine)
+- Variable speed optimization (10-18 knots per leg)
 - Turn-angle path smoothing to eliminate grid staircase artifacts
 - Seakeeping safety constraints (roll, pitch, acceleration limits)
-- Land avoidance via vectorized ocean mask (global-land-mask)
 - RTZ file import/export (IEC 61174 ECDIS standard)
 
 ### Weather Integration
@@ -63,10 +66,12 @@ A maritime route optimization platform for Medium Range (MR) Product Tankers. Mi
 - Wind particle animation layer (leaflet-velocity)
 - Windy-style wave crest rendering with click-to-inspect polar diagram popup
 - Forecast timeline with play/pause, speed control, and 5-day scrubbing
-- Dual-route display: original + optimized route shown simultaneously with comparison table
-- Strategy selector tabs (Same Speed / Match ETA) in route comparison panel
+- All 6 optimized routes displayed simultaneously with per-route color coding and toggleable visibility
+- Unified comparison table with fuel, distance, time, and waypoint counts for every route variant
+- Sequential optimization with progressive map updates (routes appear one by one)
+- Navigation persistence — waypoints, route name, and optimization results survive page navigation via React Context
 - Voyage calculation with per-leg fuel, speed, and ETA breakdown
-- Consolidated vessel configuration, calibration, and fuel analysis page
+- Consolidated vessel configuration, calibration, and fuel analysis page (CSV + Excel upload)
 - CII compliance tracking and projections
 - Dark maritime theme, responsive design
 
@@ -91,10 +96,15 @@ windmar/
 ├── src/
 │   ├── optimization/
 │   │   ├── vessel_model.py     # Holtrop-Mennen fuel consumption model
-│   │   ├── route_optimizer.py  # A* pathfinding with weather costs
+│   │   ├── base_optimizer.py   # Abstract base class for route optimizers
+│   │   ├── route_optimizer.py  # A* grid search with weather costs (0.2°)
+│   │   ├── visir_optimizer.py  # VISIR-style Dijkstra time-expanded graph (0.25°)
+│   │   ├── router.py           # Engine dispatcher (A*/VISIR selection)
 │   │   ├── voyage.py           # Per-leg voyage calculator (LegWeather, VoyageResult)
 │   │   ├── monte_carlo.py      # Temporal MC simulation with Cholesky correlation
 │   │   ├── grid_weather_provider.py  # Bilinear interpolation from pre-fetched grids
+│   │   ├── temporal_weather_provider.py  # Trilinear interpolation (lat, lon, time)
+│   │   ├── weather_assessment.py  # Route weather assessment + DB provisioning
 │   │   ├── vessel_calibration.py  # Noon report calibration (scipy)
 │   │   └── seakeeping.py       # Ship motion safety assessment
 │   ├── data/
@@ -162,11 +172,11 @@ Services start on:
 
 | Service | URL |
 |---------|-----|
-| Frontend | http://localhost:3000 |
-| API | http://localhost:8000 |
-| API Docs (Swagger) | http://localhost:8000/api/docs |
-| PostgreSQL | localhost:5432 |
-| Redis | localhost:6379 |
+| Frontend | http://localhost:3003 |
+| API | http://localhost:8003 |
+| API Docs (Swagger) | http://localhost:8003/api/docs |
+| PostgreSQL | localhost:5434 |
+| Redis | localhost:6380 |
 
 ### Manual Setup
 
@@ -278,7 +288,7 @@ See the [Monte Carlo Simulation](https://quantcoder-fs.com/windmar/monte-carlo.h
 - `POST /api/voyage/monte-carlo` - Parametric MC simulation (P10/P50/P90)
 
 ### Optimization
-- `POST /api/optimize/route` - A\* weather-optimal route finding
+- `POST /api/optimize/route` - Weather-optimal route finding (A\* or VISIR engine, selectable via `engine` param)
 - `GET /api/optimize/status` - Optimizer configuration and available targets
 
 ### Weather Ingestion
@@ -296,6 +306,7 @@ See the [Monte Carlo Simulation](https://quantcoder-fs.com/windmar/monte-carlo.h
 - `GET /api/vessel/noon-reports` - List uploaded noon reports
 - `POST /api/vessel/noon-reports` - Add a single noon report
 - `POST /api/vessel/noon-reports/upload-csv` - Upload operational data (CSV)
+- `POST /api/vessel/noon-reports/upload-excel` - Upload operational data (Excel .xlsx/.xls)
 - `DELETE /api/vessel/noon-reports` - Clear all noon reports
 
 ### Zones
