@@ -1775,12 +1775,16 @@ class GFSDataProvider:
         lon_max: float,
         time: Optional[datetime] = None,
         forecast_hour: int = 0,
+        run_date: Optional[str] = None,
+        run_hour: Optional[str] = None,
     ) -> Optional[WeatherData]:
         """
         Fetch near-real-time wind data from GFS.
 
         Args:
             forecast_hour: GFS forecast hour (0=analysis, 3-120 in 3h steps)
+            run_date: GFS run date "YYYYMMDD". If None, uses latest run.
+            run_hour: GFS run hour "HH". If None, uses latest run.
 
         Returns:
             WeatherData with u/v wind components, or None on failure.
@@ -1794,7 +1798,8 @@ class GFSDataProvider:
         if time is None:
             time = datetime.utcnow()
 
-        run_date, run_hour = self._get_latest_run()
+        if run_date is None or run_hour is None:
+            run_date, run_hour = self._get_latest_run()
 
         grib_path = self._download_grib(lat_min, lat_max, lon_min, lon_max, run_date, run_hour, forecast_hour)
         if grib_path is None:
@@ -2027,14 +2032,21 @@ class GFSDataProvider:
         lat_max: float,
         lon_min: float,
         lon_max: float,
+        run_date: Optional[str] = None,
+        run_hour: Optional[str] = None,
     ) -> List[Dict]:
         """
-        Check which forecast hours are cached for the current GFS run.
+        Check which forecast hours are cached for a given GFS run.
+
+        Args:
+            run_date: GFS run date "YYYYMMDD". If None, uses latest run.
+            run_hour: GFS run hour "HH". If None, uses latest run.
 
         Returns:
             List of dicts with forecast_hour, valid_time, and cached status.
         """
-        run_date, run_hour = self._get_latest_run()
+        if run_date is None or run_hour is None:
+            run_date, run_hour = self._get_latest_run()
         run_time = datetime.strptime(f"{run_date}{run_hour}", "%Y%m%d%H")
         result = []
 
@@ -2051,6 +2063,32 @@ class GFSDataProvider:
             })
 
         return result
+
+    def find_best_cached_run(
+        self,
+        lat_min: float,
+        lat_max: float,
+        lon_min: float,
+        lon_max: float,
+    ) -> Optional[Tuple[str, str]]:
+        """
+        Find the most recent GFS run that has cached files for the given bbox.
+
+        Scans the cache directory for GRIB files matching the bbox and returns
+        the newest (run_date, run_hour) tuple, or None if no cached run found.
+        """
+        import re
+        bbox_suffix = f"lat{lat_min:.0f}_{lat_max:.0f}_lon{lon_min:.0f}_{lon_max:.0f}"
+        pattern = re.compile(r"gfs_(\d{8})_(\d{2})_f\d{3}_" + re.escape(bbox_suffix) + r"\.grib2$")
+        runs = set()
+        for f in self.cache_dir.glob(f"gfs_*_{bbox_suffix}.grib2"):
+            m = pattern.match(f.name)
+            if m:
+                runs.add((m.group(1), m.group(2)))
+        if not runs:
+            return None
+        # Return the most recent run (sorted by date+hour descending)
+        return max(runs, key=lambda r: r[0] + r[1])
 
     def clear_old_cache(self, keep_hours: int = 12) -> int:
         """Remove GRIB cache files older than keep_hours."""

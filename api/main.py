@@ -1477,6 +1477,7 @@ async def api_get_wind_velocity_format(
 # In-progress prefetch tracking
 _prefetch_running = False
 _prefetch_lock = None  # Will be a threading.Lock
+_last_wind_prefetch_run = None  # (run_date, run_hour) tuple from last successful prefetch
 
 
 def _get_prefetch_lock():
@@ -1499,9 +1500,21 @@ async def api_get_forecast_status(
     Get GFS forecast prefetch status.
 
     Returns current GFS run info and which forecast hours are cached.
+    Falls back to the best available cached run if the latest GFS run has no data.
     """
-    run_date, run_hour = gfs_provider._get_latest_run()
-    hours = gfs_provider.get_cached_forecast_hours(lat_min, lat_max, lon_min, lon_max)
+    if _last_wind_prefetch_run:
+        run_date, run_hour = _last_wind_prefetch_run
+    else:
+        run_date, run_hour = gfs_provider._get_latest_run()
+    hours = gfs_provider.get_cached_forecast_hours(lat_min, lat_max, lon_min, lon_max, run_date, run_hour)
+    cached_count = sum(1 for h in hours if h["cached"])
+
+    # Fallback: if chosen run has no cached files, scan for best available run
+    if cached_count == 0 and not _prefetch_running:
+        best = gfs_provider.find_best_cached_run(lat_min, lat_max, lon_min, lon_max)
+        if best:
+            run_date, run_hour = best
+            hours = gfs_provider.get_cached_forecast_hours(lat_min, lat_max, lon_min, lon_max, run_date, run_hour)
     cached_count = sum(1 for h in hours if h["cached"])
     total_count = len(hours)
 
@@ -1538,13 +1551,17 @@ async def api_trigger_forecast_prefetch(
     lock.release()
 
     def _do_prefetch():
-        global _prefetch_running
+        global _prefetch_running, _last_wind_prefetch_run
         pflock = _get_prefetch_lock()
         if not pflock.acquire(blocking=False):
             return
         try:
             _prefetch_running = True
-            logger.info("GFS forecast prefetch started")
+            # Capture the run info before downloading so status/frames endpoints
+            # can reference the same run even if the GFS cycle rolls over mid-prefetch.
+            run_date, run_hour = gfs_provider._get_latest_run()
+            _last_wind_prefetch_run = (run_date, run_hour)
+            logger.info(f"GFS forecast prefetch started (run {run_date}/{run_hour}z)")
             gfs_provider.prefetch_forecast_hours(lat_min, lat_max, lon_min, lon_max)
             logger.info("GFS forecast prefetch completed")
         except Exception as e:
@@ -1570,10 +1587,24 @@ async def api_get_forecast_frames(
 
     Returns a single JSON object with frames keyed by forecast hour.
     Call after prefetch completes for best results.
+    Falls back to the best available cached run if the latest GFS run has no data.
     """
-    run_date, run_hour = gfs_provider._get_latest_run()
+    if _last_wind_prefetch_run:
+        run_date, run_hour = _last_wind_prefetch_run
+    else:
+        run_date, run_hour = gfs_provider._get_latest_run()
+    hours_status = gfs_provider.get_cached_forecast_hours(lat_min, lat_max, lon_min, lon_max, run_date, run_hour)
+    cached_count_check = sum(1 for h in hours_status if h["cached"])
+
+    # Fallback: if the chosen run has no cached files, scan the cache for the best available run
+    if cached_count_check == 0:
+        best = gfs_provider.find_best_cached_run(lat_min, lat_max, lon_min, lon_max)
+        if best:
+            run_date, run_hour = best
+            hours_status = gfs_provider.get_cached_forecast_hours(lat_min, lat_max, lon_min, lon_max, run_date, run_hour)
+            logger.info(f"Wind frames: fell back to cached run {run_date}/{run_hour}z")
+
     run_time = datetime.strptime(f"{run_date}{run_hour}", "%Y%m%d%H")
-    hours_status = gfs_provider.get_cached_forecast_hours(lat_min, lat_max, lon_min, lon_max)
 
     frames = {}
     for h_info in hours_status:
@@ -1581,7 +1612,7 @@ async def api_get_forecast_frames(
             continue
 
         fh = h_info["forecast_hour"]
-        wind_data = gfs_provider.fetch_wind_data(lat_min, lat_max, lon_min, lon_max, forecast_hour=fh)
+        wind_data = gfs_provider.fetch_wind_data(lat_min, lat_max, lon_min, lon_max, forecast_hour=fh, run_date=run_date, run_hour=run_hour)
         if wind_data is None:
             continue
 

@@ -115,9 +115,10 @@ export default function ForecastTimeline({
   // ------------------------------------------------------------------
   // Wind forecast: load all frames
   // ------------------------------------------------------------------
-  const loadWindFrames = useCallback(async () => {
+  const loadWindFrames = useCallback(async (bounds?: ViewportBounds | null) => {
     try {
-      const bp = boundsRef.current ?? {};
+      // Use the provided bounds (from prefetch) to avoid mismatch if the user panned
+      const bp = bounds ?? boundsRef.current ?? {};
       const data: ForecastFrames = await apiClient.getForecastFrames(bp);
       setWindFrames(data.frames);
       setAvailableHours(deriveHoursFromFrames(data.frames));
@@ -200,7 +201,7 @@ export default function ForecastTimeline({
             setRunTime(`${st.run_date} ${st.run_hour}Z`);
             if (st.complete || st.cached_hours === st.total_hours) {
               if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-              await loadWindFrames();
+              await loadWindFrames(bp);
             }
           } catch (e) { console.error('Wind forecast poll failed:', e); }
         };
