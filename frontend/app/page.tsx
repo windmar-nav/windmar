@@ -35,6 +35,7 @@ export default function HomePage() {
   // Weather visualization
   const [weatherLayer, setWeatherLayer] = useState<WeatherLayer>('none');
   const [windData, setWindData] = useState<WindFieldData | null>(null);
+  const windDataBaseRef = useRef<WindFieldData | null>(null); // preserve ocean mask for forecast
   const [waveData, setWaveData] = useState<WaveFieldData | null>(null);
   const [windVelocityData, setWindVelocityData] = useState<VelocityData[] | null>(null);
   const [currentVelocityData, setCurrentVelocityData] = useState<VelocityData[] | null>(null);
@@ -154,6 +155,7 @@ export default function HomePage() {
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Wind loaded in ${dt}ms: grid=${wind?.ny}x${wind?.nx}`);
         setWindData(wind);
+        windDataBaseRef.current = wind; // stash for forecast frame reconstruction
         setWindVelocityData(windVel);
       } else if (activeLayer === 'waves') {
         const waves = await apiClient.getWaveField(params);
@@ -203,8 +205,48 @@ export default function HomePage() {
   // Handle wind forecast hour change from timeline
   const handleForecastHourChange = useCallback((hour: number, data: VelocityData[] | null) => {
     setForecastHour(hour);
-    if (data) {
+    if (data && data.length >= 2) {
       setWindVelocityData(data);
+
+      // Reconstruct WindFieldData from velocity frame so heatmap updates too
+      const hdr = data[0].header;
+      const nx = hdr.nx;
+      const ny = hdr.ny;
+      const lats: number[] = [];
+      const lons: number[] = [];
+      for (let j = 0; j < ny; j++) lats.push(hdr.la1 - j * hdr.dy);
+      for (let i = 0; i < nx; i++) lons.push(hdr.lo1 + i * hdr.dx);
+
+      const u2d: number[][] = [];
+      const v2d: number[][] = [];
+      for (let j = 0; j < ny; j++) {
+        const uRow: number[] = [];
+        const vRow: number[] = [];
+        for (let i = 0; i < nx; i++) {
+          uRow.push(data[0].data[j * nx + i] ?? 0);
+          vRow.push(data[1].data[j * nx + i] ?? 0);
+        }
+        u2d.push(uRow);
+        v2d.push(vRow);
+      }
+
+      const base = windDataBaseRef.current;
+      setWindData({
+        parameter: 'wind',
+        time: hdr.refTime || '',
+        bbox: {
+          lat_min: Math.min(hdr.la1, hdr.la2),
+          lat_max: Math.max(hdr.la1, hdr.la2),
+          lon_min: hdr.lo1,
+          lon_max: hdr.lo2,
+        },
+        resolution: hdr.dx,
+        nx, ny, lats, lons,
+        u: u2d, v: v2d,
+        ocean_mask: base?.ocean_mask,
+        ocean_mask_lats: base?.ocean_mask_lats,
+        ocean_mask_lons: base?.ocean_mask_lons,
+      });
     } else if (hour === 0) {
       loadWeatherData();
     }
