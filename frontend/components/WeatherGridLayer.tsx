@@ -208,8 +208,9 @@ function WeatherGridLayerInner({
     const tileSize = 256;
 
     // ---- Extracted tile painter (shared by createTile + refreshTiles) ----
-    // Renders entirely to an offscreen composite buffer then copies to the
-    // visible tile canvas in one atomic drawImage call — eliminates flicker.
+    // Renders heatmap to a small offscreen canvas then copies to the visible
+    // tile. clearRect is deferred until just before drawImage so old content
+    // stays visible while the new frame renders (no flicker).
     function paintTile(tile: HTMLCanvasElement, coords: any) {
         const currentWindData = windDataRef.current;
         const currentWaveData = waveDataRef.current;
@@ -220,13 +221,6 @@ function WeatherGridLayerInner({
         const ctx = tile.getContext('2d');
         if (!ctx) return;
         if (!data) { ctx.clearRect(0, 0, 256, 256); return; }
-
-        // Composite buffer — all rendering happens here, copied to tile at the end
-        const composite = document.createElement('canvas');
-        composite.width = 256;
-        composite.height = 256;
-        const compCtx = composite.getContext('2d');
-        if (!compCtx) return;
 
         const lats = data.lats;
         const lons = data.lons;
@@ -357,15 +351,16 @@ function WeatherGridLayerInner({
 
         offCtx.putImageData(imgData, 0, 0);
 
-        // Upscale heatmap to the composite buffer
-        compCtx.imageSmoothingEnabled = true;
-        compCtx.imageSmoothingQuality = 'high';
-        compCtx.drawImage(offscreen, 0, 0, DS, DS, 0, 0, 256, 256);
+        // Copy heatmap to visible tile (clear just before to minimise blank time)
+        ctx.clearRect(0, 0, 256, 256);
+        ctx.imageSmoothingEnabled = true;
+        ctx.imageSmoothingQuality = 'high';
+        ctx.drawImage(offscreen, 0, 0, DS, DS, 0, 0, 256, 256);
 
-        // Draw wind arrows on the composite (sparse, every ~40px)
+        // Draw wind arrows on top (sparse, every ~40px)
         if (currentShowArrows && currentMode === 'wind' && uData && vData) {
           const arrowSpacing = 40;
-          compCtx.save();
+          ctx.save();
           for (let ay = arrowSpacing / 2; ay < 256; ay += arrowSpacing) {
             for (let ax = arrowSpacing / 2; ax < 256; ax += arrowSpacing) {
               const globalX = coords.x * tileSize + ax;
@@ -400,28 +395,28 @@ function WeatherGridLayerInner({
               const angle = Math.atan2(-v, u);
               const len = Math.min(16, 4 + speed * 0.8);
 
-              compCtx.translate(ax, ay);
-              compCtx.rotate(angle);
+              ctx.translate(ax, ay);
+              ctx.rotate(angle);
 
-              compCtx.strokeStyle = 'rgba(255,255,255,0.8)';
-              compCtx.lineWidth = 1.2;
-              compCtx.beginPath();
-              compCtx.moveTo(-len / 2, 0);
-              compCtx.lineTo(len / 2, 0);
-              compCtx.stroke();
+              ctx.strokeStyle = 'rgba(255,255,255,0.8)';
+              ctx.lineWidth = 1.2;
+              ctx.beginPath();
+              ctx.moveTo(-len / 2, 0);
+              ctx.lineTo(len / 2, 0);
+              ctx.stroke();
 
-              compCtx.fillStyle = 'rgba(255,255,255,0.8)';
-              compCtx.beginPath();
-              compCtx.moveTo(len / 2, 0);
-              compCtx.lineTo(len / 2 - 4, -2.5);
-              compCtx.lineTo(len / 2 - 4, 2.5);
-              compCtx.closePath();
-              compCtx.fill();
+              ctx.fillStyle = 'rgba(255,255,255,0.8)';
+              ctx.beginPath();
+              ctx.moveTo(len / 2, 0);
+              ctx.lineTo(len / 2 - 4, -2.5);
+              ctx.lineTo(len / 2 - 4, 2.5);
+              ctx.closePath();
+              ctx.fill();
 
-              compCtx.setTransform(1, 0, 0, 1, 0, 0);
+              ctx.setTransform(1, 0, 0, 1, 0, 0);
             }
           }
-          compCtx.restore();
+          ctx.restore();
         }
 
         // Draw swell & wind-wave direction crest marks on composite (Windy-style arcs)
@@ -435,7 +430,7 @@ function WeatherGridLayerInner({
           const hasWW = wwDir && wwHt;
 
           const spacing = 30;
-          compCtx.save();
+          ctx.save();
 
           const drawWaveCrest = (
             cx: number, cy: number, dirDeg: number, height: number,
@@ -447,7 +442,7 @@ function WeatherGridLayerInner({
             const curve = Math.min(4, 1.5 + height * 0.8);
             const crestGap = 3.5;
 
-            compCtx.lineCap = 'round';
+            ctx.lineCap = 'round';
 
             for (let k = -1; k <= 1; k++) {
               const ox = cx + Math.cos(propRad) * k * crestGap;
@@ -463,15 +458,15 @@ function WeatherGridLayerInner({
               const cpx = ox + Math.cos(propRad) * curve * scale;
               const cpy = oy + Math.sin(propRad) * curve * scale;
 
-              compCtx.strokeStyle = color;
-              compCtx.globalAlpha = alpha * (k === 0 ? 1.0 : 0.6);
-              compCtx.lineWidth = k === 0 ? 1.5 : 1.0;
-              compCtx.beginPath();
-              compCtx.moveTo(x0, y0);
-              compCtx.quadraticCurveTo(cpx, cpy, x1, y1);
-              compCtx.stroke();
+              ctx.strokeStyle = color;
+              ctx.globalAlpha = alpha * (k === 0 ? 1.0 : 0.6);
+              ctx.lineWidth = k === 0 ? 1.5 : 1.0;
+              ctx.beginPath();
+              ctx.moveTo(x0, y0);
+              ctx.quadraticCurveTo(cpx, cpy, x1, y1);
+              ctx.stroke();
             }
-            compCtx.globalAlpha = 1.0;
+            ctx.globalAlpha = 1.0;
           };
 
           for (let ay = spacing / 2; ay < 256; ay += spacing) {
@@ -526,12 +521,9 @@ function WeatherGridLayerInner({
               }
             }
           }
-          compCtx.restore();
+          ctx.restore();
         }
 
-        // Atomic swap: copy fully-rendered composite to the visible tile canvas
-        ctx.clearRect(0, 0, 256, 256);
-        ctx.drawImage(composite, 0, 0);
     }
 
     const WeatherTileLayer = L.GridLayer.extend({
