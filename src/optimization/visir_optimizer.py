@@ -39,6 +39,7 @@ from src.optimization.seakeeping import (
 )
 from src.data.land_mask import is_ocean, is_path_clear
 from src.data.regulatory_zones import get_zone_checker, ZoneChecker
+from src.optimization.route_optimizer import apply_visibility_cap
 
 logger = logging.getLogger(__name__)
 
@@ -563,11 +564,21 @@ class VisirOptimizer(BaseOptimizer):
         Returns ``(cost, travel_hours, chosen_speed)`` or *None* if
         no safe speed exists.
         """
+        # SPEC-P1: Ice exclusion and penalty zones
+        ICE_EXCLUSION_THRESHOLD = 0.15  # IMO Polar Code limit
+        ICE_PENALTY_THRESHOLD = 0.05   # Caution zone
+        if weather.ice_concentration >= ICE_EXCLUSION_THRESHOLD:
+            return None
+        ice_cost_factor = 2.0 if weather.ice_concentration >= ICE_PENALTY_THRESHOLD else 1.0
+
         min_spd, max_spd = self.SPEED_RANGE_KTS
         if is_laden:
             max_spd = min(max_spd, self.vessel_model.specs.service_speed_laden + 2)
         else:
             max_spd = min(max_spd, self.vessel_model.specs.service_speed_ballast + 2)
+
+        # SPEC-P1: Visibility speed cap (IMO COLREG Rule 6)
+        max_spd = apply_visibility_cap(max_spd, weather.visibility_km * 1000.0)
 
         weather_dict = {
             "wind_speed_ms": weather.wind_speed_ms,
@@ -617,9 +628,9 @@ class VisirOptimizer(BaseOptimizer):
             fuel = result["fuel_mt"]
 
             if self.optimization_target == "fuel":
-                score = (fuel + lambda_time * hours) * zone_factor * safety_cost
+                score = (fuel + lambda_time * hours) * zone_factor * safety_cost * ice_cost_factor
             else:
-                score = hours * zone_factor * safety_cost
+                score = hours * zone_factor * safety_cost * ice_cost_factor
 
             if best is None or score < best[0]:
                 best = (score, hours, float(speed_kts))

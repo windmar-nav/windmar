@@ -1,14 +1,15 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { WindFieldData, WaveFieldData } from '@/lib/api';
+import { WindFieldData, WaveFieldData, GridFieldData } from '@/lib/api';
 import { debugLog } from '@/lib/debugLog';
 import { bilinearInterpolate, bilinearOcean } from '@/lib/gridInterpolation';
 
 interface WeatherGridLayerProps {
-  mode: 'wind' | 'waves';
+  mode: 'wind' | 'waves' | 'ice' | 'visibility' | 'sst' | 'swell';
   windData?: WindFieldData | null;
   waveData?: WaveFieldData | null;
+  extendedData?: GridFieldData | null;
   opacity?: number;
   showArrows?: boolean;
 }
@@ -72,6 +73,103 @@ function waveColor(height: number): [number, number, number, number] {
   return [128, 0, 0, 200];
 }
 
+// Ice concentration color scale: fraction (0-1) → RGBA
+// 0-5% blue-tint, 5-15% yellow-warning, >15% red-exclusion
+function iceColor(concentration: number): [number, number, number, number] {
+  if (concentration <= 0.01) return [0, 0, 0, 0]; // below 1% — transparent
+  if (concentration <= 0.05) {
+    const t = concentration / 0.05;
+    return [Math.round(100 + t * 80), Math.round(180 + t * 40), Math.round(220 - t * 20), 150];
+  }
+  if (concentration <= 0.15) {
+    const t = (concentration - 0.05) / 0.10;
+    return [Math.round(180 + t * 60), Math.round(220 - t * 100), Math.round(50 - t * 30), 170];
+  }
+  // >15% — red zone (exclusion territory)
+  const t = Math.min(1, (concentration - 0.15) / 0.35);
+  return [Math.round(220 + t * 20), Math.round(30 + t * 10), Math.round(20), 190];
+}
+
+// Visibility color scale: meters → RGBA
+// <1000m dark grey (fog), 1000-5000m grey, >5000m fading out
+function visibilityColor(vis_m: number): [number, number, number, number] {
+  if (vis_m > 10000) return [0, 0, 0, 0]; // clear — transparent
+  if (vis_m > 5000) {
+    const t = (10000 - vis_m) / 5000;
+    return [180, 180, 180, Math.round(t * 80)];
+  }
+  if (vis_m > 2000) {
+    const t = (5000 - vis_m) / 3000;
+    return [Math.round(180 - t * 40), Math.round(180 - t * 40), Math.round(180 - t * 20), Math.round(80 + t * 60)];
+  }
+  if (vis_m > 1000) {
+    const t = (2000 - vis_m) / 1000;
+    return [Math.round(140 - t * 30), Math.round(140 - t * 30), Math.round(160 - t * 20), Math.round(140 + t * 30)];
+  }
+  // <1000m — dense fog, dark
+  const t = Math.min(1, (1000 - vis_m) / 1000);
+  return [Math.round(110 - t * 30), Math.round(110 - t * 30), Math.round(140 - t * 30), Math.round(170 + t * 30)];
+}
+
+// SST color scale: Celsius → RGBA (blue=cold → cyan → green → yellow → red=warm)
+function sstColor(temp: number): [number, number, number, number] {
+  const stops: [number, number, number, number][] = [
+    [-2,   30,  40, 180],  // below freezing — deep blue
+    [ 5,   50, 120, 220],  // cold — blue
+    [10,    0, 200, 220],  // cool — cyan
+    [15,    0, 200,  80],  // mild — green
+    [20,  200, 220,   0],  // warm — yellow
+    [25,  240, 140,   0],  // hot — orange
+    [30,  220,  40,  30],  // tropical — red
+  ];
+
+  if (temp <= stops[0][0]) return [stops[0][1], stops[0][2], stops[0][3], 160];
+  if (temp >= stops[stops.length - 1][0])
+    return [stops[stops.length - 1][1], stops[stops.length - 1][2], stops[stops.length - 1][3], 180];
+
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (temp >= stops[i][0] && temp < stops[i + 1][0]) {
+      const t = (temp - stops[i][0]) / (stops[i + 1][0] - stops[i][0]);
+      return [
+        Math.round(stops[i][1] + t * (stops[i + 1][1] - stops[i][1])),
+        Math.round(stops[i][2] + t * (stops[i + 1][2] - stops[i][2])),
+        Math.round(stops[i][3] + t * (stops[i + 1][3] - stops[i][3])),
+        170,
+      ];
+    }
+  }
+  return [220, 40, 30, 180];
+}
+
+// Swell height color scale: meters → RGBA (reuse wave palette, softer)
+function swellColor(height: number): [number, number, number, number] {
+  const stops: [number, number, number, number][] = [
+    [0,   60, 120, 200],  // 0m  - calm blue
+    [1,    0, 200, 180],  // 1m  - teal
+    [2,  100, 200,  50],  // 2m  - green
+    [3,  240, 200,   0],  // 3m  - yellow
+    [5,  240, 100,   0],  // 5m  - orange
+    [8,  200,  30,  30],  // 8m+ - red
+  ];
+
+  if (height <= stops[0][0]) return [stops[0][1], stops[0][2], stops[0][3], 140];
+  if (height >= stops[stops.length - 1][0])
+    return [stops[stops.length - 1][1], stops[stops.length - 1][2], stops[stops.length - 1][3], 190];
+
+  for (let i = 0; i < stops.length - 1; i++) {
+    if (height >= stops[i][0] && height < stops[i + 1][0]) {
+      const t = (height - stops[i][0]) / (stops[i + 1][0] - stops[i][0]);
+      return [
+        Math.round(stops[i][1] + t * (stops[i + 1][1] - stops[i][1])),
+        Math.round(stops[i][2] + t * (stops[i + 1][2] - stops[i][2])),
+        Math.round(stops[i][3] + t * (stops[i + 1][3] - stops[i][3])),
+        160,
+      ];
+    }
+  }
+  return [200, 30, 30, 190];
+}
+
 
 export default function WeatherGridLayer(props: WeatherGridLayerProps) {
   const [isMounted, setIsMounted] = useState(false);
@@ -89,6 +187,7 @@ function WeatherGridLayerInner({
   mode,
   windData,
   waveData,
+  extendedData,
   opacity = 0.7,
   showArrows = true,
 }: WeatherGridLayerProps) {
@@ -101,8 +200,10 @@ function WeatherGridLayerInner({
   // without triggering a full layer destroy/recreate cycle.
   const windDataRef = useRef(windData);
   const waveDataRef = useRef(waveData);
+  const extendedDataRef = useRef(extendedData);
   useEffect(() => { windDataRef.current = windData; }, [windData]);
   useEffect(() => { waveDataRef.current = waveData; }, [waveData]);
+  useEffect(() => { extendedDataRef.current = extendedData; }, [extendedData]);
 
   // Create the GridLayer ONCE per mode/map/opacity — NOT per data change.
   // The createTile closure reads data from refs, so it always gets current values.
@@ -120,7 +221,9 @@ function WeatherGridLayerInner({
         // Read latest data from refs
         const currentWindData = windDataRef.current;
         const currentWaveData = waveDataRef.current;
-        const data = currentMode === 'wind' ? currentWindData : currentWaveData;
+        const currentExtendedData = extendedDataRef.current;
+        const isExtended = currentMode === 'ice' || currentMode === 'visibility' || currentMode === 'sst' || currentMode === 'swell';
+        const data = isExtended ? currentExtendedData : (currentMode === 'wind' ? currentWindData : currentWaveData);
         if (!data) return tile;
 
         const ctx = tile.getContext('2d');
@@ -148,6 +251,7 @@ function WeatherGridLayerInner({
         const vData = isWind ? (currentWindData as WindFieldData).v : null;
         const waveValues = currentMode === 'waves' && currentWaveData ? (currentWaveData as WaveFieldData).data : null;
         const waveDir = currentMode === 'waves' && currentWaveData ? (currentWaveData as WaveFieldData).direction : null;
+        const extValues = isExtended && currentExtendedData ? currentExtendedData.data : null;
 
         // Compute lat/lon ranges (handle both ascending and descending order)
         const latStart = lats[0];
@@ -233,6 +337,12 @@ function WeatherGridLayerInner({
             } else if (waveValues) {
               const h = bilinearInterpolate(waveValues, latIdx, lonIdx, latFrac, lonFrac, ny, nx);
               color = waveColor(h);
+            } else if (extValues) {
+              const val = bilinearInterpolate(extValues, latIdx, lonIdx, latFrac, lonFrac, ny, nx);
+              if (currentMode === 'ice') color = iceColor(val);
+              else if (currentMode === 'visibility') color = visibilityColor(val);
+              else if (currentMode === 'sst') color = sstColor(val);
+              else color = swellColor(val); // swell
             } else {
               const idx = (py * DS + px) * 4;
               pixels[idx + 3] = 0;
@@ -469,16 +579,18 @@ function WeatherGridLayerInner({
   useEffect(() => {
     if (layerRef.current) {
       redrawCountRef.current++;
-      const data = mode === 'wind' ? windData : waveData;
-      const sample = mode === 'waves' && waveData?.data
-        ? waveData.data[Math.floor(waveData.data.length / 2)]?.[0]?.toFixed(2) ?? '?'
-        : mode === 'wind' && windData?.u
-          ? windData.u[Math.floor(windData.u.length / 2)]?.[0]?.toFixed(2) ?? '?'
-          : '?';
+      const isExt = mode === 'ice' || mode === 'visibility' || mode === 'sst' || mode === 'swell';
+      const sample = isExt && extendedData?.data
+        ? extendedData.data[Math.floor(extendedData.data.length / 2)]?.[0]?.toFixed(2) ?? '?'
+        : mode === 'waves' && waveData?.data
+          ? waveData.data[Math.floor(waveData.data.length / 2)]?.[0]?.toFixed(2) ?? '?'
+          : mode === 'wind' && windData?.u
+            ? windData.u[Math.floor(windData.u.length / 2)]?.[0]?.toFixed(2) ?? '?'
+            : '?';
       debugLog('debug', 'RENDER', `GridLayer redraw #${redrawCountRef.current}: mode=${mode}, sample=${sample}, hasLayer=${!!layerRef.current}`);
       layerRef.current.redraw();
     }
-  }, [windData, waveData, mode]);
+  }, [windData, waveData, extendedData, mode]);
 
   return null;
 }

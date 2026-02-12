@@ -34,6 +34,21 @@ from src.optimization.base_optimizer import BaseOptimizer, OptimizedRoute
 
 logger = logging.getLogger(__name__)
 
+# SPEC-P1: Visibility speed caps (IMO COLREG Rule 6)
+VISIBILITY_SPEED_CAPS = {
+    1000: 6.0,   # Fog — bare minimum steerage
+    2000: 8.0,   # Poor visibility
+    5000: 12.0,  # Moderate visibility
+}  # Above 5000m: no cap
+
+
+def apply_visibility_cap(speed_kts: float, visibility_m: float) -> float:
+    """Apply tiered COLREG Rule 6 speed cap based on visibility."""
+    for vis_threshold, max_speed in sorted(VISIBILITY_SPEED_CAPS.items()):
+        if visibility_m <= vis_threshold:
+            return min(speed_kts, max_speed)
+    return speed_kts
+
 
 @dataclass
 class GridCell:
@@ -589,6 +604,13 @@ class RouteOptimizer(BaseOptimizer):
             from_cell.lat, from_cell.lon, to_cell.lat, to_cell.lon
         )
 
+        # SPEC-P1: Ice exclusion and penalty zones
+        ICE_EXCLUSION_THRESHOLD = 0.15  # IMO Polar Code limit
+        ICE_PENALTY_THRESHOLD = 0.05   # Caution zone
+        if weather.ice_concentration >= ICE_EXCLUSION_THRESHOLD:
+            return float('inf'), float('inf')
+        ice_cost_factor = 2.0 if weather.ice_concentration >= ICE_PENALTY_THRESHOLD else 1.0
+
         # Build weather dict for vessel model
         weather_dict = {
             'wind_speed_ms': weather.wind_speed_ms,
@@ -598,26 +620,43 @@ class RouteOptimizer(BaseOptimizer):
             'wave_dir_deg': weather.wave_dir_deg,
         }
 
+        # SPEC-P1: Visibility speed cap — IMO COLREG Rule 6
+        effective_speed_kts = calm_speed_kts
+        effective_speed_kts = apply_visibility_cap(effective_speed_kts, weather.visibility_km * 1000.0)
+
         # Calculate fuel consumption
         result = self.vessel_model.calculate_fuel_consumption(
-            speed_kts=calm_speed_kts,
+            speed_kts=effective_speed_kts,
             is_laden=is_laden,
             weather=weather_dict,
             distance_nm=distance_nm,
         )
 
-        # Calculate actual travel time considering current
+        # Calculate actual travel time considering current (SOG = STW + current projection)
         current_effect = self.current_effect(
             heading_deg=bearing,
             current_speed_ms=weather.current_speed_ms,
             current_dir_deg=weather.current_dir_deg,
         )
 
-        sog_kts = calm_speed_kts + current_effect
+        # SPEC-P1: Cross-current drift correction
+        # Compute lateral current component for drift penalty
+        relative_angle_rad = math.radians(
+            abs(((weather.current_dir_deg - bearing) + 180) % 360 - 180)
+        )
+        current_kts = weather.current_speed_ms * 1.94384
+        cross_current_kts = abs(current_kts * math.sin(relative_angle_rad))
+        # Drift penalty: extra distance needed to compensate for lateral set
+        drift_factor = 1.0
+        if cross_current_kts > 0.5 and effective_speed_kts > 0:
+            drift_ratio = cross_current_kts / effective_speed_kts
+            drift_factor = 1.0 / max(math.sqrt(1.0 - min(drift_ratio, 0.95) ** 2), 0.1)
+
+        sog_kts = effective_speed_kts + current_effect
         if sog_kts <= 0:
             return float('inf'), float('inf')  # Can't make headway
 
-        travel_time_hours = distance_nm / sog_kts
+        travel_time_hours = (distance_nm * drift_factor) / sog_kts
 
         # Apply safety constraints
         safety_factor = 1.0
@@ -653,8 +692,8 @@ class RouteOptimizer(BaseOptimizer):
         else:
             dampened_sf = 1.0
 
-        # Combined cost factor
-        total_factor = dampened_sf * zone_factor
+        # Combined cost factor (includes ice caution zone penalty)
+        total_factor = dampened_sf * zone_factor * ice_cost_factor
 
         # Return cost based on optimization target
         if self.optimization_target == "time":
@@ -1083,6 +1122,13 @@ class RouteOptimizer(BaseOptimizer):
                 'safety_status': leg_safety.status.value if leg_safety else 'safe',
                 'roll_deg': leg_safety.motions.roll_amplitude_deg if leg_safety else 0.0,
                 'pitch_deg': leg_safety.motions.pitch_amplitude_deg if leg_safety else 0.0,
+                # Extended fields (SPEC-P1)
+                'swell_hs_m': weather.swell_height_m,
+                'windsea_hs_m': weather.windwave_height_m,
+                'current_effect_kts': current_effect,
+                'visibility_m': weather.visibility_km * 1000.0,
+                'sst_celsius': weather.sst_celsius,
+                'ice_concentration': weather.ice_concentration,
             })
 
             current_time += timedelta(hours=time_hours)
@@ -1214,6 +1260,13 @@ class RouteOptimizer(BaseOptimizer):
                 'safety_status': leg_safety.status.value if leg_safety else 'safe',
                 'roll_deg': leg_safety.motions.roll_amplitude_deg if leg_safety else 0.0,
                 'pitch_deg': leg_safety.motions.pitch_amplitude_deg if leg_safety else 0.0,
+                # Extended fields (SPEC-P1)
+                'swell_hs_m': weather.swell_height_m,
+                'windsea_hs_m': weather.windwave_height_m,
+                'current_effect_kts': current_effect,
+                'visibility_m': weather.visibility_km * 1000.0,
+                'sst_celsius': weather.sst_celsius,
+                'ice_concentration': weather.ice_concentration,
             })
 
             current_time += timedelta(hours=time_hours)

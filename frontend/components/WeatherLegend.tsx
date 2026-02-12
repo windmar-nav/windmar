@@ -1,7 +1,7 @@
 'use client';
 
 interface WeatherLegendProps {
-  mode: 'wind' | 'waves' | 'currents';
+  mode: 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell';
   timelineVisible?: boolean;
 }
 
@@ -31,18 +31,63 @@ const CURRENT_STOPS = [
   { value: 2.0, color: 'rgb(250,140,40)' },
 ];
 
+const ICE_STOPS = [
+  { value: 0, color: 'rgb(100,180,220)' },
+  { value: 5, color: 'rgb(180,220,50)' },
+  { value: 15, color: 'rgb(240,120,20)' },
+  { value: 50, color: 'rgb(220,30,20)' },
+];
+
+const VIS_STOPS = [
+  { value: 0, color: 'rgb(80,80,110)' },
+  { value: 1, color: 'rgb(110,110,140)' },
+  { value: 2, color: 'rgb(140,140,160)' },
+  { value: 5, color: 'rgb(180,180,180)' },
+  { value: 10, color: 'rgb(210,210,210)' },
+];
+
+const SST_STOPS = [
+  { value: -2, color: 'rgb(30,40,180)' },
+  { value: 5, color: 'rgb(50,120,220)' },
+  { value: 10, color: 'rgb(0,200,220)' },
+  { value: 15, color: 'rgb(0,200,80)' },
+  { value: 20, color: 'rgb(200,220,0)' },
+  { value: 25, color: 'rgb(240,140,0)' },
+  { value: 30, color: 'rgb(220,40,30)' },
+];
+
+const SWELL_STOPS = [
+  { value: 0, color: 'rgb(60,120,200)' },
+  { value: 1, color: 'rgb(0,200,180)' },
+  { value: 2, color: 'rgb(100,200,50)' },
+  { value: 3, color: 'rgb(240,200,0)' },
+  { value: 5, color: 'rgb(240,100,0)' },
+  { value: 8, color: 'rgb(200,30,30)' },
+];
+
 function buildGradient(stops: { value: number; color: string }[]): string {
+  const min = stops[0].value;
   const max = stops[stops.length - 1].value;
+  const range = max - min || 1;
   const parts = stops.map(
-    (s) => `${s.color} ${(s.value / max) * 100}%`
+    (s) => `${s.color} ${((s.value - min) / range) * 100}%`
   );
   return `linear-gradient(to right, ${parts.join(', ')})`;
 }
 
+const LEGEND_CONFIG: Record<string, { stops: typeof WIND_STOPS; unit: string; label: string }> = {
+  wind: { stops: WIND_STOPS, unit: 'm/s', label: 'Wind Speed' },
+  waves: { stops: WAVE_STOPS, unit: 'm', label: 'Wave Height' },
+  currents: { stops: CURRENT_STOPS, unit: 'm/s', label: 'Current Speed' },
+  ice: { stops: ICE_STOPS, unit: '%', label: 'Ice Concentration' },
+  visibility: { stops: VIS_STOPS, unit: 'km', label: 'Visibility' },
+  sst: { stops: SST_STOPS, unit: '°C', label: 'Sea Surface Temp' },
+  swell: { stops: SWELL_STOPS, unit: 'm', label: 'Swell Height' },
+};
+
 export default function WeatherLegend({ mode, timelineVisible = false }: WeatherLegendProps) {
-  const stops = mode === 'wind' ? WIND_STOPS : mode === 'currents' ? CURRENT_STOPS : WAVE_STOPS;
-  const unit = mode === 'waves' ? 'm' : 'm/s';
-  const label = mode === 'wind' ? 'Wind Speed' : mode === 'currents' ? 'Current Speed' : 'Wave Height';
+  const config = LEGEND_CONFIG[mode] || LEGEND_CONFIG.wind;
+  const { stops, unit, label } = config;
   const gradient = buildGradient(stops);
 
   return (

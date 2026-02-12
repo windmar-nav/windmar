@@ -14,7 +14,7 @@ import DebugConsole from '@/components/DebugConsole';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
 
-type WeatherLayer = 'wind' | 'waves' | 'currents' | 'none';
+type WeatherLayer = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
 
 export default function HomePage() {
   // Voyage context (shared with header dropdowns, persisted across navigation)
@@ -38,6 +38,7 @@ export default function HomePage() {
   const [waveData, setWaveData] = useState<WaveFieldData | null>(null);
   const [windVelocityData, setWindVelocityData] = useState<VelocityData[] | null>(null);
   const [currentVelocityData, setCurrentVelocityData] = useState<VelocityData[] | null>(null);
+  const [extendedWeatherData, setExtendedWeatherData] = useState<any>(null);
   const [isLoadingWeather, setIsLoadingWeather] = useState(false);
 
   // Viewport state
@@ -159,6 +160,26 @@ export default function HomePage() {
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Currents loaded in ${dt}ms: ${currentVel ? 'yes' : 'no data'}`);
         setCurrentVelocityData(currentVel);
+      } else if (activeLayer === 'ice') {
+        const data = await apiClient.getIceField(params);
+        const dt = (performance.now() - t0).toFixed(0);
+        debugLog('info', 'API', `Ice loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
+        setExtendedWeatherData(data);
+      } else if (activeLayer === 'visibility') {
+        const data = await apiClient.getVisibilityField(params);
+        const dt = (performance.now() - t0).toFixed(0);
+        debugLog('info', 'API', `Visibility loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
+        setExtendedWeatherData(data);
+      } else if (activeLayer === 'sst') {
+        const data = await apiClient.getSstField(params);
+        const dt = (performance.now() - t0).toFixed(0);
+        debugLog('info', 'API', `SST loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
+        setExtendedWeatherData(data);
+      } else if (activeLayer === 'swell') {
+        const data = await apiClient.getSwellField(params);
+        const dt = (performance.now() - t0).toFixed(0);
+        debugLog('info', 'API', `Swell loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
+        setExtendedWeatherData(data);
       }
     } catch (error) {
       debugLog('error', 'API', `Weather load failed: ${error}`);
@@ -532,6 +553,7 @@ export default function HomePage() {
             onViewportChange={setViewport}
             viewportBounds={viewport?.bounds ?? null}
             weatherModelLabel={weatherModelLabel}
+            extendedWeatherData={extendedWeatherData}
           >
             <MapOverlayControls
               weatherLayer={weatherLayer}

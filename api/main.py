@@ -376,6 +376,13 @@ class OptimizationLegModel(BaseModel):
     pitch_deg: Optional[float] = None
     # Weather provenance per leg
     data_source: Optional[str] = None  # "forecast (high confidence)" etc.
+    # Extended weather fields (SPEC-P1)
+    swell_hs_m: Optional[float] = None
+    windsea_hs_m: Optional[float] = None
+    current_effect_kts: Optional[float] = None
+    visibility_m: Optional[float] = None
+    sst_celsius: Optional[float] = None
+    ice_concentration: Optional[float] = None
 
 
 class SafetySummary(BaseModel):
@@ -910,6 +917,96 @@ def get_current_field(
     return current_data
 
 
+def get_sst_field(
+    lat_min: float, lat_max: float,
+    lon_min: float, lon_max: float,
+    resolution: float = 1.0,
+    time: datetime = None,
+) -> WeatherData:
+    """
+    Get SST field data.
+
+    Provider chain: CMEMS live → Synthetic.
+    """
+    if time is None:
+        time = datetime.utcnow()
+
+    cache_key = _get_cache_key("sst", lat_min, lat_max, lon_min, lon_max)
+    cached = _redis_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    sst_data = copernicus_provider.fetch_sst_data(lat_min, lat_max, lon_min, lon_max, time)
+    if sst_data is None:
+        logger.info("CMEMS SST unavailable, using synthetic data")
+        sst_data = synthetic_provider.generate_sst_field(
+            lat_min, lat_max, lon_min, lon_max, resolution, time
+        )
+
+    _redis_cache_put(cache_key, sst_data, CACHE_TTL_MINUTES * 60)
+    return sst_data
+
+
+def get_visibility_field(
+    lat_min: float, lat_max: float,
+    lon_min: float, lon_max: float,
+    resolution: float = 1.0,
+    time: datetime = None,
+) -> WeatherData:
+    """
+    Get visibility field data.
+
+    Provider chain: GFS live → Synthetic.
+    """
+    if time is None:
+        time = datetime.utcnow()
+
+    cache_key = _get_cache_key("visibility", lat_min, lat_max, lon_min, lon_max)
+    cached = _redis_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    vis_data = gfs_provider.fetch_visibility_data(lat_min, lat_max, lon_min, lon_max, time)
+    if vis_data is None:
+        logger.info("GFS visibility unavailable, using synthetic data")
+        vis_data = synthetic_provider.generate_visibility_field(
+            lat_min, lat_max, lon_min, lon_max, resolution, time
+        )
+
+    _redis_cache_put(cache_key, vis_data, CACHE_TTL_MINUTES * 60)
+    return vis_data
+
+
+def get_ice_field(
+    lat_min: float, lat_max: float,
+    lon_min: float, lon_max: float,
+    resolution: float = 1.0,
+    time: datetime = None,
+) -> WeatherData:
+    """
+    Get sea ice concentration field.
+
+    Provider chain: CMEMS live → Synthetic.
+    """
+    if time is None:
+        time = datetime.utcnow()
+
+    cache_key = _get_cache_key("ice", lat_min, lat_max, lon_min, lon_max)
+    cached = _redis_cache_get(cache_key)
+    if cached is not None:
+        return cached
+
+    ice_data = copernicus_provider.fetch_ice_data(lat_min, lat_max, lon_min, lon_max, time)
+    if ice_data is None:
+        logger.info("CMEMS ice data unavailable, using synthetic data")
+        ice_data = synthetic_provider.generate_ice_field(
+            lat_min, lat_max, lon_min, lon_max, resolution, time
+        )
+
+    _redis_cache_put(cache_key, ice_data, CACHE_TTL_MINUTES * 60)
+    return ice_data
+
+
 def get_weather_at_point(lat: float, lon: float, time: datetime) -> Tuple[Dict, Optional[WeatherDataSource]]:
     """
     Get weather at a specific point.
@@ -1250,7 +1347,10 @@ async def api_get_wind_field(
     # High-resolution ocean mask (0.05° ≈ 5.5km) via vectorized numpy
     mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
 
-    return {
+    # SPEC-P1: Piggyback SST on wind endpoint (same bounding box)
+    sst_data = get_sst_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
+
+    response = {
         "parameter": "wind",
         "time": time.isoformat(),
         "bbox": {
@@ -1275,6 +1375,14 @@ async def api_get_wind_field(
             else "synthetic"
         ),
     }
+    if sst_data is not None and sst_data.values is not None:
+        response["sst"] = {
+            "lats": sst_data.lats.tolist(),
+            "lons": sst_data.lons.tolist(),
+            "data": sst_data.values.tolist(),
+            "unit": "°C",
+        }
+    return response
 
 
 @app.get("/api/weather/wind/velocity")
@@ -2433,6 +2541,222 @@ async def api_get_weather_point(
 
 
 # ============================================================================
+# API Endpoints - Extended Weather Fields (SPEC-P1)
+# ============================================================================
+
+@app.get("/api/weather/sst")
+async def api_get_sst_field(
+    lat_min: float = Query(30.0, ge=-90, le=90),
+    lat_max: float = Query(60.0, ge=-90, le=90),
+    lon_min: float = Query(-15.0, ge=-180, le=180),
+    lon_max: float = Query(40.0, ge=-180, le=180),
+    resolution: float = Query(1.0, ge=0.25, le=5.0),
+    time: Optional[datetime] = None,
+):
+    """
+    Get sea surface temperature field for visualization.
+
+    Returns SST grid in degrees Celsius.
+    Uses CMEMS physics when available, falls back to synthetic data.
+    """
+    if time is None:
+        time = datetime.utcnow()
+
+    sst_data = get_sst_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
+
+    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
+
+    return {
+        "parameter": "sst",
+        "time": time.isoformat(),
+        "bbox": {
+            "lat_min": lat_min,
+            "lat_max": lat_max,
+            "lon_min": lon_min,
+            "lon_max": lon_max,
+        },
+        "resolution": resolution,
+        "nx": len(sst_data.lons),
+        "ny": len(sst_data.lats),
+        "lats": sst_data.lats.tolist(),
+        "lons": sst_data.lons.tolist(),
+        "data": sst_data.values.tolist(),
+        "unit": "°C",
+        "ocean_mask": ocean_mask,
+        "ocean_mask_lats": mask_lats,
+        "ocean_mask_lons": mask_lons,
+        "source": "copernicus" if copernicus_provider._has_copernicusmarine else "synthetic",
+        "colorscale": {
+            "min": -2,
+            "max": 32,
+            "colors": ["#0000ff", "#00ccff", "#00ff88", "#ffff00", "#ff8800", "#ff0000"],
+        },
+    }
+
+
+@app.get("/api/weather/visibility")
+async def api_get_visibility_field(
+    lat_min: float = Query(30.0, ge=-90, le=90),
+    lat_max: float = Query(60.0, ge=-90, le=90),
+    lon_min: float = Query(-15.0, ge=-180, le=180),
+    lon_max: float = Query(40.0, ge=-180, le=180),
+    resolution: float = Query(1.0, ge=0.25, le=5.0),
+    time: Optional[datetime] = None,
+):
+    """
+    Get visibility field for visualization.
+
+    Returns visibility grid in kilometers.
+    Uses GFS when available, falls back to synthetic data.
+    """
+    if time is None:
+        time = datetime.utcnow()
+
+    vis_data = get_visibility_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
+
+    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
+
+    return {
+        "parameter": "visibility",
+        "time": time.isoformat(),
+        "bbox": {
+            "lat_min": lat_min,
+            "lat_max": lat_max,
+            "lon_min": lon_min,
+            "lon_max": lon_max,
+        },
+        "resolution": resolution,
+        "nx": len(vis_data.lons),
+        "ny": len(vis_data.lats),
+        "lats": vis_data.lats.tolist(),
+        "lons": vis_data.lons.tolist(),
+        "data": vis_data.values.tolist(),
+        "unit": "km",
+        "ocean_mask": ocean_mask,
+        "ocean_mask_lats": mask_lats,
+        "ocean_mask_lons": mask_lons,
+        "source": "gfs" if vis_data.time is not None else "synthetic",
+        "colorscale": {
+            "min": 0,
+            "max": 50,
+            "colors": ["#ff0000", "#ff8800", "#ffff00", "#88ff00", "#00ff00"],
+        },
+    }
+
+
+@app.get("/api/weather/ice")
+async def api_get_ice_field(
+    lat_min: float = Query(30.0, ge=-90, le=90),
+    lat_max: float = Query(60.0, ge=-90, le=90),
+    lon_min: float = Query(-15.0, ge=-180, le=180),
+    lon_max: float = Query(40.0, ge=-180, le=180),
+    resolution: float = Query(1.0, ge=0.25, le=5.0),
+    time: Optional[datetime] = None,
+):
+    """
+    Get sea ice concentration field for visualization.
+
+    Returns ice concentration grid as fraction (0-1).
+    Uses CMEMS when available, falls back to synthetic data.
+    Only relevant for high-latitude regions (>55°).
+    """
+    if time is None:
+        time = datetime.utcnow()
+
+    ice_data = get_ice_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
+
+    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
+
+    return {
+        "parameter": "ice_concentration",
+        "time": time.isoformat(),
+        "bbox": {
+            "lat_min": lat_min,
+            "lat_max": lat_max,
+            "lon_min": lon_min,
+            "lon_max": lon_max,
+        },
+        "resolution": resolution,
+        "nx": len(ice_data.lons),
+        "ny": len(ice_data.lats),
+        "lats": ice_data.lats.tolist(),
+        "lons": ice_data.lons.tolist(),
+        "data": ice_data.values.tolist(),
+        "unit": "fraction",
+        "ocean_mask": ocean_mask,
+        "ocean_mask_lats": mask_lats,
+        "ocean_mask_lons": mask_lons,
+        "source": "copernicus" if copernicus_provider._has_copernicusmarine else "synthetic",
+        "colorscale": {
+            "min": 0,
+            "max": 1,
+            "colors": ["#ffffff", "#ccddff", "#6688ff", "#0033cc", "#001166"],
+        },
+    }
+
+
+@app.get("/api/weather/swell")
+async def api_get_swell_field(
+    lat_min: float = Query(30.0, ge=-90, le=90),
+    lat_max: float = Query(60.0, ge=-90, le=90),
+    lon_min: float = Query(-15.0, ge=-180, le=180),
+    lon_max: float = Query(40.0, ge=-180, le=180),
+    resolution: float = Query(1.0, ge=0.25, le=5.0),
+    time: Optional[datetime] = None,
+):
+    """
+    Get partitioned swell field (primary swell + wind-sea).
+
+    Returns swell and wind-sea decomposition from CMEMS wave data.
+    Same query params as /api/weather/waves.
+    """
+    if time is None:
+        time = datetime.utcnow()
+
+    wave_data = get_wave_field(lat_min, lat_max, lon_min, lon_max, resolution)
+
+    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
+
+    # Build swell decomposition response
+    has_decomposition = wave_data.swell_height is not None
+    swell_hs = wave_data.swell_height.tolist() if has_decomposition else None
+    swell_tp = wave_data.swell_period.tolist() if wave_data.swell_period is not None else None
+    swell_dir = wave_data.swell_direction.tolist() if wave_data.swell_direction is not None else None
+    windsea_hs = wave_data.windwave_height.tolist() if wave_data.windwave_height is not None else None
+    windsea_tp = wave_data.windwave_period.tolist() if wave_data.windwave_period is not None else None
+    windsea_dir = wave_data.windwave_direction.tolist() if wave_data.windwave_direction is not None else None
+
+    return {
+        "parameter": "swell",
+        "time": time.isoformat(),
+        "bbox": {
+            "lat_min": lat_min,
+            "lat_max": lat_max,
+            "lon_min": lon_min,
+            "lon_max": lon_max,
+        },
+        "resolution": resolution,
+        "has_decomposition": has_decomposition,
+        "nx": len(wave_data.lons),
+        "ny": len(wave_data.lats),
+        "lats": wave_data.lats.tolist(),
+        "lons": wave_data.lons.tolist(),
+        "total_hs": wave_data.values.tolist(),
+        "swell_hs": swell_hs,
+        "swell_tp": swell_tp,
+        "swell_dir": swell_dir,
+        "windsea_hs": windsea_hs,
+        "windsea_tp": windsea_tp,
+        "windsea_dir": windsea_dir,
+        "unit": "m",
+        "ocean_mask": ocean_mask,
+        "ocean_mask_lats": mask_lats,
+        "ocean_mask_lons": mask_lons,
+        "source": "copernicus" if has_decomposition else "synthetic",
+    }
+
+
+# ============================================================================
 # API Endpoints - Routes (Layer 2)
 # ============================================================================
 
@@ -2631,8 +2955,13 @@ async def calculate_voyage(request: VoyageRequest):
             logger.info(f"  Waves loaded in {_time.monotonic()-t1:.1f}s")
             t2 = _time.monotonic()
             currents = get_current_field(lat_min, lat_max, lon_min, lon_max, 0.5)
-            logger.info(f"  Currents loaded in {_time.monotonic()-t2:.1f}s. Total prefetch: {_time.monotonic()-t0:.1f}s")
-            grid_wx = GridWeatherProvider(wind, waves, currents)
+            logger.info(f"  Currents loaded in {_time.monotonic()-t2:.1f}s")
+            # Extended fields (SPEC-P1)
+            sst = get_sst_field(lat_min, lat_max, lon_min, lon_max, 0.5, departure)
+            vis = get_visibility_field(lat_min, lat_max, lon_min, lon_max, 0.5, departure)
+            ice = get_ice_field(lat_min, lat_max, lon_min, lon_max, 0.5, departure)
+            logger.info(f"  Total prefetch: {_time.monotonic()-t0:.1f}s (incl. SST/vis/ice)")
+            grid_wx = GridWeatherProvider(wind, waves, currents, sst, vis, ice)
 
         data_source_type = "temporal" if used_temporal else "forecast"
         wx_callable = temporal_wx.get_weather if temporal_wx else grid_wx.get_weather
@@ -3034,8 +3363,13 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
             logger.info(f"  Waves loaded in {_time.monotonic()-t1:.1f}s")
             t2 = _time.monotonic()
             currents = get_current_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg)
-            logger.info(f"  Currents loaded in {_time.monotonic()-t2:.1f}s. Total fallback: {_time.monotonic()-t0:.1f}s")
-            grid_wx = GridWeatherProvider(wind, waves, currents)
+            logger.info(f"  Currents loaded in {_time.monotonic()-t2:.1f}s")
+            # Extended fields (SPEC-P1)
+            sst = get_sst_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
+            vis = get_visibility_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
+            ice = get_ice_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
+            logger.info(f"  Total fallback: {_time.monotonic()-t0:.1f}s (incl. SST/vis/ice)")
+            grid_wx = GridWeatherProvider(wind, waves, currents, sst, vis, ice)
 
         # Select weather provider callable
         wx_provider = temporal_wx.get_weather if temporal_wx else grid_wx.get_weather
@@ -3104,6 +3438,12 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
                 roll_deg=round(leg['roll_deg'], 1) if leg.get('roll_deg') else None,
                 pitch_deg=round(leg['pitch_deg'], 1) if leg.get('pitch_deg') else None,
                 data_source=data_source_label,
+                swell_hs_m=round(leg['swell_hs_m'], 2) if leg.get('swell_hs_m') is not None else None,
+                windsea_hs_m=round(leg['windsea_hs_m'], 2) if leg.get('windsea_hs_m') is not None else None,
+                current_effect_kts=round(leg['current_effect_kts'], 2) if leg.get('current_effect_kts') is not None else None,
+                visibility_m=round(leg['visibility_m'], 0) if leg.get('visibility_m') is not None else None,
+                sst_celsius=round(leg['sst_celsius'], 1) if leg.get('sst_celsius') is not None else None,
+                ice_concentration=round(leg['ice_concentration'], 3) if leg.get('ice_concentration') is not None else None,
             ))
 
         # Build safety summary
@@ -3136,6 +3476,12 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
                     safety_status=leg.get('safety_status'),
                     roll_deg=round(leg['roll_deg'], 1) if leg.get('roll_deg') else None,
                     pitch_deg=round(leg['pitch_deg'], 1) if leg.get('pitch_deg') else None,
+                    swell_hs_m=round(leg['swell_hs_m'], 2) if leg.get('swell_hs_m') is not None else None,
+                    windsea_hs_m=round(leg['windsea_hs_m'], 2) if leg.get('windsea_hs_m') is not None else None,
+                    current_effect_kts=round(leg['current_effect_kts'], 2) if leg.get('current_effect_kts') is not None else None,
+                    visibility_m=round(leg['visibility_m'], 0) if leg.get('visibility_m') is not None else None,
+                    sst_celsius=round(leg['sst_celsius'], 1) if leg.get('sst_celsius') is not None else None,
+                    ice_concentration=round(leg['ice_concentration'], 3) if leg.get('ice_concentration') is not None else None,
                 ))
             scenario_models.append(SpeedScenarioModel(
                 strategy=sc.strategy,

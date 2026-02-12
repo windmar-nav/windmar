@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useState } from 'react';
-import { Wind, Waves, Droplets, Clock, RefreshCw, Eye, EyeOff, Database, BarChart3 } from 'lucide-react';
+import { Wind, Waves, Droplets, Clock, RefreshCw, Eye, EyeOff, Database, BarChart3, Snowflake, CloudFog, Thermometer, AudioWaveform } from 'lucide-react';
 import { WeatherLayer } from '@/components/MapComponent';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
@@ -88,6 +88,30 @@ export default function MapOverlayControls({
         label="Currents"
         active={weatherLayer === 'currents'}
         onClick={() => onWeatherLayerChange(weatherLayer === 'currents' ? 'none' : 'currents')}
+      />
+      <OverlayButton
+        icon={<Snowflake className="w-4 h-4" />}
+        label="Ice"
+        active={weatherLayer === 'ice'}
+        onClick={() => onWeatherLayerChange(weatherLayer === 'ice' ? 'none' : 'ice')}
+      />
+      <OverlayButton
+        icon={<CloudFog className="w-4 h-4" />}
+        label="Visibility"
+        active={weatherLayer === 'visibility'}
+        onClick={() => onWeatherLayerChange(weatherLayer === 'visibility' ? 'none' : 'visibility')}
+      />
+      <OverlayButton
+        icon={<Thermometer className="w-4 h-4" />}
+        label="SST"
+        active={weatherLayer === 'sst'}
+        onClick={() => onWeatherLayerChange(weatherLayer === 'sst' ? 'none' : 'sst')}
+      />
+      <OverlayButton
+        icon={<AudioWaveform className="w-4 h-4" />}
+        label="Swell"
+        active={weatherLayer === 'swell'}
+        onClick={() => onWeatherLayerChange(weatherLayer === 'swell' ? 'none' : 'swell')}
       />
       {weatherLayer !== 'none' && (
         <OverlayButton

@@ -103,6 +103,36 @@ export interface WaveFieldData {
   };
 }
 
+// Extended weather field types (SPEC-P1)
+export interface GridFieldData {
+  parameter: string;
+  time: string;
+  bbox: { lat_min: number; lat_max: number; lon_min: number; lon_max: number };
+  resolution: number;
+  nx: number;
+  ny: number;
+  lats: number[];
+  lons: number[];
+  data: number[][];
+  unit: string;
+  ocean_mask?: boolean[][];
+  ocean_mask_lats?: number[];
+  ocean_mask_lons?: number[];
+  source?: string;
+  colorscale?: { min: number; max: number; colors: string[] };
+}
+
+export interface SwellFieldData extends GridFieldData {
+  has_decomposition: boolean;
+  total_hs: number[][];
+  swell_hs: number[][] | null;
+  swell_tp: number[][] | null;
+  swell_dir: number[][] | null;
+  windsea_hs: number[][] | null;
+  windsea_tp: number[][] | null;
+  windsea_dir: number[][] | null;
+}
+
 // Wave forecast types
 export interface WaveForecastFrame {
   data: number[][];
@@ -905,6 +935,27 @@ export const apiClient = {
     const params: { lat: number; lon: number; time?: string } = { lat, lon };
     if (time) params.time = time;
     const response = await api.get<PointWeather>('/api/weather/point', { params });
+    return response.data;
+  },
+
+  // Extended weather fields (SPEC-P1)
+  async getSstField(params: { lat_min?: number; lat_max?: number; lon_min?: number; lon_max?: number; resolution?: number } = {}): Promise<GridFieldData> {
+    const response = await api.get<GridFieldData>('/api/weather/sst', { params });
+    return response.data;
+  },
+
+  async getVisibilityField(params: { lat_min?: number; lat_max?: number; lon_min?: number; lon_max?: number; resolution?: number } = {}): Promise<GridFieldData> {
+    const response = await api.get<GridFieldData>('/api/weather/visibility', { params });
+    return response.data;
+  },
+
+  async getIceField(params: { lat_min?: number; lat_max?: number; lon_min?: number; lon_max?: number; resolution?: number } = {}): Promise<GridFieldData> {
+    const response = await api.get<GridFieldData>('/api/weather/ice', { params });
+    return response.data;
+  },
+
+  async getSwellField(params: { lat_min?: number; lat_max?: number; lon_min?: number; lon_max?: number; resolution?: number } = {}): Promise<SwellFieldData> {
+    const response = await api.get<SwellFieldData>('/api/weather/swell', { params });
     return response.data;
   },
 

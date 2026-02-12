@@ -9,6 +9,7 @@ Implements physics-based model using:
 """
 
 import logging
+import math
 from dataclasses import dataclass
 from typing import Dict, Optional
 
@@ -16,6 +17,25 @@ import numpy as np
 
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Seawater property functions (SPEC-P1)
+# ---------------------------------------------------------------------------
+
+def seawater_density(sst_celsius: float) -> float:
+    """UNESCO 1983 simplified equation of state (salinity=35 PSU)."""
+    t = sst_celsius
+    rho_fw = 999.842594 + 6.793952e-2 * t - 9.095290e-3 * t**2 + 1.001685e-4 * t**3
+    return rho_fw + 0.824493 * 35 - 4.0899e-3 * 35 * t  # ~1022-1028 range
+
+
+def seawater_viscosity(sst_celsius: float) -> float:
+    """Kinematic viscosity of seawater (Sharqawy 2010 correlation)."""
+    t = sst_celsius
+    mu = 1.7910 - 6.144e-2 * t + 1.4510e-3 * t**2 - 1.6826e-5 * t**3  # mPa·s
+    rho = seawater_density(t)
+    return (mu * 1e-3) / rho  # m²/s
 
 
 @dataclass
@@ -102,6 +122,7 @@ class VesselModel:
         is_laden: bool,
         weather: Optional[Dict[str, float]] = None,
         distance_nm: float = 1.0,
+        sst_celsius: Optional[float] = None,
     ) -> Dict[str, float]:
         """
         Calculate fuel consumption for a voyage segment.
@@ -112,6 +133,7 @@ class VesselModel:
             weather: Weather conditions dict (wind_speed_ms, wind_dir_deg,
                      sig_wave_height_m, wave_dir_deg, heading_deg)
             distance_nm: Distance traveled (nautical miles)
+            sst_celsius: Optional SST for dynamic seawater properties (SPEC-P1)
 
         Returns:
             Dictionary with:
@@ -135,9 +157,10 @@ class VesselModel:
             else self.specs.wetted_surface_ballast
         )
 
-        # Calculate calm water resistance
+        # Calculate calm water resistance (with SST-corrected properties when available)
         resistance_calm = self._holtrop_mennen_resistance(
-            speed_ms, draft, displacement, cb, wetted_surface
+            speed_ms, draft, displacement, cb, wetted_surface,
+            sst_celsius=sst_celsius,
         )
 
         # Add wind resistance
@@ -225,11 +248,13 @@ class VesselModel:
         displacement: float,
         cb: float,
         wetted_surface: float,
+        sst_celsius: Optional[float] = None,
     ) -> float:
         """
         Calculate calm water resistance using Holtrop-Mennen method.
 
-        Simplified version for tankers.
+        Simplified version for tankers. When sst_celsius is provided,
+        uses SST-corrected seawater density and viscosity (SPEC-P1).
 
         Args:
             speed_ms: Speed (m/s)
@@ -237,15 +262,24 @@ class VesselModel:
             displacement: Displacement (MT)
             cb: Block coefficient
             wetted_surface: Wetted surface area (m²)
+            sst_celsius: Optional sea surface temperature for dynamic rho/nu
 
         Returns:
             Total resistance (N)
         """
+        # Seawater properties — dynamic from SST when available (SPEC-P1)
+        if sst_celsius is not None:
+            rho_sw = seawater_density(sst_celsius)
+            nu_sw = seawater_viscosity(sst_celsius)
+        else:
+            rho_sw = self.RHO_SW
+            nu_sw = self.NU_SW
+
         # Calculate Froude number
         froude = speed_ms / np.sqrt(9.81 * self.specs.lpp)
 
         # Calculate Reynolds number
-        reynolds = speed_ms * self.specs.lpp / self.NU_SW
+        reynolds = speed_ms * self.specs.lpp / nu_sw
 
         # Frictional resistance coefficient (ITTC 1957)
         cf = 0.075 / (np.log10(reynolds) - 2) ** 2
@@ -263,7 +297,7 @@ class VesselModel:
         k1 = max(0.1, k1)  # Floor for extreme B/T ratios (e.g. ballast)
 
         # Frictional resistance (including hull roughness)
-        rf = 0.5 * self.RHO_SW * speed_ms**2 * wetted_surface * (cf + delta_cf) * (1 + k1)
+        rf = 0.5 * rho_sw * speed_ms**2 * wetted_surface * (cf + delta_cf) * (1 + k1)
 
         # Wave-making resistance (empirical for full-form ships)
         # For tankers (CB > 0.75) at low Froude numbers (Fn < 0.25),

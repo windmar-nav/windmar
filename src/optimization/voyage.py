@@ -38,6 +38,11 @@ class LegWeather:
     swell_dir_deg: float = 0.0
     has_decomposition: bool = False
 
+    # Extended fields (SPEC-P1)
+    sst_celsius: float = 15.0  # Sea surface temperature
+    visibility_km: float = 50.0  # Visibility (default: clear)
+    ice_concentration: float = 0.0  # Sea ice fraction (0-1)
+
 
 @dataclass
 class LegResult:

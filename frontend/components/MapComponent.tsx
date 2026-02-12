@@ -65,7 +65,7 @@ const Tooltip = dynamic(
 const DEFAULT_CENTER: [number, number] = [45, 10];
 const DEFAULT_ZOOM = 5;
 
-export type WeatherLayer = 'wind' | 'waves' | 'currents' | 'none';
+export type WeatherLayer = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
 
 export interface MapComponentProps {
   waypoints: Position[];
@@ -92,6 +92,7 @@ export interface MapComponentProps {
   onViewportChange?: (viewport: { bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number }; zoom: number }) => void;
   viewportBounds?: { lat_min: number; lat_max: number; lon_min: number; lon_max: number } | null;
   weatherModelLabel?: string;
+  extendedWeatherData?: any;
   children?: React.ReactNode;
 }
 
@@ -120,6 +121,7 @@ export default function MapComponent({
   onViewportChange,
   viewportBounds = null,
   weatherModelLabel,
+  extendedWeatherData = null,
   children,
 }: MapComponentProps) {
   const [isMounted, setIsMounted] = useState(false);
@@ -190,6 +192,15 @@ export default function MapComponent({
         )}
         {weatherLayer === 'currents' && currentVelocityData && (
           <VelocityParticleLayer data={currentVelocityData} type="currents" />
+        )}
+
+        {/* Extended weather layers (SPEC-P1) */}
+        {(weatherLayer === 'ice' || weatherLayer === 'visibility' || weatherLayer === 'sst' || weatherLayer === 'swell') && extendedWeatherData && (
+          <WeatherGridLayer
+            mode={weatherLayer as 'ice' | 'visibility' | 'sst' | 'swell'}
+            extendedData={extendedWeatherData}
+            opacity={0.6}
+          />
         )}
 
         {/* Wave Info Popup (click-to-inspect polar diagram) */}
