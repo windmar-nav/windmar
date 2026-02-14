@@ -6211,69 +6211,42 @@ def _is_wave_prefetch_running() -> bool:
 
 
 async def _demo_warm_caches():
-    """Pre-warm all weather response caches at startup in demo mode.
+    """Pre-warm weather response caches at startup in demo mode.
 
-    Fires every endpoint once so all subsequent requests are instant.
-    Uses the default bounding box (same as frontend defaults).
+    Fires static endpoints to populate _demo_response_cache.
+    Forecast frame endpoints are skipped (they write to file cache on
+    first call and are served from file thereafter).
+    GC runs between calls to stay within the 2GB container limit.
     """
+    import gc
     import time as _time
 
     bbox = dict(lat_min=30.0, lat_max=60.0, lon_min=-15.0, lon_max=40.0)
     t0 = _time.monotonic()
 
-    try:
-        # Static endpoints — trigger DB query + ocean mask + serialization
-        await api_get_wind_field(**bbox, resolution=1.0, db_only=True)
-        logger.info("Demo warm: wind cached")
+    endpoints = [
+        ("wind", lambda: api_get_wind_field(**bbox, resolution=1.0, db_only=True)),
+        ("wind_vel", lambda: api_get_wind_velocity_format(**bbox, resolution=1.0, db_only=True)),
+        ("waves", lambda: api_get_wave_field(**bbox, resolution=1.0, db_only=True)),
+        ("currents", lambda: api_get_current_field(**bbox, resolution=1.0)),
+        ("curr_vel", lambda: api_get_current_velocity_format(**bbox, resolution=1.0, db_only=True)),
+        ("ice", lambda: api_get_ice_field(**bbox, resolution=1.0, db_only=True)),
+    ]
 
-        await api_get_wind_velocity_format(**bbox, resolution=1.0, db_only=True)
-        logger.info("Demo warm: wind velocity cached")
+    for name, fn in endpoints:
+        try:
+            await fn()
+            gc.collect()
+            logger.info(f"Demo warm: {name} cached")
+        except Exception as e:
+            logger.warning(f"Demo warm: {name} failed: {e}")
 
-        await api_get_wave_field(**bbox, resolution=1.0, db_only=True)
-        logger.info("Demo warm: waves cached")
-
-        await api_get_current_field(**bbox, resolution=1.0)
-        logger.info("Demo warm: currents cached")
-
-        await api_get_current_velocity_format(**bbox, resolution=1.0, db_only=True)
-        logger.info("Demo warm: current velocity cached")
-
-        await api_get_ice_field(**bbox, resolution=1.0, db_only=True)
-        logger.info("Demo warm: ice cached")
-
-        await api_get_sst_field(**bbox, resolution=1.0)
-        logger.info("Demo warm: sst cached")
-
-        await api_get_visibility_field(**bbox, resolution=1.0)
-        logger.info("Demo warm: visibility cached")
-
-        await api_get_swell_field(**bbox, resolution=1.0)
-        logger.info("Demo warm: swell cached")
-
-        # Forecast frame endpoints — trigger DB fallback + file cache
-        await api_get_forecast_frames(**bbox)
-        logger.info("Demo warm: wind frames cached")
-
-        await api_get_wave_forecast_frames(**bbox)
-        logger.info("Demo warm: wave frames cached")
-
-        await api_get_current_forecast_frames(**bbox)
-        logger.info("Demo warm: current frames cached")
-
-        await api_get_ice_forecast_frames(**bbox)
-        logger.info("Demo warm: ice frames cached")
-
-        await api_get_sst_forecast_frames(**bbox)
-        logger.info("Demo warm: sst frames cached")
-
-        elapsed = _time.monotonic() - t0
-        n = len(_demo_response_cache)
-        total_mb = sum(len(v) for v in _demo_response_cache.values()) / 1_048_576
-        logger.info(
-            f"Demo warm complete: {n} endpoints cached ({total_mb:.1f} MB) in {elapsed:.1f}s"
-        )
-    except Exception as e:
-        logger.error(f"Demo warm failed: {e}")
+    elapsed = _time.monotonic() - t0
+    n = len(_demo_response_cache)
+    total_mb = sum(len(v) for v in _demo_response_cache.values()) / 1_048_576
+    logger.info(
+        f"Demo warm complete: {n} endpoints cached ({total_mb:.1f} MB) in {elapsed:.1f}s"
+    )
 
 
 @app.on_event("startup")
