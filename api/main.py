@@ -95,11 +95,8 @@ _ocean_mask_cache: Dict[str, tuple] = {}
 def _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05):
     """Build ocean mask using vectorized numpy calls.
 
-    In demo mode uses 0.5° resolution (100x fewer cells) for fast transfer.
     Results are cached by bounding box since the land/ocean boundary is static.
     """
-    if is_demo():
-        step = 0.5
     cache_key = f"{lat_min:.2f}_{lat_max:.2f}_{lon_min:.2f}_{lon_max:.2f}_{step}"
     if cache_key in _ocean_mask_cache:
         return _ocean_mask_cache[cache_key]
@@ -1589,6 +1586,9 @@ async def api_get_wind_field(
     Uses Copernicus CDS when available, falls back to synthetic data.
     If db_only=true, only queries PostgreSQL (no external API calls).
     """
+    if is_demo():
+        db_only = True
+
     if time is None:
         time = datetime.utcnow()
 
@@ -1609,7 +1609,7 @@ async def api_get_wind_field(
     )
 
     # SPEC-P1: Piggyback SST on wind endpoint (same bounding box)
-    sst_data = get_sst_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
+    sst_data = None if is_demo() else get_sst_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
 
     response = {
         "parameter": "wind",
@@ -1671,6 +1671,9 @@ async def api_get_wind_velocity_format(
     Uses GFS near-real-time data. Pass forecast_hour (0-120, step 3) for forecast frames.
     If db_only=true, only queries PostgreSQL (no external API calls).
     """
+    if is_demo():
+        db_only = True
+
     if time is None:
         time = datetime.utcnow()
 
@@ -3888,6 +3891,9 @@ async def api_get_wave_field(
     Uses Copernicus CMEMS when available, falls back to synthetic data.
     If db_only=true, only queries PostgreSQL (no external API calls).
     """
+    if is_demo():
+        db_only = True
+
     if time is None:
         time = datetime.utcnow()
 
@@ -3994,11 +4000,24 @@ async def api_get_current_field(
     Get ocean current field for visualization.
 
     Uses Copernicus CMEMS when available, falls back to synthetic data.
+    In demo mode, serves from database only (no external API calls).
     """
     if time is None:
         time = datetime.utcnow()
 
-    current_data = get_current_field(lat_min, lat_max, lon_min, lon_max, resolution)
+    if is_demo():
+        # Demo: DB only, no external CMEMS calls
+        current_data = None
+        if db_weather is not None:
+            current_data = db_weather.get_current_from_db(
+                lat_min, lat_max, lon_min, lon_max
+            )
+        if current_data is None:
+            current_data = synthetic_provider.generate_current_field(
+                lat_min, lat_max, lon_min, lon_max, resolution
+            )
+    else:
+        current_data = get_current_field(lat_min, lat_max, lon_min, lon_max, resolution)
 
     response = {
         "parameter": "current",
@@ -4049,6 +4068,9 @@ async def api_get_current_velocity_format(
     Returns array of [U-component, V-component] data with headers.
     If db_only=true, only queries PostgreSQL (no external API calls).
     """
+    if is_demo():
+        db_only = True
+
     if time is None:
         time = datetime.utcnow()
 
@@ -4176,11 +4198,17 @@ async def api_get_sst_field(
 
     Returns SST grid in degrees Celsius.
     Uses CMEMS physics when available, falls back to synthetic data.
+    In demo mode, serves synthetic data (no external API calls).
     """
     if time is None:
         time = datetime.utcnow()
 
-    sst_data = get_sst_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
+    if is_demo():
+        sst_data = synthetic_provider.generate_sst_field(
+            lat_min, lat_max, lon_min, lon_max, resolution, time
+        )
+    else:
+        sst_data = get_sst_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
 
     mask_lats, mask_lons, ocean_mask = _build_ocean_mask(
         lat_min, lat_max, lon_min, lon_max, step=0.05
@@ -4238,13 +4266,19 @@ async def api_get_visibility_field(
 
     Returns visibility grid in kilometers.
     Uses GFS when available, falls back to synthetic data.
+    In demo mode, serves synthetic data (no external API calls).
     """
     if time is None:
         time = datetime.utcnow()
 
-    vis_data = get_visibility_field(
-        lat_min, lat_max, lon_min, lon_max, resolution, time
-    )
+    if is_demo():
+        vis_data = synthetic_provider.generate_visibility_field(
+            lat_min, lat_max, lon_min, lon_max, resolution, time
+        )
+    else:
+        vis_data = get_visibility_field(
+            lat_min, lat_max, lon_min, lon_max, resolution, time
+        )
 
     mask_lats, mask_lons, ocean_mask = _build_ocean_mask(
         lat_min, lat_max, lon_min, lon_max, step=0.05
@@ -4297,6 +4331,9 @@ async def api_get_ice_field(
     Only relevant for high-latitude regions (>55°).
     If db_only=true, only queries PostgreSQL (no external API calls).
     """
+    if is_demo():
+        db_only = True
+
     if time is None:
         time = datetime.utcnow()
 
@@ -4358,11 +4395,22 @@ async def api_get_swell_field(
 
     Returns swell and wind-sea decomposition from CMEMS wave data.
     Same query params as /api/weather/waves.
+    In demo mode, serves from database only (no external API calls).
     """
     if time is None:
         time = datetime.utcnow()
 
-    wave_data = get_wave_field(lat_min, lat_max, lon_min, lon_max, resolution)
+    if is_demo():
+        # Demo: DB only, no external CMEMS calls
+        wave_data = None
+        if db_weather is not None:
+            wave_data = db_weather.get_wave_from_db(
+                lat_min, lat_max, lon_min, lon_max
+            )
+        if wave_data is None:
+            wave_data = get_wave_field(lat_min, lat_max, lon_min, lon_max, resolution)
+    else:
+        wave_data = get_wave_field(lat_min, lat_max, lon_min, lon_max, resolution)
 
     mask_lats, mask_lons, ocean_mask = _build_ocean_mask(
         lat_min, lat_max, lon_min, lon_max, step=0.05
