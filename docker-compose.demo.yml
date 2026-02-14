@@ -39,7 +39,7 @@ services:
       AUTH_ENABLED: "false"
       RATE_LIMIT_ENABLED: "false"
       API_SECRET_KEY: ${API_SECRET_KEY:-change_me}
-      CORS_ORIGINS: "https://demo.slmar.co,http://localhost:3000"
+      CORS_ORIGINS: "https://demo-windmar.slmar.co,http://localhost:3000"
       LOG_LEVEL: "warning"
       ENVIRONMENT: "demo"
     expose:

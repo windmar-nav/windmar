@@ -1,4 +1,4 @@
-:80 {
+demo-windmar.slmar.co {
 	handle /api/* {
 		reverse_proxy api:8000
 	}
