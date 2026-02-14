@@ -32,8 +32,7 @@ jobs:
           context: .
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:demo
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
+          no-cache: true
 
       - uses: docker/build-push-action@v6
         with:
