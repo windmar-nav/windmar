@@ -2,7 +2,7 @@ name: Deploy Demo
 
 on:
   push:
-    branches: [main]
+    branches: [demo]
   workflow_dispatch:
 
 env:
