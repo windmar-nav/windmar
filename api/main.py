@@ -1645,14 +1645,17 @@ async def api_get_layer_availability():
         conn = db_weather._get_conn()
         try:
             cur = conn.cursor()
-            # Count distinct forecast hours per source
+            # Count distinct forecast hours per source (join runs → grid_data)
             cur.execute(
-                """SELECT source, COUNT(DISTINCT forecast_hour) as hours
-                   FROM weather_grids
-                   GROUP BY source"""
+                """SELECT r.source,
+                          COUNT(DISTINCT g.forecast_hour) as hours,
+                          array_agg(DISTINCT g.parameter) as params
+                   FROM weather_forecast_runs r
+                   JOIN weather_grid_data g ON g.run_id = r.id
+                   GROUP BY r.source"""
             )
             for row in cur.fetchall():
-                src, hours = row
+                src, hours, params = row
                 if src == "gfs":
                     layers["wind"] = hours > 0
                     forecast_hours["wind"] = hours
@@ -1660,13 +1663,7 @@ async def api_get_layer_availability():
                     layers["waves"] = hours > 0
                     forecast_hours["waves"] = hours
                     # Swell is available only if wave data includes swell params
-                    cur2 = conn.cursor()
-                    cur2.execute(
-                        """SELECT COUNT(*) FROM weather_grids
-                           WHERE source = 'cmems_wave'
-                           AND parameter = 'swell_hs' LIMIT 1"""
-                    )
-                    layers["swell"] = cur2.fetchone()[0] > 0
+                    layers["swell"] = "swell_hs" in (params or [])
                 elif src == "cmems_current":
                     layers["currents"] = hours > 0
                     forecast_hours["currents"] = hours
@@ -1674,13 +1671,13 @@ async def api_get_layer_availability():
                     layers["ice"] = hours > 0
                     forecast_hours["ice"] = hours
 
-            # Check for visibility and SST data
+            # Check for visibility and SST data (by parameter name)
             for param, layer_name in [
                 ("visibility", "visibility"),
                 ("sst", "sst"),
             ]:
                 cur.execute(
-                    """SELECT COUNT(*) FROM weather_grids
+                    """SELECT COUNT(*) FROM weather_grid_data
                        WHERE parameter = %s LIMIT 1""",
                     (param,),
                 )
