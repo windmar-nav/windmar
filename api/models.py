@@ -1,10 +1,20 @@
 """
 SQLAlchemy models for WINDMAR database.
 """
+
 from sqlalchemy import (
-    Column, String, Float, Integer, Boolean, DateTime, ForeignKey, Text, JSON
+    Column,
+    String,
+    Float,
+    Integer,
+    Boolean,
+    DateTime,
+    ForeignKey,
+    Index,
+    Text,
+    JSON,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from datetime import datetime
 import uuid
@@ -53,7 +63,9 @@ class VesselSpec(Base):
     engine_power = Column(Float, nullable=True)
     fuel_type = Column(String(50), nullable=True)
     created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
-    updated_at = Column(DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
     created_by = Column(UUID(as_uuid=True), nullable=True)
     extra_metadata = Column("metadata", JSON, nullable=True)
 
@@ -61,6 +73,7 @@ class VesselSpec(Base):
     routes = relationship("Route", back_populates="vessel")
     calibration_data = relationship("CalibrationData", back_populates="vessel")
     noon_reports = relationship("NoonReport", back_populates="vessel")
+    engine_log_entries = relationship("EngineLogEntry", back_populates="vessel")
 
     def __repr__(self):
         return f"<VesselSpec(name='{self.name}', length={self.length})>"
@@ -72,7 +85,9 @@ class Route(Base):
     __tablename__ = "routes"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    vessel_id = Column(UUID(as_uuid=True), ForeignKey("vessel_specs.id"), nullable=True, index=True)
+    vessel_id = Column(
+        UUID(as_uuid=True), ForeignKey("vessel_specs.id"), nullable=True, index=True
+    )
     origin_lat = Column(Float, nullable=False)
     origin_lon = Column(Float, nullable=False)
     destination_lat = Column(Float, nullable=False)
@@ -102,7 +117,9 @@ class CalibrationData(Base):
     __tablename__ = "calibration_data"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    vessel_id = Column(UUID(as_uuid=True), ForeignKey("vessel_specs.id"), nullable=True, index=True)
+    vessel_id = Column(
+        UUID(as_uuid=True), ForeignKey("vessel_specs.id"), nullable=True, index=True
+    )
     speed = Column(Float, nullable=False)
     fuel_consumption = Column(Float, nullable=False)
     wind_speed = Column(Float, nullable=True)
@@ -128,8 +145,12 @@ class NoonReport(Base):
     __tablename__ = "noon_reports"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    vessel_id = Column(UUID(as_uuid=True), ForeignKey("vessel_specs.id"), nullable=True, index=True)
-    route_id = Column(UUID(as_uuid=True), ForeignKey("routes.id"), nullable=True, index=True)
+    vessel_id = Column(
+        UUID(as_uuid=True), ForeignKey("vessel_specs.id"), nullable=True, index=True
+    )
+    route_id = Column(
+        UUID(as_uuid=True), ForeignKey("routes.id"), nullable=True, index=True
+    )
     position_lat = Column(Float, nullable=False)
     position_lon = Column(Float, nullable=False)
     speed_over_ground = Column(Float, nullable=True)
@@ -148,3 +169,84 @@ class NoonReport(Base):
 
     def __repr__(self):
         return f"<NoonReport(vessel_id={self.vessel_id}, time={self.report_time})>"
+
+
+class EngineLogEntry(Base):
+    """Engine log entry from vessel operations.
+
+    Stores parsed data from multi-sheet engine log Excel workbooks.
+    ~35 typed columns for commonly queried operational data, plus
+    extended_data JSONB for all remaining columns (zero data loss).
+    """
+
+    __tablename__ = "engine_log_entries"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    vessel_id = Column(
+        UUID(as_uuid=True), ForeignKey("vessel_specs.id"), nullable=True, index=True
+    )
+
+    # Navigation
+    timestamp = Column(DateTime, nullable=False, index=True)
+    lapse_hours = Column(Float, nullable=True)
+    place = Column(String(255), nullable=True)
+    event = Column(String(100), nullable=True, index=True)
+
+    # ME Operational
+    rpm = Column(Float, nullable=True)
+    engine_distance = Column(Float, nullable=True)
+    speed_stw = Column(Float, nullable=True)
+    me_power_kw = Column(Float, nullable=True)
+    me_load_pct = Column(Float, nullable=True)
+    me_fuel_index_pct = Column(Float, nullable=True)
+    shaft_power = Column(Float, nullable=True)
+    shaft_torque_knm = Column(Float, nullable=True)
+    slip_pct = Column(Float, nullable=True)
+
+    # HFO Consumption (MT)
+    hfo_me_mt = Column(Float, nullable=True)
+    hfo_ae_mt = Column(Float, nullable=True)
+    hfo_boiler_mt = Column(Float, nullable=True)
+    hfo_total_mt = Column(Float, nullable=True)
+
+    # MGO Consumption (MT)
+    mgo_me_mt = Column(Float, nullable=True)
+    mgo_ae_mt = Column(Float, nullable=True)
+    mgo_total_mt = Column(Float, nullable=True)
+
+    # Methanol
+    methanol_me_mt = Column(Float, nullable=True)
+
+    # Remaining on Board
+    rob_vlsfo_mt = Column(Float, nullable=True)
+    rob_mgo_mt = Column(Float, nullable=True)
+    rob_methanol_mt = Column(Float, nullable=True)
+
+    # Running Hours (period)
+    rh_me = Column(Float, nullable=True)
+    rh_ae_total = Column(Float, nullable=True)
+
+    # Technical
+    tc_rpm = Column(Float, nullable=True)
+    scav_air_press_bar = Column(Float, nullable=True)
+    fuel_temp_c = Column(Float, nullable=True)
+    sw_temp_c = Column(Float, nullable=True)
+
+    # Tracking
+    upload_batch_id = Column(UUID(as_uuid=True), nullable=False, index=True)
+    source_sheet = Column(String(100), nullable=True)
+    source_file = Column(String(500), nullable=True)
+
+    # Metadata
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    extended_data = Column(JSON, nullable=True)
+
+    # Relationships
+    vessel = relationship("VesselSpec", back_populates="engine_log_entries")
+
+    __table_args__ = (
+        Index("ix_engine_log_vessel_timestamp", "vessel_id", "timestamp"),
+    )
+
+    def __repr__(self):
+        return f"<EngineLogEntry(timestamp={self.timestamp}, event={self.event})>"
