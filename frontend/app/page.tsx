@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import dynamic from 'next/dynamic';
+import { Loader2 } from 'lucide-react';
 import Header from '@/components/Header';
 import MapOverlayControls from '@/components/MapOverlayControls';
 import AnalysisPanel from '@/components/AnalysisPanel';
@@ -40,6 +41,9 @@ export default function HomePage() {
   // Cache-first weather readiness gate
   const [weatherReady, setWeatherReady] = useState(false);
   const [weatherEnsuring, setWeatherEnsuring] = useState(false);
+
+  // Demo startup gate: wait for wind data to load before revealing the UI
+  const [demoReady, setDemoReady] = useState(!DEMO_MODE);
 
   // Weather visualization
   const [weatherLayer, setWeatherLayer] = useState<WeatherLayer>('none');
@@ -149,6 +153,26 @@ export default function HomePage() {
     checkFreshness();
     return () => { cancelled = true; };
   }, [weatherReady]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Demo startup: auto-select wind layer and pre-load data once viewport is ready.
+  // The overlay stays visible until wind data arrives, then fades out.
+  useEffect(() => {
+    if (!DEMO_MODE || demoReady) return;
+    if (!weatherReady || !viewport) return;
+
+    setWeatherLayer('wind');
+    const preload = async () => {
+      debugLog('info', 'DEMO', 'Pre-loading wind data for smooth startup...');
+      try {
+        await loadWeatherData(viewport, 'wind');
+      } catch (e) {
+        debugLog('warn', 'DEMO', `Wind pre-load failed: ${e}`);
+      }
+      setDemoReady(true);
+      debugLog('info', 'DEMO', 'Startup complete — revealing UI');
+    };
+    preload();
+  }, [weatherReady, viewport]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Compute visible zone types from context
   const visibleZoneTypes = useMemo(() => {
@@ -930,6 +954,12 @@ export default function HomePage() {
 
   return (
     <div className="min-h-screen bg-gradient-maritime">
+      {/* Demo startup overlay: hides UI until wind data is pre-loaded */}
+      {DEMO_MODE && !demoReady && (
+        <div className="fixed inset-0 z-[9999] flex items-center justify-center bg-gradient-maritime">
+          <Loader2 className="w-8 h-8 animate-spin text-primary-400" />
+        </div>
+      )}
       <Header onFitRoute={handleFitRoute} />
       <DebugConsole />
 
