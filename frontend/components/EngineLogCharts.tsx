@@ -358,7 +358,7 @@ export function SfocLoadChart({ entries, mcrSfoc = 171 }: SfocLoadChartProps) {
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <ScatterChart margin={{ top: 10, right: 20, bottom: 5, left: 5 }}>
+      <ScatterChart margin={{ top: 10, right: 20, bottom: 5, left: 15 }}>
         <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
         <XAxis
           dataKey="load"
@@ -375,7 +375,7 @@ export function SfocLoadChart({ entries, mcrSfoc = 171 }: SfocLoadChartProps) {
           stroke="#9ca3af"
           style={AXIS_STYLE}
           name="SFOC"
-          unit=" g/kWh"
+          tickFormatter={(v: number) => Math.round(v).toString()}
           label={{ value: 'SFOC (g/kWh)', angle: -90, position: 'insideLeft', style: { fill: '#9ca3af' } }}
         />
         <Tooltip
