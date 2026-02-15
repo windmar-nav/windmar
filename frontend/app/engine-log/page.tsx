@@ -14,7 +14,7 @@ import {
 } from 'lucide-react';
 import {
   apiClient, EngineLogEntryResponse, EngineLogSummaryResponse,
-  EngineLogEntriesParams, EngineLogUploadResponse,
+  EngineLogEntriesParams, EngineLogUploadResponse, EngineLogCalibrateResponse,
 } from '@/lib/api';
 
 type EngineLogTab = 'upload' | 'entries' | 'analytics';
@@ -453,6 +453,9 @@ function EntriesSection({ summary }: { summary: EngineLogSummaryResponse | null 
 function AnalyticsSection({ summary }: { summary: EngineLogSummaryResponse | null }) {
   const [entries, setEntries] = useState<EngineLogEntryResponse[]>([]);
   const [loading, setLoading] = useState(true);
+  const [calibrating, setCalibrating] = useState(false);
+  const [calResult, setCalResult] = useState<EngineLogCalibrateResponse | null>(null);
+  const [calError, setCalError] = useState<string | null>(null);
 
   useEffect(() => {
     (async () => {
@@ -466,6 +469,22 @@ function AnalyticsSection({ summary }: { summary: EngineLogSummaryResponse | nul
       }
     })();
   }, []);
+
+  const handleCalibrate = async () => {
+    setCalibrating(true);
+    setCalError(null);
+    setCalResult(null);
+    try {
+      const result = await apiClient.calibrateFromEngineLog();
+      setCalResult(result);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : 'Calibration failed';
+      const axiosErr = err as { response?: { data?: { detail?: string } } };
+      setCalError(axiosErr.response?.data?.detail || msg);
+    } finally {
+      setCalibrating(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -527,6 +546,59 @@ function AnalyticsSection({ summary }: { summary: EngineLogSummaryResponse | nul
           icon={<Fuel className="w-5 h-5" />}
         />
       </div>
+
+      {/* Calibration Card */}
+      <Card className={`border ${calResult ? 'border-green-500/40' : calError ? 'border-red-500/40' : 'border-white/10'}`}>
+        <div className="flex items-center justify-between mb-4">
+          <div>
+            <h3 className="text-lg font-semibold text-white">Vessel Calibration</h3>
+            <p className="text-sm text-gray-400">
+              Calibrate vessel model using engine log NOON entries (speed, fuel, power)
+            </p>
+          </div>
+          <button
+            onClick={handleCalibrate}
+            disabled={calibrating || !summary?.total_entries}
+            className="flex items-center gap-2 px-4 py-2 bg-primary-600 hover:bg-primary-500 disabled:bg-gray-600 disabled:cursor-not-allowed text-white rounded-lg transition-colors text-sm font-medium"
+          >
+            {calibrating ? (
+              <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white" />
+            ) : (
+              <Activity className="w-4 h-4" />
+            )}
+            {calibrating ? 'Calibrating...' : 'Calibrate from Engine Log'}
+          </button>
+        </div>
+
+        {calResult && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 text-sm">
+            <div className="bg-white/5 rounded-lg p-3">
+              <p className="text-gray-400 mb-1">Calm Water Factor</p>
+              <p className="text-xl font-bold text-white">{calResult.factors.calm_water.toFixed(3)}</p>
+            </div>
+            <div className="bg-white/5 rounded-lg p-3">
+              <p className="text-gray-400 mb-1">SFOC Factor</p>
+              <p className="text-xl font-bold text-white">{calResult.factors.sfoc_factor.toFixed(3)}</p>
+            </div>
+            <div className="bg-white/5 rounded-lg p-3">
+              <p className="text-gray-400 mb-1">Entries Used</p>
+              <p className="text-xl font-bold text-white">{calResult.entries_used}</p>
+              <p className="text-xs text-gray-500">{calResult.entries_skipped} skipped</p>
+            </div>
+            <div className="bg-white/5 rounded-lg p-3">
+              <p className="text-gray-400 mb-1">Improvement</p>
+              <p className="text-xl font-bold text-green-400">{calResult.improvement_pct.toFixed(1)}%</p>
+              <p className="text-xs text-gray-500">{calResult.mean_error_before_mt.toFixed(2)} → {calResult.mean_error_after_mt.toFixed(2)} MT</p>
+            </div>
+          </div>
+        )}
+
+        {calError && (
+          <div className="bg-red-500/10 border border-red-500/30 rounded-lg p-3 text-sm text-red-300">
+            {calError}
+          </div>
+        )}
+      </Card>
 
       {/* Charts 2x2 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

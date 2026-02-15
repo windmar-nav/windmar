@@ -837,6 +837,25 @@ export interface EngineLogSummaryResponse {
   batches?: EngineLogBatch[];
 }
 
+export interface EngineLogCalibrateResponse {
+  status: string;
+  factors: {
+    calm_water: number;
+    wind: number;
+    waves: number;
+    sfoc_factor: number;
+    calibrated_at: string | null;
+    num_reports_used: number;
+    calibration_error: number;
+    days_since_drydock: number;
+  };
+  entries_used: number;
+  entries_skipped: number;
+  mean_error_before_mt: number;
+  mean_error_after_mt: number;
+  improvement_pct: number;
+}
+
 export interface EngineLogEntriesParams {
   event?: string;
   date_from?: string;
@@ -1537,6 +1556,14 @@ export const apiClient = {
 
   async deleteEngineLogBatch(batchId: string): Promise<{ status: string; batch_id: string; deleted_count: number }> {
     const response = await api.delete(`/api/engine-log/batch/${batchId}`);
+    return response.data;
+  },
+
+  async calibrateFromEngineLog(batchId?: string, daysSinceDrydock?: number): Promise<EngineLogCalibrateResponse> {
+    const params: Record<string, string | number> = {};
+    if (batchId) params.batch_id = batchId;
+    if (daysSinceDrydock !== undefined) params.days_since_drydock = daysSinceDrydock;
+    const response = await api.post<EngineLogCalibrateResponse>('/api/engine-log/calibrate', null, { params });
     return response.data;
   },
 };
