@@ -38,14 +38,20 @@ export function FuelTimelineChart({ entries }: FuelTimelineChartProps) {
     return <div className="flex items-center justify-center h-full text-gray-500 text-sm">No fuel data</div>;
   }
 
-  // Cap Y-axis at 95th percentile to avoid outlier spikes compressing the chart
+  // Clamp outliers at p95 to avoid spikes compressing the chart
   const allVals = data.flatMap(d => [d.HFO, d.MGO]).filter(v => v > 0).sort((a, b) => a - b);
   const p95 = allVals.length > 0 ? allVals[Math.floor(allVals.length * 0.95)] : 10;
+  const cap = p95 * 1.5;
+  const clamped = data.map(d => ({
+    ...d,
+    HFO: Math.min(d.HFO, cap),
+    MGO: Math.min(d.MGO, cap),
+  }));
   const yMax = Math.ceil(p95 * 1.2);
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data}>
+      <LineChart data={clamped}>
         <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
         <XAxis dataKey="time" stroke="#9ca3af" style={AXIS_STYLE} />
         <YAxis
@@ -199,8 +205,8 @@ export function EventBreakdownChart({ eventsBreakdown }: EventBreakdownChartProp
               data={data}
               cx="50%"
               cy="50%"
-              innerRadius={45}
-              outerRadius={75}
+              innerRadius={60}
+              outerRadius={100}
               paddingAngle={2}
               dataKey="value"
               nameKey="name"

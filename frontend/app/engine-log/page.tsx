@@ -612,10 +612,10 @@ function AnalyticsSection({ summary }: { summary: EngineLogSummaryResponse | nul
         <Card title="RPM Distribution (NOON)" className="h-96">
           <RpmDistributionChart entries={entries} />
         </Card>
-        <Card title="Speed Through Water" className="h-96">
+        <Card title="Speed Through Water" className="h-[26rem]">
           <SpeedTimelineChart entries={entries} />
         </Card>
-        <Card title="Event Breakdown" className="h-96">
+        <Card title="Event Breakdown" className="h-[26rem]">
           <EventBreakdownChart eventsBreakdown={summary?.events_breakdown || {}} />
         </Card>
       </div>
