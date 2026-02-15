@@ -26,6 +26,55 @@ import numpy as np
 logger = logging.getLogger(__name__)
 
 
+def _is_retriable(exc: Exception) -> bool:
+    """Check if an exception is retriable (transient network error)."""
+    import urllib.error
+    if isinstance(exc, urllib.error.HTTPError):
+        return exc.code >= 500 or exc.code == 429
+    if isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError, OSError)):
+        return True
+    exc_str = str(type(exc).__name__).lower()
+    return "timeout" in exc_str or "connection" in exc_str
+
+
+def _retry_download(fn, max_retries: int = 2, delays: tuple = (10, 30)):
+    """Retry a download function on transient network errors.
+
+    Args:
+        fn: Callable that performs the download (no args).
+        max_retries: Number of retries after the first failure.
+        delays: Tuple of sleep durations (seconds) between retries.
+
+    Returns:
+        The return value of fn() on success.
+
+    Raises:
+        The last exception if all retries are exhausted or error is not retriable.
+    """
+    import time as _time
+
+    last_exc = None
+    for attempt in range(1 + max_retries):
+        try:
+            return fn()
+        except Exception as e:
+            last_exc = e
+            if not _is_retriable(e):
+                raise
+            if attempt < max_retries:
+                delay = delays[attempt] if attempt < len(delays) else delays[-1]
+                logger.warning(
+                    f"Download attempt {attempt + 1} failed: {e}. "
+                    f"Retrying in {delay}s..."
+                )
+                _time.sleep(delay)
+            else:
+                logger.error(
+                    f"Download failed after {1 + max_retries} attempts: {e}"
+                )
+    raise last_exc
+
+
 @dataclass
 class WeatherData:
     """Container for weather grid data."""
@@ -485,7 +534,7 @@ class CopernicusDataProvider:
 
             if ds is None:
                 logger.info(f"Downloading CMEMS wave forecast {start_dt} → {end_dt}")
-                ds = copernicusmarine.open_dataset(
+                ds = _retry_download(lambda: copernicusmarine.open_dataset(
                     dataset_id=self.CMEMS_WAVE_DATASET,
                     variables=[
                         "VHM0", "VTPK", "VMDR",
@@ -500,7 +549,7 @@ class CopernicusDataProvider:
                     end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
                     username=self.cmems_username,
                     password=self.cmems_password,
-                )
+                ))
                 if ds is None:
                     logger.error("CMEMS returned None for wave forecast")
                     return None
@@ -753,7 +802,7 @@ class CopernicusDataProvider:
 
             if ds is None:
                 logger.info(f"Downloading CMEMS current forecast {start_dt} -> {end_dt}")
-                ds = copernicusmarine.open_dataset(
+                ds = _retry_download(lambda: copernicusmarine.open_dataset(
                     dataset_id=self.CMEMS_PHYSICS_DATASET,
                     variables=["uo", "vo"],
                     minimum_longitude=lon_min,
@@ -766,7 +815,7 @@ class CopernicusDataProvider:
                     maximum_depth=10,
                     username=self.cmems_username,
                     password=self.cmems_password,
-                )
+                ))
                 if ds is None:
                     logger.error("CMEMS returned None for current forecast")
                     return None
@@ -982,7 +1031,7 @@ class CopernicusDataProvider:
 
             if ds is None:
                 logger.info(f"Downloading CMEMS SST forecast {start_dt} -> {end_dt}")
-                ds = copernicusmarine.open_dataset(
+                ds = _retry_download(lambda: copernicusmarine.open_dataset(
                     dataset_id=self.CMEMS_PHYSICS_DATASET,
                     variables=["thetao"],
                     minimum_longitude=lon_min,
@@ -995,7 +1044,7 @@ class CopernicusDataProvider:
                     maximum_depth=2,
                     username=self.cmems_username,
                     password=self.cmems_password,
-                )
+                ))
                 if ds is None:
                     logger.error("CMEMS returned None for SST forecast")
                     return None
@@ -1214,7 +1263,7 @@ class CopernicusDataProvider:
 
             if ds is None:
                 logger.info(f"Downloading CMEMS ice forecast {start_dt} → {end_dt}")
-                ds = copernicusmarine.open_dataset(
+                ds = _retry_download(lambda: copernicusmarine.open_dataset(
                     dataset_id=self.CMEMS_ICE_DATASET,
                     variables=["siconc"],
                     minimum_longitude=lon_min,
@@ -1225,7 +1274,7 @@ class CopernicusDataProvider:
                     end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
                     username=self.cmems_username,
                     password=self.cmems_password,
-                )
+                ))
                 if ds is None:
                     logger.error("CMEMS returned None for ice forecast")
                     return None
@@ -1878,8 +1927,12 @@ class GFSDataProvider:
 
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Windmar/2.1"})
-            with urllib.request.urlopen(req, timeout=30) as resp:
-                data = resp.read()
+
+            def _do_gfs_download():
+                with urllib.request.urlopen(req, timeout=30) as resp:
+                    return resp.read()
+
+            data = _retry_download(_do_gfs_download)
 
             if len(data) < 100:
                 logger.warning(f"GFS download too small ({len(data)} bytes), likely an error page")

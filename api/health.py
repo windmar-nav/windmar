@@ -51,7 +51,8 @@ def check_database_health() -> ComponentHealth:
         db = SessionLocal()
         try:
             # Execute simple query
-            result = db.execute("SELECT 1").scalar()
+            from sqlalchemy import text
+            result = db.execute(text("SELECT 1")).scalar()
             latency_ms = (datetime.utcnow() - start).total_seconds() * 1000
 
             if result == 1:
