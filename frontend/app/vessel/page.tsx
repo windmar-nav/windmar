@@ -25,10 +25,10 @@ const DEFAULT_SPECS: VesselSpecs = {
   beam: 32,
   draft_laden: 11.8,
   draft_ballast: 6.5,
-  mcr_kw: 8840,
+  mcr_kw: 6600,
   sfoc_at_mcr: 171,
-  service_speed_laden: 14.5,
-  service_speed_ballast: 15.0,
+  service_speed_laden: 13,
+  service_speed_ballast: 13,
 };
 
 export default function VesselPage() {

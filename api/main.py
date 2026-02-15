@@ -698,10 +698,10 @@ class VesselConfig(BaseModel):
     beam: float = 32.0
     draft_laden: float = 11.8
     draft_ballast: float = 6.5
-    mcr_kw: float = 8840.0
+    mcr_kw: float = 6600.0
     sfoc_at_mcr: float = 171.0
-    service_speed_laden: float = 14.5
-    service_speed_ballast: float = 15.0
+    service_speed_laden: float = 13.0
+    service_speed_ballast: float = 13.0
 
 
 class NoonReportModel(BaseModel):

@@ -50,7 +50,7 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
   const [departureTime, setDepartureTime] = useState(
     () => new Date().toISOString().slice(0, 16),
   );
-  const [calmSpeed, setCalmSpeed] = useState(14.5);
+  const [calmSpeed, setCalmSpeed] = useState(13);
   const [isLaden, setIsLaden] = useState(true);
   const [useWeather, setUseWeather] = useState(true);
   const [isDrawingZone, setIsDrawingZone] = useState(false);
