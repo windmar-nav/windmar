@@ -853,7 +853,7 @@ export default function ForecastTimeline({
         <div className="h-1 bg-gray-700">
           <div
             className="h-full bg-primary-500 transition-all duration-300"
-            style={{ width: `${(loadProgress.cached / loadProgress.total) * 100}%` }}
+            style={{ width: `${loadProgress.total > 0 ? (loadProgress.cached / loadProgress.total) * 100 : 0}%` }}
           />
         </div>
       )}
@@ -884,7 +884,9 @@ export default function ForecastTimeline({
           </div>
           {isLoading && (
             <div className="text-xs text-gray-500 mt-0.5">
-              Loading {loadProgress.cached}/{loadProgress.total} frames...
+              {loadProgress.total > 0
+                ? `Loading ${loadProgress.cached}/${loadProgress.total} frames...`
+                : 'Loading frames...'}
             </div>
           )}
         </div>

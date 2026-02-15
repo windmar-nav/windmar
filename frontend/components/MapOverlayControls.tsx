@@ -1,7 +1,11 @@
 'use client';
 
+import { useEffect, useState } from 'react';
 import { Wind, Waves, Droplets, Clock, RefreshCw, Snowflake, CloudFog, AudioWaveform, Thermometer, Database } from 'lucide-react';
 import { WeatherLayer } from '@/components/MapComponent';
+import { DEMO_MODE } from '@/lib/demoMode';
+
+const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface MapOverlayControlsProps {
   weatherLayer: WeatherLayer;
@@ -14,21 +18,9 @@ interface MapOverlayControlsProps {
   resyncRunning: boolean;
 }
 
-function computeStaleness(ingestedAt: string | null): { label: string; color: string } | null {
-  if (!ingestedAt) return null;
-  const ageMs = Date.now() - new Date(ingestedAt).getTime();
-  if (isNaN(ageMs)) return null;
-  const ageHours = ageMs / (1000 * 60 * 60);
-
-  if (ageHours < 1) {
-    const ageMin = Math.max(1, Math.round(ageHours * 60));
-    return { label: `${ageMin}m ago`, color: 'text-green-400' };
-  }
-  if (ageHours < 12) {
-    return { label: `${Math.round(ageHours)}h ago`, color: ageHours < 4 ? 'text-green-400' : 'text-yellow-400' };
-  }
-  const ageDays = Math.round(ageHours / 24);
-  return { label: ageDays >= 1 ? `${ageDays}d ago` : `${Math.round(ageHours)}h ago`, color: 'text-red-400' };
+interface FreshnessInfo {
+  age_hours: number;
+  latest_ingestion: string;
 }
 
 export default function MapOverlayControls({
@@ -41,7 +33,46 @@ export default function MapOverlayControls({
   layerIngestedAt,
   resyncRunning,
 }: MapOverlayControlsProps) {
-  const staleness = weatherLayer !== 'none' ? computeStaleness(layerIngestedAt) : null;
+  const [freshness, setFreshness] = useState<FreshnessInfo | null>(null);
+
+  useEffect(() => {
+    const fetchFreshness = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/weather/ingest/status`);
+        if (!res.ok) return;
+        const data = await res.json();
+        if (data.freshness) {
+          setFreshness(data.freshness);
+        }
+      } catch {
+        // Silently ignore — indicator simply won't show
+      }
+    };
+
+    fetchFreshness();
+    const interval = setInterval(fetchFreshness, 60 * 1000); // every 60s
+    return () => clearInterval(interval);
+  }, []);
+
+  const freshnessLabel = DEMO_MODE
+    ? 'Snapshot'
+    : freshness
+      ? freshness.age_hours < 4
+        ? `${Math.round(freshness.age_hours)}h ago`
+        : freshness.age_hours < 12
+          ? `${Math.round(freshness.age_hours)}h ago`
+          : 'stale'
+      : null;
+
+  const freshnessColor = DEMO_MODE
+    ? 'text-amber-400'
+    : freshness
+      ? freshness.age_hours < 4
+        ? 'text-green-400'
+        : freshness.age_hours < 12
+          ? 'text-yellow-400'
+          : 'text-red-400'
+      : 'text-gray-500';
 
   return (
     <div className="absolute top-3 right-3 z-[1000] flex flex-col gap-1.5">
@@ -105,10 +136,10 @@ export default function MapOverlayControls({
           <span>{resyncRunning ? 'Resyncing...' : 'Resync'}</span>
         </button>
       )}
-      {staleness && (
-        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-maritime-dark/90 backdrop-blur-sm border border-white/10 ${staleness.color}`}>
+      {freshnessLabel && (
+        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-maritime-dark/90 backdrop-blur-sm border border-white/10 ${freshnessColor}`}>
           <Database className="w-3 h-3" />
-          <span>{staleness.label}</span>
+          <span>{freshnessLabel}</span>
         </div>
       )}
     </div>
