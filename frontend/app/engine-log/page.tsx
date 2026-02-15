@@ -606,17 +606,25 @@ function AnalyticsSection({ summary }: { summary: EngineLogSummaryResponse | nul
 
       {/* Charts 2x2 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title="Fuel Consumption Timeline" className="h-96">
-          <FuelTimelineChart entries={entries} />
+        <Card title="Fuel Consumption Timeline" className="h-96 overflow-hidden">
+          <div className="h-[calc(100%-2rem)]">
+            <FuelTimelineChart entries={entries} />
+          </div>
         </Card>
-        <Card title="RPM Distribution (NOON)" className="h-96">
-          <RpmDistributionChart entries={entries} />
+        <Card title="RPM Distribution (NOON)" className="h-96 overflow-hidden">
+          <div className="h-[calc(100%-2rem)]">
+            <RpmDistributionChart entries={entries} />
+          </div>
         </Card>
-        <Card title="Speed Through Water" className="h-[26rem]">
-          <SpeedTimelineChart entries={entries} />
+        <Card title="Speed Through Water" className="h-96 overflow-hidden">
+          <div className="h-[calc(100%-2rem)]">
+            <SpeedTimelineChart entries={entries} />
+          </div>
         </Card>
-        <Card title="Event Breakdown" className="h-[26rem]">
-          <EventBreakdownChart eventsBreakdown={summary?.events_breakdown || {}} />
+        <Card title="Event Breakdown" className="h-96 overflow-hidden">
+          <div className="h-[calc(100%-2rem)]">
+            <EventBreakdownChart eventsBreakdown={summary?.events_breakdown || {}} />
+          </div>
         </Card>
       </div>
     </div>

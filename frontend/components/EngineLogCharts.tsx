@@ -141,7 +141,7 @@ export function SpeedTimelineChart({ entries, serviceSpeed = 13 }: SpeedTimeline
 
   return (
     <ResponsiveContainer width="100%" height="100%">
-      <LineChart data={data}>
+      <LineChart data={data} margin={{ top: 5, right: 20, bottom: 25, left: 5 }}>
         <CartesianGrid strokeDasharray="3 3" stroke={GRID_STROKE} />
         <XAxis dataKey="time" stroke="#9ca3af" style={AXIS_STYLE} />
         <YAxis
@@ -150,7 +150,7 @@ export function SpeedTimelineChart({ entries, serviceSpeed = 13 }: SpeedTimeline
           label={{ value: 'kts', angle: -90, position: 'insideLeft', style: { fill: '#9ca3af' } }}
         />
         <Tooltip contentStyle={MARITIME_TOOLTIP} labelStyle={{ color: '#fff' }} />
-        <Legend wrapperStyle={{ paddingTop: '10px' }} iconType="circle" />
+        <Legend wrapperStyle={{ paddingTop: '4px' }} iconType="circle" />
         <ReferenceLine y={serviceSpeed} stroke="#f59e0b" strokeDasharray="6 4" label={{ value: `Service ${serviceSpeed} kts`, fill: '#f59e0b', fontSize: 11, position: 'right' }} />
         <Line type="monotone" dataKey="speed" name="Speed STW" stroke="#22c55e" strokeWidth={2} dot={{ r: 2 }} />
       </LineChart>
@@ -224,7 +224,7 @@ export function EventBreakdownChart({ eventsBreakdown }: EventBreakdownChartProp
         </ResponsiveContainer>
       </div>
       {/* Compact inline legend */}
-      <div className="flex flex-wrap gap-x-3 gap-y-1 justify-center pt-1 pb-1">
+      <div className="flex flex-wrap gap-x-3 gap-y-1 justify-center pt-1 pb-2">
         {data.map((entry) => (
           <div key={entry.name} className="flex items-center gap-1">
             <div className="w-2.5 h-2.5 rounded-full flex-shrink-0" style={{ backgroundColor: EVENT_COLORS[entry.name] || '#6b7280' }} />
