@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Ship, Gauge, Shield, Map, LogOut, Cloud, BarChart3 } from 'lucide-react';
+import { Ship, Gauge, Shield, Map, LogOut, Cloud, BarChart3, ScrollText } from 'lucide-react';
 import Link from 'next/link';
 import VoyageDropdown from '@/components/VoyageDropdown';
 import RegulationsDropdown from '@/components/RegulationsDropdown';
@@ -101,6 +101,16 @@ export default function Header({ onFitRoute }: HeaderProps) {
             >
               <Ship className="w-5 h-5" />
               <span className="text-sm font-medium hidden sm:inline">Vessel</span>
+            </Link>
+
+            {/* Engine Log — navigates to /engine-log */}
+            <Link
+              href="/engine-log"
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
+              title="Engine Log"
+            >
+              <ScrollText className="w-5 h-5" />
+              <span className="text-sm font-medium hidden sm:inline">Engine Log</span>
             </Link>
 
             {/* Voyage — dropdown */}

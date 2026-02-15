@@ -794,6 +794,82 @@ export interface FuelScenario {
   power_kw: number;
 }
 
+// Engine Log types
+export interface EngineLogUploadResponse {
+  status: string;
+  batch_id: string;
+  imported: number;
+  skipped: number;
+  date_range?: { start: string | null; end: string | null };
+  events_summary?: Record<string, number>;
+}
+
+export interface EngineLogEntryResponse {
+  id: string;
+  timestamp: string;
+  lapse_hours: number | null;
+  place: string | null;
+  event: string | null;
+  rpm: number | null;
+  engine_distance: number | null;
+  speed_stw: number | null;
+  me_power_kw: number | null;
+  me_load_pct: number | null;
+  me_fuel_index_pct: number | null;
+  shaft_power: number | null;
+  shaft_torque_knm: number | null;
+  slip_pct: number | null;
+  hfo_me_mt: number | null;
+  hfo_ae_mt: number | null;
+  hfo_boiler_mt: number | null;
+  hfo_total_mt: number | null;
+  mgo_me_mt: number | null;
+  mgo_ae_mt: number | null;
+  mgo_total_mt: number | null;
+  methanol_me_mt: number | null;
+  rob_vlsfo_mt: number | null;
+  rob_mgo_mt: number | null;
+  rob_methanol_mt: number | null;
+  rh_me: number | null;
+  rh_ae_total: number | null;
+  tc_rpm: number | null;
+  scav_air_press_bar: number | null;
+  fuel_temp_c: number | null;
+  sw_temp_c: number | null;
+  upload_batch_id: string;
+  source_sheet: string | null;
+  source_file: string | null;
+  extended_data: Record<string, unknown> | null;
+}
+
+export interface EngineLogBatch {
+  batch_id: string;
+  count: number;
+  date_start: string | null;
+  date_end: string | null;
+  source_file: string | null;
+}
+
+export interface EngineLogSummaryResponse {
+  total_entries: number;
+  date_range?: { start: string | null; end: string | null };
+  events_breakdown?: Record<string, number>;
+  fuel_summary?: { hfo_mt: number; mgo_mt: number; methanol_mt: number };
+  avg_rpm_at_sea: number | null;
+  avg_speed_stw: number | null;
+  batches?: EngineLogBatch[];
+}
+
+export interface EngineLogEntriesParams {
+  event?: string;
+  date_from?: string;
+  date_to?: string;
+  min_rpm?: number;
+  batch_id?: string;
+  limit?: number;
+  offset?: number;
+}
+
 // Live Sensor types
 export interface SensorStatus {
   connected: boolean;
@@ -1451,6 +1527,36 @@ export const apiClient = {
 
   async disconnectSensor(): Promise<{ status: string }> {
     const response = await api.post('/api/live/disconnect');
+    return response.data;
+  },
+
+  // -------------------------------------------------------------------------
+  // Engine Log API
+  // -------------------------------------------------------------------------
+
+  async uploadEngineLog(file: File): Promise<EngineLogUploadResponse> {
+    const formData = new FormData();
+    formData.append('file', file);
+    const response = await api.post<EngineLogUploadResponse>('/api/engine-log/upload', formData, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 120000,
+    });
+    return response.data;
+  },
+
+  async getEngineLogEntries(params: EngineLogEntriesParams = {}): Promise<EngineLogEntryResponse[]> {
+    const response = await api.get<EngineLogEntryResponse[]>('/api/engine-log/entries', { params });
+    return response.data;
+  },
+
+  async getEngineLogSummary(batchId?: string): Promise<EngineLogSummaryResponse> {
+    const params = batchId ? { batch_id: batchId } : {};
+    const response = await api.get<EngineLogSummaryResponse>('/api/engine-log/summary', { params });
+    return response.data;
+  },
+
+  async deleteEngineLogBatch(batchId: string): Promise<{ status: string; batch_id: string; deleted_count: number }> {
+    const response = await api.delete(`/api/engine-log/batch/${batchId}`);
     return response.data;
   },
 };
