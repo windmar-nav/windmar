@@ -45,6 +45,7 @@ a {
   height: 100%;
   width: 100%;
   z-index: 1;
+  background: #0a1628 !important; /* Match dark basemap — hides subpixel tile gaps */
 }
 
 /* Country name labels on map */

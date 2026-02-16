@@ -514,12 +514,11 @@ export default function ForecastTimeline({
   }, [onSstForecastHourChange]);
 
   // ------------------------------------------------------------------
-  // SST prefetch effect — trigger prefetch, poll status, then load frames
+  // SST prefetch effect — direct load from DB (matches wave/current/ice pattern)
   // ------------------------------------------------------------------
   useEffect(() => {
     if (!visible || !isSstMode || !boundsRef.current) return;
 
-    // Client-side cache hit
     if (sstFrameDataRef.current) {
       const data = sstFrameDataRef.current;
       setAvailableHours(deriveHoursFromFrames(data.frames));
@@ -528,42 +527,9 @@ export default function ForecastTimeline({
       if (data.frames['0'] && onSstForecastHourChange) onSstForecastHourChange(0, data);
       return;
     }
-
-    let cancelled = false;
-    const bp = paddedBounds();
-
-    const start = async () => {
-      setIsLoading(true);
-      setPrefetchComplete(false);
-      try {
-        await apiClient.triggerSstForecastPrefetch(bp);
-        const poll = async () => {
-          if (cancelled) return;
-          try {
-            const st = await apiClient.getSstForecastStatus(bp);
-            setLoadProgress({ cached: st.cached_hours, total: st.total_hours });
-            if (st.complete || st.cached_hours === st.total_hours) {
-              if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-              await loadSstFrames();
-            } else if (!st.prefetch_running && st.cached_hours === 0) {
-              if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-              debugLog('info', 'SST', 'Status shows 0 cached, prefetch idle — loading frames directly');
-              await loadSstFrames();
-            }
-          } catch (e) { console.error('SST forecast poll failed:', e); }
-        };
-        await poll();
-        if (!cancelled && pollIntervalRef.current === null && !prefetchComplete) {
-          pollIntervalRef.current = setInterval(poll, 3000);
-        }
-      } catch (e) {
-        console.error('SST forecast prefetch trigger failed:', e);
-        await loadSstFrames(); // fallback: try loading frames directly
-      }
-    };
-
-    start();
-    return () => { cancelled = true; if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; } };
+    setIsLoading(true);
+    setPrefetchComplete(false);
+    loadSstFrames();
   }, [visible, isSstMode, hasBounds, boundsKey, loadSstFrames]);
 
   // ------------------------------------------------------------------
@@ -603,12 +569,11 @@ export default function ForecastTimeline({
   }, [onVisForecastHourChange]);
 
   // ------------------------------------------------------------------
-  // Visibility prefetch effect — trigger prefetch, poll status, then load frames
+  // Visibility prefetch effect — direct load from DB (matches wave/current/ice pattern)
   // ------------------------------------------------------------------
   useEffect(() => {
     if (!visible || !isVisMode || !boundsRef.current) return;
 
-    // Client-side cache hit
     if (visFrameDataRef.current) {
       const data = visFrameDataRef.current;
       setAvailableHours(deriveHoursFromFrames(data.frames));
@@ -617,42 +582,9 @@ export default function ForecastTimeline({
       if (data.frames['0'] && onVisForecastHourChange) onVisForecastHourChange(0, data);
       return;
     }
-
-    let cancelled = false;
-    const bp = paddedBounds();
-
-    const start = async () => {
-      setIsLoading(true);
-      setPrefetchComplete(false);
-      try {
-        await apiClient.triggerVisForecastPrefetch(bp);
-        const poll = async () => {
-          if (cancelled) return;
-          try {
-            const st = await apiClient.getVisForecastStatus(bp);
-            setLoadProgress({ cached: st.cached_hours, total: st.total_hours });
-            if (st.complete || st.cached_hours === st.total_hours) {
-              if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-              await loadVisFrames();
-            } else if (!st.prefetch_running && st.cached_hours === 0) {
-              if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
-              debugLog('info', 'VIS', 'Status shows 0 cached, prefetch idle — loading frames directly');
-              await loadVisFrames();
-            }
-          } catch (e) { console.error('Visibility forecast poll failed:', e); }
-        };
-        await poll();
-        if (!cancelled && pollIntervalRef.current === null && !prefetchComplete) {
-          pollIntervalRef.current = setInterval(poll, 3000);
-        }
-      } catch (e) {
-        console.error('Visibility forecast prefetch trigger failed:', e);
-        await loadVisFrames(); // fallback: try loading frames directly
-      }
-    };
-
-    start();
-    return () => { cancelled = true; if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; } };
+    setIsLoading(true);
+    setPrefetchComplete(false);
+    loadVisFrames();
   }, [visible, isVisMode, hasBounds, boundsKey, loadVisFrames]);
 
   // ------------------------------------------------------------------
