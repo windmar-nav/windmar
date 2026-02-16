@@ -1073,7 +1073,7 @@ class CopernicusDataProvider:
                     return None
 
                 logger.info("Loading SST forecast subset into memory...")
-                ds = xr.open_dataset(tmp_path)
+                ds = xr.open_dataset(tmp_path, engine="h5netcdf")
                 # Subsample to ~0.5 deg for manageable DB storage
                 step = max(1, round(0.5 / 0.083))  # 6x coarsen
                 ds = ds.isel(

@@ -37,11 +37,12 @@ class WeatherIngestionService:
         return psycopg2.connect(self.db_url)
 
     def ingest_all(self, force: bool = False):
-        """Run full ingestion cycle: wind + waves + currents + ice + SST + visibility.
+        """Run full ingestion cycle: wind + waves + currents + ice + visibility.
 
         Downloads GFS wind (41 forecast hours, ~2-3 min with rate limiting),
-        CMEMS waves, CMEMS currents, CMEMS ice, CMEMS SST, and GFS visibility
+        CMEMS waves, CMEMS currents, CMEMS ice, and GFS visibility
         into PostgreSQL for sub-second route optimization queries.
+        SST disabled — global 0.083 deg download too large for current pipeline.
 
         Args:
             force: If True, bypass freshness checks and re-ingest all sources.
@@ -51,7 +52,7 @@ class WeatherIngestionService:
         self.ingest_waves(force=force)
         self.ingest_currents(force=force)
         self.ingest_ice(force=force)
-        self.ingest_sst(force=force)
+        # SST disabled — copernicusmarine.subset() downloads 4+ GB for global grid
         self.ingest_visibility(force=force)
         self._supersede_old_runs()
         self.cleanup_orphaned_grid_data()

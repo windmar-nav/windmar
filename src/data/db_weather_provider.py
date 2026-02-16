@@ -629,7 +629,7 @@ class DbWeatherProvider:
         "cmems_wave": {"label": "Waves", "expected_frames": 41},
         "cmems_current": {"label": "Currents", "expected_frames": 41},
         "cmems_ice": {"label": "Ice", "expected_frames": 10},
-        "cmems_sst": {"label": "SST", "expected_frames": 41},
+        # "cmems_sst" disabled — global 0.083 deg SST download too large for current pipeline
         "gfs_visibility": {"label": "Visibility", "expected_frames": 41},
     }
 

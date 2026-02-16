@@ -14,10 +14,12 @@ Last updated: 2026-02-16 (v0.0.7 + pipeline overhaul)
 | `cmems_wave` | Waves + Swell | Copernicus Marine | 0.083 deg | 0-120 h, 3 h step | 41 |
 | `cmems_current` | Currents (U/V) | Copernicus Marine | 0.083 deg | 0-120 h, 3 h step | 41 |
 | `cmems_ice` | Ice concentration | Copernicus Marine | 0.083 deg | 0-216 h, 24 h step | 10 |
-| `cmems_sst` | Sea Surface Temp | Copernicus Marine | 0.083 deg | 0-120 h, 3 h step | 41 |
+| ~~`cmems_sst`~~ | ~~Sea Surface Temp~~ | ~~Copernicus Marine~~ | ~~0.083 deg~~ | ~~0-120 h, 3 h step~~ | ~~41~~ |
 | `gfs_visibility` | Visibility | NOAA GFS via NOMADS | 0.5 deg | 0-120 h, 3 h step | 41 |
 
-**Total parameters stored per cycle:** 15 (wind_u, wind_v, wave_hs, wave_tp, wave_dir, swell_hs, swell_tp, swell_dir, windwave_hs, windwave_tp, windwave_dir, current_u, current_v, ice_siconc, visibility). SST adds 1 more once fully wired.
+**Note:** SST (`cmems_sst`) is **disabled** — global 0.083 deg download is 4+ GB and requires `copernicusmarine.subset()` + h5py, which proved unreliable. Code is preserved but commented out. The active pipeline ingests 5 sources.
+
+**Total parameters stored per cycle:** 15 (wind_u, wind_v, wave_hs, wave_tp, wave_dir, swell_hs, swell_tp, swell_dir, windwave_hs, windwave_tp, windwave_dir, current_u, current_v, ice_siconc, visibility).
 
 ---
 

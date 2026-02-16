@@ -1363,7 +1363,7 @@ async def api_ensure_all_weather(req: EnsureAllRequest):
         "cmems_wave": "cmems_wave",
         "cmems_current": "cmems_current",
         "cmems_ice": "cmems_ice",
-        "cmems_sst": "cmems_sst",
+        # "cmems_sst" disabled — too large for current pipeline
         "gfs_visibility": "gfs_visibility",
     }
     result = {}
@@ -1481,7 +1481,7 @@ async def api_weather_resync(
         global _resync_progress
         import shutil
 
-        source_order = ["gfs", "cmems_wave", "cmems_current", "cmems_ice", "cmems_sst", "gfs_visibility"]
+        source_order = ["gfs", "cmems_wave", "cmems_current", "cmems_ice", "gfs_visibility"]
         _resync_progress = {
             "running": True,
             "phase": "truncating",
@@ -1533,7 +1533,6 @@ async def api_weather_resync(
                     "cmems_wave": weather_ingestion.ingest_waves,
                     "cmems_current": weather_ingestion.ingest_currents,
                     "cmems_ice": weather_ingestion.ingest_ice,
-                    "cmems_sst": weather_ingestion.ingest_sst,
                     "gfs_visibility": weather_ingestion.ingest_visibility,
                 }
                 for src in source_order:
@@ -5517,7 +5516,7 @@ def _auto_prefetch_all():
         ("wave", _do_wave_prefetch, bounds),
         ("current", _do_current_prefetch, bounds),
         ("ice", _do_ice_prefetch, ice_bounds),
-        ("sst", _do_sst_prefetch, bounds),
+        # SST disabled — global 0.083 deg download too large
         ("visibility", _do_vis_prefetch, bounds),
     ]
 
@@ -5579,7 +5578,6 @@ async def _ingestion_loop():
                         "cmems_wave": weather_ingestion.ingest_waves,
                         "cmems_current": weather_ingestion.ingest_currents,
                         "cmems_ice": weather_ingestion.ingest_ice,
-                        "cmems_sst": weather_ingestion.ingest_sst,
                         "gfs_visibility": weather_ingestion.ingest_visibility,
                     }
                     for src in unhealthy:
