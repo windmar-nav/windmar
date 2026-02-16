@@ -84,11 +84,13 @@ export default function HomePage() {
   }, []);
 
   // Startup gate: single entry point for weather readiness.
-  // 1. Check health — if all sources healthy, ready immediately.
-  // 2. If some missing, call ensure-all (no force) to fetch only gaps.
-  // 3. Poll health until all sources healthy (max 2 min).
-  // 4. Set weatherReady + sync badge + freshness toast.
-  // No force: existing stale data is still served while new data arrives.
+  //
+  // Sync badge = DATA AVAILABILITY (present + complete), not freshness.
+  // Freshness is communicated by the toast and the "Xh ago" overlay label.
+  //
+  // 1. Check health → if all sources present+complete → ready immediately.
+  // 2. If some genuinely missing → ensure-all (no force) → poll → ready.
+  // 3. Sync badge is set ONCE here and only changed by manual resync button.
   useEffect(() => {
     let cancelled = false;
     const startup = async () => {
@@ -98,37 +100,37 @@ export default function HomePage() {
         const health = await apiClient.getWeatherHealth();
         if (cancelled) return;
 
-        if (health.healthy) {
-          debugLog('info', 'WEATHER', 'All sources healthy — ready immediately');
+        const sources = Object.values(health.sources) as Array<{ present: boolean; complete: boolean; healthy: boolean; label: string }>;
+        const allPresent = sources.every(s => s.present && s.complete);
+        const missing = sources.filter(s => !s.present).map((s: any) => s.label);
+
+        if (allPresent) {
+          // All data available — ready immediately (even if stale)
+          debugLog('info', 'WEATHER', 'All sources present — ready immediately');
           setWeatherReady(true);
           setWeatherEnsuring(false);
-          // Set sync badge
           setSyncStatus({ in_sync: true, coverage: 'full', db_bounds: null });
-          // Show freshness toast
           showFreshnessToast();
           return;
         }
 
-        // Some sources missing/stale — fetch only gaps (no force)
-        const unhealthy = Object.entries(health.sources)
-          .filter(([, v]) => !v.healthy)
-          .map(([k]) => k);
-        debugLog('info', 'WEATHER', `Unhealthy: ${unhealthy.join(', ')} — fetching missing...`);
-
+        // Some sources genuinely missing — fetch gaps
+        debugLog('info', 'WEATHER', `Missing sources: ${missing.join(', ')} — fetching...`);
         await apiClient.ensureAllWeatherData({
           lat_min: -85, lat_max: 85, lon_min: -179.75, lon_max: 179.75,
         });
 
-        // Poll health until all healthy or timeout (2 min, every 5s)
-        let allHealthy = false;
+        // Poll until all present or timeout (2 min, every 5s)
+        let filled = false;
         for (let i = 0; i < 24; i++) {
           if (cancelled) return;
           await new Promise(r => setTimeout(r, 5000));
           try {
             const h = await apiClient.getWeatherHealth();
-            if (h.healthy) {
-              debugLog('info', 'WEATHER', `All sources healthy after ${(i + 1) * 5}s`);
-              allHealthy = true;
+            const nowPresent = Object.values(h.sources).every((s: any) => s.present && s.complete);
+            if (nowPresent) {
+              debugLog('info', 'WEATHER', `All sources present after ${(i + 1) * 5}s`);
+              filled = true;
               break;
             }
             debugLog('info', 'WEATHER', `Waiting for sources... (${i + 1}/24)`);
@@ -138,8 +140,8 @@ export default function HomePage() {
         if (!cancelled) {
           setWeatherReady(true);
           setSyncStatus({
-            in_sync: allHealthy,
-            coverage: allHealthy ? 'full' : 'partial',
+            in_sync: filled,
+            coverage: filled ? 'full' : 'partial',
             db_bounds: null,
           });
           showFreshnessToast();
@@ -946,12 +948,15 @@ export default function HomePage() {
                   };
                   await poll();
 
-                  // Refresh sync badge (health-based)
+                  // Refresh sync badge (availability-based, not freshness)
                   const health = await apiClient.getWeatherHealth().catch(() => null);
                   if (health) {
+                    const allPresent = Object.values(health.sources).every(
+                      (s: any) => s.present && s.complete,
+                    );
                     setSyncStatus({
-                      in_sync: health.healthy,
-                      coverage: health.healthy ? 'full' : 'partial',
+                      in_sync: allPresent,
+                      coverage: allPresent ? 'full' : 'partial',
                       db_bounds: health.db_bounds,
                     });
                   }
