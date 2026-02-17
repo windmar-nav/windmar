@@ -3975,17 +3975,7 @@ async def api_get_ice_field(
     else:
         ice_data = get_ice_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
 
-    # Subsample large grids to prevent browser OOM
-    step = _overlay_step(ice_data.lats, ice_data.lons)
-    if step > 1:
-        logger.info(f"Ice overlay: subsampling grid by step={step}")
-    sub_lats = ice_data.lats[::step].tolist()
-    sub_lons = ice_data.lons[::step].tolist()
-
-    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(
-        lat_min, lat_max, lon_min, lon_max,
-        step=_dynamic_mask_step(lat_min, lat_max, lon_min, lon_max),
-    )
+    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
 
     response = {
         "parameter": "ice_concentration",
@@ -3997,11 +3987,11 @@ async def api_get_ice_field(
             "lon_max": lon_max,
         },
         "resolution": resolution,
-        "nx": len(sub_lons),
-        "ny": len(sub_lats),
-        "lats": sub_lats,
-        "lons": sub_lons,
-        "data": np.round(np.nan_to_num(ice_data.values[::step, ::step], nan=0.0), 4).tolist(),
+        "nx": len(ice_data.lons),
+        "ny": len(ice_data.lats),
+        "lats": ice_data.lats.tolist(),
+        "lons": ice_data.lons.tolist(),
+        "data": np.nan_to_num(ice_data.values, nan=0.0).tolist(),
         "unit": "fraction",
         "ocean_mask": ocean_mask,
         "ocean_mask_lats": mask_lats,
