@@ -3526,6 +3526,28 @@ async def api_get_vis_forecast_frames(
     }
 
 
+# --- Overlay grid subsampling (prevents browser OOM on large viewports) ---
+_OVERLAY_MAX_DIM = 500  # max grid points per axis for single-frame overlays
+
+
+def _overlay_step(lats, lons):
+    """Compute subsample step for overlay grids exceeding target size."""
+    return max(1, math.ceil(max(len(lats), len(lons)) / _OVERLAY_MAX_DIM))
+
+
+def _sub2d(arr, step, decimals=2):
+    """Subsample and round a 2D numpy array. Returns list or None."""
+    if arr is None:
+        return None
+    return np.round(arr[::step, ::step], decimals).tolist()
+
+
+def _dynamic_mask_step(lat_min, lat_max, lon_min, lon_max):
+    """Compute ocean mask step that keeps grid under 500 points per axis."""
+    span = max(lat_max - lat_min, lon_max - lon_min)
+    return round(max(0.05, span / 500), 3)
+
+
 @app.get("/api/weather/waves")
 async def api_get_wave_field(
     lat_min: float = Query(30.0),
@@ -3556,8 +3578,17 @@ async def api_get_wave_field(
         wind_data = get_wind_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
         wave_data = get_wave_field(lat_min, lat_max, lon_min, lon_max, resolution, wind_data)
 
-    # High-resolution ocean mask (0.05° ≈ 5.5km) via vectorized numpy
-    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
+    # Subsample large CMEMS grids to prevent browser OOM
+    step = _overlay_step(wave_data.lats, wave_data.lons)
+    if step > 1:
+        logger.info(f"Waves overlay: subsampling grid by step={step}")
+    sub_lats = wave_data.lats[::step].tolist()
+    sub_lons = wave_data.lons[::step].tolist()
+
+    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(
+        lat_min, lat_max, lon_min, lon_max,
+        step=_dynamic_mask_step(lat_min, lat_max, lon_min, lon_max),
+    )
 
     # Build response with combined data
     response = {
@@ -3570,11 +3601,11 @@ async def api_get_wave_field(
             "lon_max": lon_max,
         },
         "resolution": resolution,
-        "nx": len(wave_data.lons),
-        "ny": len(wave_data.lats),
-        "lats": wave_data.lats.tolist(),
-        "lons": wave_data.lons.tolist(),
-        "data": wave_data.values.tolist(),
+        "nx": len(sub_lons),
+        "ny": len(sub_lats),
+        "lats": sub_lats,
+        "lons": sub_lons,
+        "data": _sub2d(wave_data.values, step),
         "unit": "m",
         "ocean_mask": ocean_mask,
         "ocean_mask_lats": mask_lats,
@@ -3589,21 +3620,21 @@ async def api_get_wave_field(
 
     # Include mean wave direction grid (degrees, meteorological convention)
     if wave_data.wave_direction is not None:
-        response["direction"] = wave_data.wave_direction.tolist()
+        response["direction"] = _sub2d(wave_data.wave_direction, step, 1)
 
     # Include wave decomposition when available
     has_decomp = wave_data.windwave_height is not None and wave_data.swell_height is not None
     response["has_decomposition"] = has_decomp
     if has_decomp:
         response["windwave"] = {
-            "height": wave_data.windwave_height.tolist(),
-            "period": wave_data.windwave_period.tolist() if wave_data.windwave_period is not None else None,
-            "direction": wave_data.windwave_direction.tolist() if wave_data.windwave_direction is not None else None,
+            "height": _sub2d(wave_data.windwave_height, step),
+            "period": _sub2d(wave_data.windwave_period, step, 1),
+            "direction": _sub2d(wave_data.windwave_direction, step, 1),
         }
         response["swell"] = {
-            "height": wave_data.swell_height.tolist(),
-            "period": wave_data.swell_period.tolist() if wave_data.swell_period is not None else None,
-            "direction": wave_data.swell_direction.tolist() if wave_data.swell_direction is not None else None,
+            "height": _sub2d(wave_data.swell_height, step),
+            "period": _sub2d(wave_data.swell_period, step, 1),
+            "direction": _sub2d(wave_data.swell_direction, step, 1),
         }
 
     if ingested_at is not None:
@@ -3630,6 +3661,11 @@ async def api_get_current_field(
 
     current_data = get_current_field(lat_min, lat_max, lon_min, lon_max, resolution)
 
+    # Subsample large CMEMS grids to prevent browser OOM
+    step = _overlay_step(current_data.lats, current_data.lons)
+    if step > 1:
+        logger.info(f"Currents overlay: subsampling grid by step={step}")
+
     return {
         "parameter": "current",
         "time": time.isoformat(),
@@ -3641,12 +3677,12 @@ async def api_get_current_field(
             "lon_max": lon_max,
         },
         "resolution": resolution,
-        "nx": len(current_data.lons),
-        "ny": len(current_data.lats),
-        "lats": current_data.lats.tolist(),
-        "lons": current_data.lons.tolist(),
-        "u": current_data.u_component.tolist() if current_data.u_component is not None else [],
-        "v": current_data.v_component.tolist() if current_data.v_component is not None else [],
+        "nx": len(current_data.lons[::step]),
+        "ny": len(current_data.lats[::step]),
+        "lats": current_data.lats[::step].tolist(),
+        "lons": current_data.lons[::step].tolist(),
+        "u": _sub2d(current_data.u_component, step) if current_data.u_component is not None else [],
+        "v": _sub2d(current_data.v_component, step) if current_data.v_component is not None else [],
         "unit": "m/s",
         "source": "copernicus" if copernicus_provider._has_copernicusmarine else "synthetic",
     }
@@ -3678,9 +3714,19 @@ async def api_get_current_velocity_format(
         current_data.lats, current_data.lons,
     )
 
+    # Subsample large CMEMS grids to prevent browser OOM
+    step = _overlay_step(current_data.lats, current_data.lons)
+    if step > 1:
+        logger.info(f"Currents velocity: subsampling grid by step={step}")
+        u_masked = u_masked[::step, ::step]
+        v_masked = v_masked[::step, ::step]
+        actual_lats = current_data.lats[::step]
+        actual_lons = current_data.lons[::step]
+    else:
+        actual_lats = current_data.lats
+        actual_lons = current_data.lons
+
     # Derive header from actual data arrays (native resolution may differ from request)
-    actual_lats = current_data.lats
-    actual_lons = current_data.lons
     actual_dx = abs(float(actual_lons[1] - actual_lons[0])) if len(actual_lons) > 1 else resolution
     actual_dy = abs(float(actual_lats[1] - actual_lats[0])) if len(actual_lats) > 1 else resolution
 
@@ -3787,7 +3833,17 @@ async def api_get_sst_field(
     else:
         sst_data = get_sst_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
 
-    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
+    # Subsample large grids to prevent browser OOM
+    step = _overlay_step(sst_data.lats, sst_data.lons)
+    if step > 1:
+        logger.info(f"SST overlay: subsampling grid by step={step}")
+    sub_lats = sst_data.lats[::step].tolist()
+    sub_lons = sst_data.lons[::step].tolist()
+
+    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(
+        lat_min, lat_max, lon_min, lon_max,
+        step=_dynamic_mask_step(lat_min, lat_max, lon_min, lon_max),
+    )
 
     response = {
         "parameter": "sst",
@@ -3799,11 +3855,11 @@ async def api_get_sst_field(
             "lon_max": lon_max,
         },
         "resolution": resolution,
-        "nx": len(sst_data.lons),
-        "ny": len(sst_data.lats),
-        "lats": sst_data.lats.tolist(),
-        "lons": sst_data.lons.tolist(),
-        "data": np.nan_to_num(sst_data.values, nan=15.0).tolist(),
+        "nx": len(sub_lons),
+        "ny": len(sub_lats),
+        "lats": sub_lats,
+        "lons": sub_lons,
+        "data": np.round(np.nan_to_num(sst_data.values[::step, ::step], nan=15.0), 2).tolist(),
         "unit": "°C",
         "ocean_mask": ocean_mask,
         "ocean_mask_lats": mask_lats,
@@ -3848,7 +3904,17 @@ async def api_get_visibility_field(
     else:
         vis_data = get_visibility_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
 
-    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
+    # Subsample large grids to prevent browser OOM
+    step = _overlay_step(vis_data.lats, vis_data.lons)
+    if step > 1:
+        logger.info(f"Visibility overlay: subsampling grid by step={step}")
+    sub_lats = vis_data.lats[::step].tolist()
+    sub_lons = vis_data.lons[::step].tolist()
+
+    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(
+        lat_min, lat_max, lon_min, lon_max,
+        step=_dynamic_mask_step(lat_min, lat_max, lon_min, lon_max),
+    )
 
     response = {
         "parameter": "visibility",
@@ -3860,11 +3926,11 @@ async def api_get_visibility_field(
             "lon_max": lon_max,
         },
         "resolution": resolution,
-        "nx": len(vis_data.lons),
-        "ny": len(vis_data.lats),
-        "lats": vis_data.lats.tolist(),
-        "lons": vis_data.lons.tolist(),
-        "data": np.nan_to_num(vis_data.values, nan=50.0).tolist(),
+        "nx": len(sub_lons),
+        "ny": len(sub_lats),
+        "lats": sub_lats,
+        "lons": sub_lons,
+        "data": np.round(np.nan_to_num(vis_data.values[::step, ::step], nan=50.0), 1).tolist(),
         "unit": "km",
         "ocean_mask": ocean_mask,
         "ocean_mask_lats": mask_lats,
@@ -3909,7 +3975,17 @@ async def api_get_ice_field(
     else:
         ice_data = get_ice_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
 
-    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
+    # Subsample large grids to prevent browser OOM
+    step = _overlay_step(ice_data.lats, ice_data.lons)
+    if step > 1:
+        logger.info(f"Ice overlay: subsampling grid by step={step}")
+    sub_lats = ice_data.lats[::step].tolist()
+    sub_lons = ice_data.lons[::step].tolist()
+
+    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(
+        lat_min, lat_max, lon_min, lon_max,
+        step=_dynamic_mask_step(lat_min, lat_max, lon_min, lon_max),
+    )
 
     response = {
         "parameter": "ice_concentration",
@@ -3921,11 +3997,11 @@ async def api_get_ice_field(
             "lon_max": lon_max,
         },
         "resolution": resolution,
-        "nx": len(ice_data.lons),
-        "ny": len(ice_data.lats),
-        "lats": ice_data.lats.tolist(),
-        "lons": ice_data.lons.tolist(),
-        "data": np.nan_to_num(ice_data.values, nan=0.0).tolist(),
+        "nx": len(sub_lons),
+        "ny": len(sub_lats),
+        "lats": sub_lats,
+        "lons": sub_lons,
+        "data": np.round(np.nan_to_num(ice_data.values[::step, ::step], nan=0.0), 4).tolist(),
         "unit": "fraction",
         "ocean_mask": ocean_mask,
         "ocean_mask_lats": mask_lats,
@@ -3962,16 +4038,20 @@ async def api_get_swell_field(
 
     wave_data = get_wave_field(lat_min, lat_max, lon_min, lon_max, resolution)
 
-    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
+    # Subsample large CMEMS grids to prevent browser OOM
+    step = _overlay_step(wave_data.lats, wave_data.lons)
+    if step > 1:
+        logger.info(f"Swell overlay: subsampling grid by step={step}")
+    sub_lats = wave_data.lats[::step].tolist()
+    sub_lons = wave_data.lons[::step].tolist()
+
+    mask_lats, mask_lons, ocean_mask = _build_ocean_mask(
+        lat_min, lat_max, lon_min, lon_max,
+        step=_dynamic_mask_step(lat_min, lat_max, lon_min, lon_max),
+    )
 
     # Build swell decomposition response
     has_decomposition = wave_data.swell_height is not None
-    swell_hs = wave_data.swell_height.tolist() if has_decomposition else None
-    swell_tp = wave_data.swell_period.tolist() if wave_data.swell_period is not None else None
-    swell_dir = wave_data.swell_direction.tolist() if wave_data.swell_direction is not None else None
-    windsea_hs = wave_data.windwave_height.tolist() if wave_data.windwave_height is not None else None
-    windsea_tp = wave_data.windwave_period.tolist() if wave_data.windwave_period is not None else None
-    windsea_dir = wave_data.windwave_direction.tolist() if wave_data.windwave_direction is not None else None
 
     return {
         "parameter": "swell",
@@ -3984,18 +4064,18 @@ async def api_get_swell_field(
         },
         "resolution": resolution,
         "has_decomposition": has_decomposition,
-        "nx": len(wave_data.lons),
-        "ny": len(wave_data.lats),
-        "lats": wave_data.lats.tolist(),
-        "lons": wave_data.lons.tolist(),
-        "total_hs": wave_data.values.tolist(),
-        "data": np.nan_to_num(wave_data.values, nan=0.0).tolist(),
-        "swell_hs": swell_hs,
-        "swell_tp": swell_tp,
-        "swell_dir": swell_dir,
-        "windsea_hs": windsea_hs,
-        "windsea_tp": windsea_tp,
-        "windsea_dir": windsea_dir,
+        "nx": len(sub_lons),
+        "ny": len(sub_lats),
+        "lats": sub_lats,
+        "lons": sub_lons,
+        "total_hs": _sub2d(wave_data.values, step),
+        "data": _sub2d(np.nan_to_num(wave_data.values, nan=0.0), step),
+        "swell_hs": _sub2d(wave_data.swell_height, step),
+        "swell_tp": _sub2d(wave_data.swell_period, step, 1),
+        "swell_dir": _sub2d(wave_data.swell_direction, step, 1),
+        "windsea_hs": _sub2d(wave_data.windwave_height, step),
+        "windsea_tp": _sub2d(wave_data.windwave_period, step, 1),
+        "windsea_dir": _sub2d(wave_data.windwave_direction, step, 1),
         "unit": "m",
         "ocean_mask": ocean_mask,
         "ocean_mask_lats": mask_lats,
