@@ -37,8 +37,8 @@ class DbWeatherProvider:
         lon_min: float,
         lon_max: float,
         time: Optional[datetime] = None,
-    ) -> Optional[WeatherData]:
-        """Load wind data from DB, cropped to bbox. Returns None if unavailable."""
+    ) -> tuple:
+        """Load wind data from DB, cropped to bbox. Returns (data, ingested_at) or (None, None)."""
         return self._load_vector_data("gfs", "wind_u", "wind_v", lat_min, lat_max, lon_min, lon_max, time)
 
     def get_wave_from_db(
@@ -48,15 +48,15 @@ class DbWeatherProvider:
         lon_min: float,
         lon_max: float,
         time: Optional[datetime] = None,
-    ) -> Optional[WeatherData]:
-        """Load wave data from DB, cropped to bbox. Returns None if unavailable.
+    ) -> tuple:
+        """Load wave data from DB, cropped to bbox. Returns (data, ingested_at) or (None, None).
 
         If time is given and multi-timestep wave forecast data exists,
         selects the closest available forecast hour.
         """
-        run_id = self._find_latest_run("cmems_wave")
+        run_id, ingested_at = self._find_latest_run("cmems_wave")
         if run_id is None:
-            return None
+            return None, None
 
         forecast_hour = 0
         if time is not None:
@@ -69,7 +69,7 @@ class DbWeatherProvider:
             wd = self._load_grid(conn, run_id, forecast_hour, "wave_dir")
 
             if hs is None:
-                return None
+                return None, None
 
             lats, lons, hs_data = hs
             lats_c, lons_c, hs_crop = self._crop_grid(lats, lons, hs_data, lat_min, lat_max, lon_min, lon_max)
@@ -91,10 +91,10 @@ class DbWeatherProvider:
                 unit="m",
                 wave_period=tp_crop,
                 wave_direction=wd_crop,
-            )
+            ), ingested_at
         except Exception as e:
             logger.error(f"Failed to load wave data from DB: {e}")
-            return None
+            return None, None
         finally:
             conn.close()
 
@@ -104,8 +104,8 @@ class DbWeatherProvider:
         lat_max: float,
         lon_min: float,
         lon_max: float,
-    ) -> Optional[WeatherData]:
-        """Load current data from DB, cropped to bbox. Returns None if unavailable."""
+    ) -> tuple:
+        """Load current data from DB, cropped to bbox. Returns (data, ingested_at) or (None, None)."""
         return self._load_vector_data("cmems_current", "current_u", "current_v", lat_min, lat_max, lon_min, lon_max)
 
     def get_ice_from_db(
@@ -115,15 +115,15 @@ class DbWeatherProvider:
         lon_min: float,
         lon_max: float,
         time: Optional[datetime] = None,
-    ) -> Optional[WeatherData]:
-        """Load ice concentration from DB, cropped to bbox. Returns None if unavailable.
+    ) -> tuple:
+        """Load ice concentration from DB, cropped to bbox. Returns (data, ingested_at) or (None, None).
 
         If time is given and multi-timestep ice forecast data exists,
         selects the closest available forecast hour.
         """
-        run_id = self._find_latest_run("cmems_ice")
+        run_id, ingested_at = self._find_latest_run("cmems_ice")
         if run_id is None:
-            return None
+            return None, None
 
         forecast_hour = 0
         if time is not None:
@@ -133,7 +133,7 @@ class DbWeatherProvider:
         try:
             grid = self._load_grid(conn, run_id, forecast_hour, "ice_siconc")
             if grid is None:
-                return None
+                return None, None
 
             lats, lons, siconc = grid
             lats_c, lons_c, siconc_crop = self._crop_grid(
@@ -148,10 +148,10 @@ class DbWeatherProvider:
                 values=siconc_crop,
                 unit="fraction",
                 ice_concentration=siconc_crop,
-            )
+            ), ingested_at
         except Exception as e:
             logger.error(f"Failed to load ice data from DB: {e}")
-            return None
+            return None, None
         finally:
             conn.close()
 
@@ -165,11 +165,14 @@ class DbWeatherProvider:
         lon_min: float,
         lon_max: float,
         time: Optional[datetime] = None,
-    ) -> Optional[WeatherData]:
-        """Load U/V component data from DB and return as WeatherData."""
-        run_id = self._find_latest_run(source)
+    ) -> tuple:
+        """Load U/V component data from DB and return as (WeatherData, ingested_at).
+
+        Returns (None, None) if data is unavailable.
+        """
+        run_id, ingested_at = self._find_latest_run(source)
         if run_id is None:
-            return None
+            return None, None
 
         # Pick best forecast hour for wind
         forecast_hour = 0
@@ -182,7 +185,7 @@ class DbWeatherProvider:
             v_grid = self._load_grid(conn, run_id, forecast_hour, v_param)
 
             if u_grid is None or v_grid is None:
-                return None
+                return None, None
 
             lats, lons, u_data = u_grid
             _, _, v_data = v_grid
@@ -203,24 +206,26 @@ class DbWeatherProvider:
                 unit="m/s",
                 u_component=u_crop,
                 v_component=v_crop,
-            )
+            ), ingested_at
         except Exception as e:
             logger.error(f"Failed to load {source} data from DB: {e}")
-            return None
+            return None, None
         finally:
             conn.close()
 
-    def _find_latest_run(self, source: str) -> Optional[int]:
+    def _find_latest_run(self, source: str) -> tuple:
         """Find the best complete forecast run ID for a source.
 
         Prefers runs with the most forecast hours (multi-timestep over snapshots).
         Among runs with equal hour count, picks the most recent.
+
+        Returns (run_id, ingested_at) or (None, None).
         """
         conn = self._get_conn()
         try:
             cur = conn.cursor()
             cur.execute(
-                """SELECT id FROM weather_forecast_runs
+                """SELECT id, ingested_at FROM weather_forecast_runs
                    WHERE source = %s AND status = 'complete'
                    ORDER BY array_length(forecast_hours, 1) DESC NULLS LAST,
                             ingested_at DESC
@@ -228,10 +233,15 @@ class DbWeatherProvider:
                 (source,),
             )
             row = cur.fetchone()
-            return row[0] if row else None
+            if row:
+                ingested_at = row[1]
+                if ingested_at is not None and ingested_at.tzinfo is None:
+                    ingested_at = ingested_at.replace(tzinfo=timezone.utc)
+                return row[0], ingested_at
+            return None, None
         except Exception as e:
             logger.error(f"Failed to find latest run for {source}: {e}")
-            return None
+            return None, None
         finally:
             conn.close()
 
@@ -341,7 +351,7 @@ class DbWeatherProvider:
 
         Used by Monte Carlo to pre-fetch multi-timestep wave data in one pass.
         """
-        run_id = self._find_latest_run("cmems_wave")
+        run_id, _ = self._find_latest_run("cmems_wave")
         if run_id is None:
             return {}
 
@@ -424,11 +434,11 @@ class DbWeatherProvider:
         lon_min: float,
         lon_max: float,
         time: Optional[datetime] = None,
-    ) -> Optional[WeatherData]:
-        """Load SST from DB, cropped to bbox. Returns None if unavailable."""
-        run_id = self._find_latest_run("cmems_sst")
+    ) -> tuple:
+        """Load SST from DB, cropped to bbox. Returns (data, ingested_at) or (None, None)."""
+        run_id, ingested_at = self._find_latest_run("cmems_sst")
         if run_id is None:
-            return None
+            return None, None
 
         forecast_hour = 0
         if time is not None:
@@ -438,7 +448,7 @@ class DbWeatherProvider:
         try:
             grid = self._load_grid(conn, run_id, forecast_hour, "sst")
             if grid is None:
-                return None
+                return None, None
 
             lats, lons, sst_vals = grid
             lats_c, lons_c, sst_crop = self._crop_grid(
@@ -452,10 +462,10 @@ class DbWeatherProvider:
                 lons=lons_c,
                 values=sst_crop,
                 unit="°C",
-            )
+            ), ingested_at
         except Exception as e:
             logger.error(f"Failed to load SST data from DB: {e}")
-            return None
+            return None, None
         finally:
             conn.close()
 
@@ -466,11 +476,11 @@ class DbWeatherProvider:
         lon_min: float,
         lon_max: float,
         time: Optional[datetime] = None,
-    ) -> Optional[WeatherData]:
-        """Load visibility from DB, cropped to bbox. Returns None if unavailable."""
-        run_id = self._find_latest_run("gfs_visibility")
+    ) -> tuple:
+        """Load visibility from DB, cropped to bbox. Returns (data, ingested_at) or (None, None)."""
+        run_id, ingested_at = self._find_latest_run("gfs_visibility")
         if run_id is None:
-            return None
+            return None, None
 
         forecast_hour = 0
         if time is not None:
@@ -480,7 +490,7 @@ class DbWeatherProvider:
         try:
             grid = self._load_grid(conn, run_id, forecast_hour, "visibility")
             if grid is None:
-                return None
+                return None, None
 
             lats, lons, vis_vals = grid
             lats_c, lons_c, vis_crop = self._crop_grid(
@@ -494,16 +504,16 @@ class DbWeatherProvider:
                 lons=lons_c,
                 values=vis_crop,
                 unit="km",
-            )
+            ), ingested_at
         except Exception as e:
             logger.error(f"Failed to load visibility data from DB: {e}")
-            return None
+            return None, None
         finally:
             conn.close()
 
     def get_available_wave_hours(self) -> tuple:
         """Return (run_time, [forecast_hours]) for the latest complete wave run."""
-        run_id = self._find_latest_run("cmems_wave")
+        run_id, _ = self._find_latest_run("cmems_wave")
         if run_id is None:
             return None, []
 
@@ -546,7 +556,7 @@ class DbWeatherProvider:
             Dict mapping parameter -> {forecast_hour -> (lats, lons, data_2d)}.
             Missing parameter/hour combos are silently skipped.
         """
-        run_id = self._find_latest_run(source)
+        run_id, _ = self._find_latest_run(source)
         if run_id is None:
             return {}
 
@@ -599,7 +609,7 @@ class DbWeatherProvider:
 
         Works for any source: 'gfs', 'cmems_wave', 'cmems_current'.
         """
-        run_id = self._find_latest_run(source)
+        run_id, _ = self._find_latest_run(source)
         if run_id is None:
             return None, []
 

@@ -817,7 +817,7 @@ def get_wind_field(
 
     # Try DB first (pre-ingested grids — sub-second)
     if db_weather is not None:
-        wind_data = db_weather.get_wind_from_db(lat_min, lat_max, lon_min, lon_max, time)
+        wind_data, _ = db_weather.get_wind_from_db(lat_min, lat_max, lon_min, lon_max, time)
         if wind_data is not None:
             logger.info("Using DB pre-ingested wind data")
             _redis_cache_put(cache_key, wind_data, CACHE_TTL_MINUTES * 60)
@@ -863,7 +863,7 @@ def get_wave_field(
 
     # Try DB first
     if db_weather is not None:
-        wave_data = db_weather.get_wave_from_db(lat_min, lat_max, lon_min, lon_max)
+        wave_data, _ = db_weather.get_wave_from_db(lat_min, lat_max, lon_min, lon_max)
         if wave_data is not None:
             logger.info("Using DB pre-ingested wave data")
             _redis_cache_put(cache_key, wave_data, CACHE_TTL_MINUTES * 60)
@@ -900,7 +900,7 @@ def get_current_field(
 
     # Try DB first
     if db_weather is not None:
-        current_data = db_weather.get_current_from_db(lat_min, lat_max, lon_min, lon_max)
+        current_data, _ = db_weather.get_current_from_db(lat_min, lat_max, lon_min, lon_max)
         if current_data is not None:
             logger.info("Using DB pre-ingested current data")
             _redis_cache_put(cache_key, current_data, CACHE_TTL_MINUTES * 60)
@@ -1000,7 +1000,7 @@ def get_ice_field(
 
     # Try PostgreSQL (from previous ice forecast ingestion)
     if db_weather is not None:
-        ice_data = db_weather.get_ice_from_db(lat_min, lat_max, lon_min, lon_max, time)
+        ice_data, _ = db_weather.get_ice_from_db(lat_min, lat_max, lon_min, lon_max, time)
         if ice_data is not None:
             logger.info("Ice data served from DB")
             _redis_cache_put(cache_key, ice_data, CACHE_TTL_MINUTES * 60)
@@ -1335,112 +1335,14 @@ async def get_data_sources():
 # ============================================================================
 
 
-class EnsureAllRequest(BaseModel):
-    lat_min: float = -85.0
-    lat_max: float = 85.0
-    lon_min: float = -179.75
-    lon_max: float = 179.75
-    force: bool = False
-
-
-@app.post("/api/weather/ensure-all")
-async def api_ensure_all_weather(req: EnsureAllRequest):
-    """
-    Ensure all 5 weather sources are present in PostgreSQL.
-
-    Checks DB for each source; fetches from external API only for missing ones.
-    GFS sources (wind, visibility) are fetched synchronously (fast, 0.5° global).
-    CMEMS sources (waves, currents, ice) are fetched in a background task
-    (slower, 0.083° viewport-scoped multi-timestep forecasts).
-    Frontend should poll /api/weather/health until all sources are healthy.
-    """
-    if db_weather is None or weather_ingestion is None:
-        raise HTTPException(status_code=503, detail="Database weather provider not configured")
-
-    import time as _time
-    t0 = _time.monotonic()
-
-    sources = {
-        "gfs_wind": "gfs",
-        "cmems_wave": "cmems_wave",
-        "cmems_current": "cmems_current",
-        "cmems_ice": "cmems_ice",
-        # "cmems_sst" disabled — too large for current pipeline
-        "gfs_visibility": "gfs_visibility",
-    }
-    result = {}
-    cmems_to_fetch = []
-
-    for label, source in sources.items():
-        if not req.force and db_weather.has_data_for_source(source):
-            result[label] = "ready"
-        elif source in ("gfs", "gfs_visibility"):
-            # GFS: fast global 0.5° grids — run synchronously
-            try:
-                if source == "gfs":
-                    weather_ingestion.ingest_wind(force=req.force)
-                else:
-                    weather_ingestion.ingest_visibility(force=req.force)
-                result[label] = "fetched"
-            except Exception as e:
-                logger.error(f"ensure-all: {label} ingestion failed: {e}")
-                result[label] = "error"
-        else:
-            # CMEMS: viewport-scoped multi-timestep — queue for background
-            cmems_to_fetch.append((label, source))
-            result[label] = "fetching"
-
-    # Launch CMEMS multi-timestep ingestion in background.
-    # CMEMS sources use their own regional defaults (not the global bounds
-    # from the request) — global CMEMS downloads are too large and time out.
-    if cmems_to_fetch:
-        async def _bg_cmems():
-            global _ingestion_running
-            _ingestion_running = True
-            try:
-                for label, source in cmems_to_fetch:
-                    try:
-                        if source == "cmems_wave":
-                            await asyncio.to_thread(
-                                weather_ingestion.ingest_waves, req.force,
-                            )
-                        elif source == "cmems_current":
-                            await asyncio.to_thread(
-                                weather_ingestion.ingest_currents, req.force,
-                            )
-                        elif source == "cmems_ice":
-                            await asyncio.to_thread(
-                                weather_ingestion.ingest_ice, req.force,
-                            )
-                        logger.info(f"ensure-all background: {label} complete")
-                    except Exception as e:
-                        logger.error(f"ensure-all background: {label} failed: {e}")
-                weather_ingestion._supersede_old_runs()
-                weather_ingestion.cleanup_orphaned_grid_data()
-                logger.info("ensure-all background CMEMS ingestion complete")
-            finally:
-                _ingestion_running = False
-
-        task = asyncio.create_task(_bg_cmems())
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-
-    elapsed_ms = int((_time.monotonic() - t0) * 1000)
-    logger.info(f"ensure-all completed in {elapsed_ms}ms: {result}")
-    return {"sources": result, "elapsed_ms": elapsed_ms}
-
-
-# Resync state
-_resync_progress: Dict[str, object] = {"running": False}
-_REDIS_RESYNC_LOCK = "windmar:resync_lock"
 
 
 @app.get("/api/weather/health")
 async def api_weather_health():
-    """Return per-source health status for all 6 weather sources.
+    """Return per-source health status for all weather sources.
 
-    Frontend uses this on startup to decide whether to fetch missing data
-    or proceed immediately with cached DB data.
+    Purely informational — returns per-layer presence, completeness,
+    ingested_at, and age_hours. No longer drives automation.
     """
     if db_weather is None:
         raise HTTPException(status_code=503, detail="Database weather provider not configured")
@@ -1449,171 +1351,68 @@ async def api_weather_health():
     return health
 
 
-@app.get("/api/weather/sync-status")
-async def api_weather_sync_status(
-    lat_min: float = Query(-85.0),
-    lat_max: float = Query(85.0),
-    lon_min: float = Query(-179.75),
-    lon_max: float = Query(179.75),
-):
-    """Check whether weather data is current and complete.
+# Layer name → ingestion source mapping for per-layer resync
+_LAYER_TO_SOURCE = {
+    "wind": "gfs",
+    "waves": "cmems_wave",
+    "currents": "cmems_current",
+    "ice": "cmems_ice",
+    "visibility": "gfs_visibility",
+    "swell": "cmems_wave",  # swell reuses wave data
+}
 
-    Uses source health (present + complete + fresh) rather than geographic
-    bounds comparison, which was unreliable because different sources cover
-    different regions (GFS global vs CMEMS regional) and viewport panning
-    caused the sync badge to flicker.
+_LAYER_INGEST_FN = {
+    "wind": lambda wi: wi.ingest_wind(True),
+    "waves": lambda wi: wi.ingest_waves(True),
+    "currents": lambda wi: wi.ingest_currents(True),
+    "ice": lambda wi: wi.ingest_ice(True),
+    "visibility": lambda wi: wi.ingest_visibility(True),
+    "swell": lambda wi: wi.ingest_waves(True),  # swell reuses wave ingestion
+}
+
+
+@app.post("/api/weather/{layer}/resync")
+async def api_weather_layer_resync(layer: str):
+    """Re-ingest a single weather layer and return fresh ingested_at.
+
+    Synchronous — blocks until ingestion completes (30-120s for CMEMS layers).
+    Clears the layer's frame cache so the next timeline request rebuilds it.
     """
-    if db_weather is None:
-        raise HTTPException(status_code=503, detail="Database weather provider not configured")
-
-    health = await asyncio.to_thread(db_weather.get_health)
-    sources = health.get("sources", {})
-
-    # Count healthy vs expected sources (exclude SST — disabled in pipeline)
-    active_sources = {k: v for k, v in sources.items() if k != "cmems_sst"}
-    healthy_count = sum(1 for v in active_sources.values() if v.get("healthy"))
-    total_count = len(active_sources)
-
-    if total_count == 0:
-        coverage = "none"
-    elif healthy_count == total_count:
-        coverage = "full"
-    elif healthy_count > 0:
-        coverage = "partial"
-    else:
-        coverage = "none"
-
-    return {
-        "in_sync": coverage == "full",
-        "coverage": coverage,
-        "db_bounds": health.get("db_bounds"),
-    }
-
-
-@app.post("/api/weather/resync")
-async def api_weather_resync(
-    lat_min: float = Query(-85.0),
-    lat_max: float = Query(85.0),
-    lon_min: float = Query(-179.75),
-    lon_max: float = Query(179.75),
-):
-    """Truncate weather data and re-ingest all 6 sources for given bounds.
-
-    Uses a Redis lock to prevent concurrent resyncs. Progress is tracked
-    via _resync_progress dict and polled by /resync/status.
-    """
-    global _resync_progress
-
-    if weather_ingestion is None or db_weather is None:
+    if layer not in _LAYER_INGEST_FN:
+        raise HTTPException(status_code=400, detail=f"Unknown layer: {layer}. Valid: {list(_LAYER_INGEST_FN.keys())}")
+    if weather_ingestion is None:
         raise HTTPException(status_code=503, detail="Weather ingestion not configured")
 
-    if _resync_progress.get("running"):
-        return {"status": "already_running", "message": "Resync is already in progress"}
+    logger.info(f"Per-layer resync starting: {layer}")
+    try:
+        ingest_fn = _LAYER_INGEST_FN[layer]
+        await asyncio.to_thread(ingest_fn, weather_ingestion)
 
-    r = _get_redis()
-    if r is not None:
-        acquired = r.set(_REDIS_RESYNC_LOCK, "1", nx=True, ex=7200)
-        if not acquired:
-            return {"status": "already_running", "message": "Another worker is resyncing"}
+        # Supersede old runs and clean orphans
+        weather_ingestion._supersede_old_runs()
+        weather_ingestion.cleanup_orphaned_grid_data()
 
-    async def _run_resync():
-        global _resync_progress
+        # Clear layer-specific frame cache
         import shutil
-
-        source_order = ["gfs", "cmems_wave", "cmems_current", "cmems_ice", "gfs_visibility"]
-        _resync_progress = {
-            "running": True,
-            "phase": "truncating",
-            "current_source": None,
-            "completed": [],
-            "total": len(source_order),
+        cache_dir = Path("/tmp/windmar_cache")
+        # Map layers to cache subdirectory names
+        cache_names = {
+            "wind": "wind", "waves": "wave", "currents": "current",
+            "ice": "ice", "visibility": "visibility", "swell": "wave",
         }
+        layer_cache = cache_dir / cache_names.get(layer, layer)
+        if layer_cache.exists():
+            shutil.rmtree(layer_cache, ignore_errors=True)
 
-        try:
-            # 1. Truncate DB tables
-            logger.info("Resync: truncating weather tables")
-            conn = weather_ingestion._get_conn()
-            try:
-                cur = conn.cursor()
-                cur.execute("TRUNCATE weather_grid_data CASCADE")
-                cur.execute("TRUNCATE weather_forecast_runs CASCADE")
-                conn.commit()
-            finally:
-                conn.close()
+        # Clean stale file caches
+        _cleanup_stale_caches()
 
-            # 2. Clear file caches
-            _resync_progress["phase"] = "clearing_cache"
-            cache_dir = Path("/tmp/windmar_cache")
-            if cache_dir.exists():
-                shutil.rmtree(cache_dir, ignore_errors=True)
-            nc_cache = Path("data/copernicus_cache")
-            if nc_cache.exists():
-                for f in nc_cache.iterdir():
-                    try:
-                        f.unlink()
-                    except OSError:
-                        pass
-
-            # 3. Override ingestion bounds temporarily
-            orig_bounds = (
-                weather_ingestion.LAT_MIN, weather_ingestion.LAT_MAX,
-                weather_ingestion.LON_MIN, weather_ingestion.LON_MAX,
-            )
-            weather_ingestion.LAT_MIN = lat_min
-            weather_ingestion.LAT_MAX = lat_max
-            weather_ingestion.LON_MIN = lon_min
-            weather_ingestion.LON_MAX = lon_max
-
-            try:
-                # 4. Re-ingest all 6 sources
-                _resync_progress["phase"] = "ingesting"
-                ingest_map = {
-                    "gfs": weather_ingestion.ingest_wind,
-                    "cmems_wave": weather_ingestion.ingest_waves,
-                    "cmems_current": weather_ingestion.ingest_currents,
-                    "cmems_ice": weather_ingestion.ingest_ice,
-                    "gfs_visibility": weather_ingestion.ingest_visibility,
-                }
-                for src in source_order:
-                    _resync_progress["current_source"] = src
-                    try:
-                        await asyncio.to_thread(ingest_map[src], True)
-                    except Exception as e:
-                        logger.error(f"Resync: {src} ingestion failed: {e}")
-                    _resync_progress["completed"].append(src)
-            finally:
-                # Restore original bounds
-                weather_ingestion.LAT_MIN = orig_bounds[0]
-                weather_ingestion.LAT_MAX = orig_bounds[1]
-                weather_ingestion.LON_MIN = orig_bounds[2]
-                weather_ingestion.LON_MAX = orig_bounds[3]
-
-            # 5. Auto-prefetch
-            _resync_progress["phase"] = "prefetching"
-            await asyncio.to_thread(_auto_prefetch_all)
-
-            _resync_progress["phase"] = "done"
-            logger.info("Resync complete")
-
-        except Exception as e:
-            logger.error(f"Resync failed: {e}")
-            _resync_progress["phase"] = "error"
-        finally:
-            _resync_progress["running"] = False
-            if r is not None:
-                try:
-                    r.delete(_REDIS_RESYNC_LOCK)
-                except Exception:
-                    pass
-
-    asyncio.create_task(_run_resync())
-    return {"status": "started", "message": "Weather resync triggered in background"}
-
-
-@app.get("/api/weather/resync/status")
-async def api_weather_resync_status():
-    """Return current resync progress."""
-    return _resync_progress
+        ingested_at = datetime.now(timezone.utc)
+        logger.info(f"Per-layer resync complete: {layer}")
+        return {"status": "complete", "ingested_at": ingested_at.isoformat()}
+    except Exception as e:
+        logger.error(f"Per-layer resync failed ({layer}): {e}")
+        raise HTTPException(status_code=500, detail=f"Resync failed: {e}")
 
 
 @app.get("/api/weather/wind")
@@ -1624,24 +1423,25 @@ async def api_get_wind_field(
     lon_max: float = Query(40.0, ge=-180, le=180),
     resolution: float = Query(1.0, ge=0.25, le=5.0),
     time: Optional[datetime] = None,
-    db_only: bool = Query(False),
 ):
     """
     Get wind field data for visualization.
 
     Returns U/V wind components on a grid.
-    Uses Copernicus CDS when available, falls back to synthetic data.
-    If db_only=true, only queries PostgreSQL (no external API calls).
+    DB-first: returns cached data if available, otherwise fetches from API.
     """
     if time is None:
         time = datetime.utcnow()
 
-    if db_only:
-        if db_weather is None:
-            return Response(status_code=204)
-        wind_data = db_weather.get_wind_from_db(lat_min, lat_max, lon_min, lon_max, time)
-        if wind_data is None:
-            return Response(status_code=204)
+    ingested_at = None
+    # Try DB first
+    if db_weather is not None:
+        wind_data, ingested_at = db_weather.get_wind_from_db(lat_min, lat_max, lon_min, lon_max, time)
+        if wind_data is not None:
+            logger.debug("Wind endpoint: serving from DB")
+        else:
+            wind_data = get_wind_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
+            ingested_at = datetime.now(timezone.utc)
     else:
         wind_data = get_wind_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
 
@@ -1683,6 +1483,8 @@ async def api_get_wind_field(
             "data": sst_data.values.tolist(),
             "unit": "°C",
         }
+    if ingested_at is not None:
+        response["ingested_at"] = ingested_at.isoformat()
     return response
 
 
@@ -1695,25 +1497,17 @@ async def api_get_wind_velocity_format(
     resolution: float = Query(1.0),
     time: Optional[datetime] = None,
     forecast_hour: int = Query(0, ge=0, le=120),
-    db_only: bool = Query(False),
 ):
     """
     Get wind data in leaflet-velocity compatible format.
 
     Returns array of [U-component, V-component] data with headers.
-    Uses GFS near-real-time data. Pass forecast_hour (0-120, step 3) for forecast frames.
-    If db_only=true, only queries PostgreSQL (no external API calls).
+    DB-first: returns cached data if available, otherwise fetches from API.
     """
     if time is None:
         time = datetime.utcnow()
 
-    if db_only:
-        if db_weather is None:
-            return Response(status_code=204)
-        wind_data = db_weather.get_wind_from_db(lat_min, lat_max, lon_min, lon_max, time)
-        if wind_data is None:
-            return Response(status_code=204)
-    elif forecast_hour > 0:
+    if forecast_hour > 0:
         # Direct GFS fetch for specific forecast hour
         wind_data = gfs_provider.fetch_wind_data(lat_min, lat_max, lon_min, lon_max, time, forecast_hour)
         if wind_data is None:
@@ -3630,28 +3424,26 @@ async def api_get_wave_field(
     lon_max: float = Query(40.0),
     resolution: float = Query(1.0),
     time: Optional[datetime] = None,
-    db_only: bool = Query(False),
 ):
     """
     Get wave height field for visualization.
 
-    Uses Copernicus CMEMS when available, falls back to synthetic data.
-    If db_only=true, only queries PostgreSQL (no external API calls).
+    DB-first: returns cached data if available, otherwise fetches from API.
     """
     if time is None:
         time = datetime.utcnow()
 
-    if db_only:
-        if db_weather is None:
-            return Response(status_code=204)
-        wave_data = db_weather.get_wave_from_db(lat_min, lat_max, lon_min, lon_max)
-        if wave_data is None:
-            return Response(status_code=204)
+    ingested_at = None
+    if db_weather is not None:
+        wave_data, ingested_at = db_weather.get_wave_from_db(lat_min, lat_max, lon_min, lon_max)
+        if wave_data is not None:
+            logger.debug("Waves endpoint: serving from DB")
+        else:
+            wind_data = get_wind_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
+            wave_data = get_wave_field(lat_min, lat_max, lon_min, lon_max, resolution, wind_data)
+            ingested_at = datetime.now(timezone.utc)
     else:
-        # Get wind first for synthetic fallback
         wind_data = get_wind_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
-
-        # Get waves (CMEMS or synthetic)
         wave_data = get_wave_field(lat_min, lat_max, lon_min, lon_max, resolution, wind_data)
 
     # High-resolution ocean mask (0.05° ≈ 5.5km) via vectorized numpy
@@ -3704,6 +3496,8 @@ async def api_get_wave_field(
             "direction": wave_data.swell_direction.tolist() if wave_data.swell_direction is not None else None,
         }
 
+    if ingested_at is not None:
+        response["ingested_at"] = ingested_at.isoformat()
     return response
 
 
@@ -3756,25 +3550,17 @@ async def api_get_current_velocity_format(
     lon_max: float = Query(40.0),
     resolution: float = Query(1.0),
     time: Optional[datetime] = None,
-    db_only: bool = Query(False),
 ):
     """
     Get ocean current data in leaflet-velocity compatible format.
 
     Returns array of [U-component, V-component] data with headers.
-    If db_only=true, only queries PostgreSQL (no external API calls).
+    DB-first: returns cached data if available, otherwise fetches from API.
     """
     if time is None:
         time = datetime.utcnow()
 
-    if db_only:
-        if db_weather is None:
-            return Response(status_code=204)
-        current_data = db_weather.get_current_from_db(lat_min, lat_max, lon_min, lon_max)
-        if current_data is None:
-            return Response(status_code=204)
-    else:
-        current_data = get_current_field(lat_min, lat_max, lon_min, lon_max, resolution)
+    current_data = get_current_field(lat_min, lat_max, lon_min, lon_max, resolution)
 
     # Apply ocean mask — zero out land so particles don't render there
     u_masked, v_masked = _apply_ocean_mask_velocity(
@@ -3871,30 +3657,29 @@ async def api_get_sst_field(
     lon_max: float = Query(40.0, ge=-180, le=180),
     resolution: float = Query(1.0, ge=0.25, le=5.0),
     time: Optional[datetime] = None,
-    db_only: bool = Query(False),
 ):
     """
     Get sea surface temperature field for visualization.
 
-    Returns SST grid in degrees Celsius.
-    Uses CMEMS physics when available, falls back to synthetic data.
-    If db_only=true, only queries PostgreSQL (no external API calls).
+    DB-first: returns cached data if available, otherwise fetches from API.
     """
     if time is None:
         time = datetime.utcnow()
 
-    if db_only:
-        if db_weather is None:
-            return Response(status_code=204)
-        sst_data = db_weather.get_sst_from_db(lat_min, lat_max, lon_min, lon_max, time)
-        if sst_data is None:
-            return Response(status_code=204)
+    ingested_at = None
+    if db_weather is not None:
+        sst_data, ingested_at = db_weather.get_sst_from_db(lat_min, lat_max, lon_min, lon_max, time)
+        if sst_data is not None:
+            logger.debug("SST endpoint: serving from DB")
+        else:
+            sst_data = get_sst_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
+            ingested_at = datetime.now(timezone.utc)
     else:
         sst_data = get_sst_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
 
     mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
 
-    return {
+    response = {
         "parameter": "sst",
         "time": time.isoformat(),
         "bbox": {
@@ -3920,6 +3705,9 @@ async def api_get_sst_field(
             "colors": ["#0000ff", "#00ccff", "#00ff88", "#ffff00", "#ff8800", "#ff0000"],
         },
     }
+    if ingested_at is not None:
+        response["ingested_at"] = ingested_at.isoformat()
+    return response
 
 
 @app.get("/api/weather/visibility")
@@ -3930,30 +3718,29 @@ async def api_get_visibility_field(
     lon_max: float = Query(40.0, ge=-180, le=180),
     resolution: float = Query(1.0, ge=0.25, le=5.0),
     time: Optional[datetime] = None,
-    db_only: bool = Query(False),
 ):
     """
     Get visibility field for visualization.
 
-    Returns visibility grid in kilometers.
-    Uses GFS when available, falls back to synthetic data.
-    If db_only=true, only queries PostgreSQL (no external API calls).
+    DB-first: returns cached data if available, otherwise fetches from API.
     """
     if time is None:
         time = datetime.utcnow()
 
-    if db_only:
-        if db_weather is None:
-            return Response(status_code=204)
-        vis_data = db_weather.get_visibility_from_db(lat_min, lat_max, lon_min, lon_max, time)
-        if vis_data is None:
-            return Response(status_code=204)
+    ingested_at = None
+    if db_weather is not None:
+        vis_data, ingested_at = db_weather.get_visibility_from_db(lat_min, lat_max, lon_min, lon_max, time)
+        if vis_data is not None:
+            logger.debug("Visibility endpoint: serving from DB")
+        else:
+            vis_data = get_visibility_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
+            ingested_at = datetime.now(timezone.utc)
     else:
         vis_data = get_visibility_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
 
     mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
 
-    return {
+    response = {
         "parameter": "visibility",
         "time": time.isoformat(),
         "bbox": {
@@ -3979,6 +3766,9 @@ async def api_get_visibility_field(
             "colors": ["#ff0000", "#ff8800", "#ffff00", "#88ff00", "#00ff00"],
         },
     }
+    if ingested_at is not None:
+        response["ingested_at"] = ingested_at.isoformat()
+    return response
 
 
 @app.get("/api/weather/ice")
@@ -3989,31 +3779,29 @@ async def api_get_ice_field(
     lon_max: float = Query(40.0, ge=-180, le=180),
     resolution: float = Query(1.0, ge=0.25, le=5.0),
     time: Optional[datetime] = None,
-    db_only: bool = Query(False),
 ):
     """
     Get sea ice concentration field for visualization.
 
-    Returns ice concentration grid as fraction (0-1).
-    Uses CMEMS when available, falls back to synthetic data.
-    Only relevant for high-latitude regions (>55°).
-    If db_only=true, only queries PostgreSQL (no external API calls).
+    DB-first: returns cached data if available, otherwise fetches from API.
     """
     if time is None:
         time = datetime.utcnow()
 
-    if db_only:
-        if db_weather is None:
-            return Response(status_code=204)
-        ice_data = db_weather.get_ice_from_db(lat_min, lat_max, lon_min, lon_max, time)
-        if ice_data is None:
-            return Response(status_code=204)
+    ingested_at = None
+    if db_weather is not None:
+        ice_data, ingested_at = db_weather.get_ice_from_db(lat_min, lat_max, lon_min, lon_max, time)
+        if ice_data is not None:
+            logger.debug("Ice endpoint: serving from DB")
+        else:
+            ice_data = get_ice_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
+            ingested_at = datetime.now(timezone.utc)
     else:
         ice_data = get_ice_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
 
     mask_lats, mask_lons, ocean_mask = _build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05)
 
-    return {
+    response = {
         "parameter": "ice_concentration",
         "time": time.isoformat(),
         "bbox": {
@@ -4039,6 +3827,9 @@ async def api_get_ice_field(
             "colors": ["#ffffff", "#ccddff", "#6688ff", "#0033cc", "#001166"],
         },
     }
+    if ingested_at is not None:
+        response["ingested_at"] = ingested_at.isoformat()
+    return response
 
 
 @app.get("/api/weather/swell")
@@ -5547,30 +5338,15 @@ async def check_path_zones(
 
 
 # ============================================================================
-# Weather Ingestion Endpoints & Background Loop
+# Weather Startup & Cache Cleanup
 # ============================================================================
 
-_ingestion_running = False
-
-# Set of background asyncio tasks — prevents garbage collection
+# Set of background asyncio tasks — prevents garbage collection (used by forecast prefetch)
 _background_tasks: set = set()
 
-# Redis distributed lock keys
-_REDIS_INGESTION_LOCK = "windmar:ingestion_lock"
-_REDIS_INGESTION_STATUS = "windmar:ingestion_running"
+# Redis distributed lock keys (used by forecast prefetch)
 _REDIS_PREFETCH_LOCK = "windmar:wave_prefetch_lock"
 _REDIS_PREFETCH_STATUS = "windmar:wave_prefetch_running"
-
-
-def _is_ingestion_running() -> bool:
-    """Check ingestion status via Redis (cross-worker)."""
-    r = _get_redis()
-    if r is not None:
-        try:
-            return r.exists(_REDIS_INGESTION_STATUS) > 0
-        except Exception:
-            pass
-    return _ingestion_running
 
 
 def _is_wave_prefetch_running() -> bool:
@@ -5586,26 +5362,8 @@ def _is_wave_prefetch_running() -> bool:
 
 @app.on_event("startup")
 async def startup_event():
-    """Run migrations and start background weather ingestion."""
+    """Run database migrations on startup."""
     _run_weather_migrations()
-
-    # Clear stale Redis locks from previous container lifecycle
-    r = _get_redis()
-    if r is not None:
-        try:
-            for stale_key in ("windmar:resync_lock",):
-                if r.exists(stale_key):
-                    r.delete(stale_key)
-                    logger.info(f"Cleared stale Redis lock: {stale_key}")
-        except Exception:
-            pass
-
-    # Start background ingestion loop (store ref to prevent GC)
-    if weather_ingestion is not None:
-        task = asyncio.create_task(_ingestion_loop())
-        _background_tasks.add(task)
-        task.add_done_callback(_background_tasks.discard)
-        logger.info("Weather ingestion background loop started")
 
 
 def _cleanup_stale_caches():
@@ -5649,199 +5407,6 @@ def _cleanup_stale_caches():
 
     if cleaned > 0:
         logger.info(f"Cache cleanup: removed {cleaned} stale files")
-
-
-def _auto_prefetch_all():
-    """Run all 6 prefetch functions sequentially with default bounds.
-
-    Called after weather ingestion to populate the frame caches
-    that the frontend timeline needs.
-    """
-    # Default bounds for wind/wave/current/visibility
-    # North Atlantic + Mediterranean (≤ 40° lat × 60° lon to avoid OOM
-    # on CMEMS 0.083° grids with 41 timesteps × 9 parameters).
-    bounds = (25.0, 60.0, -20.0, 40.0)
-    # Ice needs high-latitude bounds
-    ice_bounds = (55.0, 75.0, -20.0, 40.0)
-
-    layers = [
-        ("wind", _do_wind_prefetch, bounds),
-        ("wave", _do_wave_prefetch, bounds),
-        ("current", _do_current_prefetch, bounds),
-        ("ice", _do_ice_prefetch, ice_bounds),
-        # SST disabled — global 0.083 deg download too large
-        ("visibility", _do_vis_prefetch, bounds),
-    ]
-
-    for name, fn, (lat_min, lat_max, lon_min, lon_max) in layers:
-        try:
-            logger.info(f"Auto-prefetch starting: {name}")
-            fn(lat_min, lat_max, lon_min, lon_max)
-            logger.info(f"Auto-prefetch complete: {name}")
-        except Exception as e:
-            logger.error(f"Auto-prefetch {name} failed: {e}")
-
-    logger.info("Auto-prefetch all layers finished")
-
-
-async def _ingestion_loop():
-    """Background task: ingest weather every 6 hours.
-
-    Uses a Redis distributed lock (SET NX EX) so only ONE worker across
-    all uvicorn processes runs ingestion at a time.
-    """
-    global _ingestion_running
-    import random
-
-    # Stagger startup across workers (30-60s) to reduce lock contention
-    stagger = 30 + random.uniform(0, 30)
-    logger.info(f"Ingestion loop staggering {stagger:.0f}s before first run")
-    await asyncio.sleep(stagger)
-
-    while True:
-        if weather_ingestion is None:
-            logger.warning("Ingestion loop exiting — weather_ingestion is None")
-            break
-
-        r = _get_redis()
-        acquired = False
-        try:
-            if r is not None:
-                logger.info("Ingestion loop attempting Redis lock...")
-                # Try to acquire distributed lock (expires after 2h for ingestion + prefetch)
-                acquired = r.set(_REDIS_INGESTION_LOCK, "1", nx=True, ex=7200)
-                if not acquired:
-                    logger.info("Another worker holds ingestion lock, sleeping 6h")
-                    await asyncio.sleep(6 * 3600)
-                    continue
-                r.setex(_REDIS_INGESTION_STATUS, 7200, "1")
-                logger.info("Ingestion loop acquired Redis lock")
-
-            _ingestion_running = True
-
-            # Clean stale cache files before ingestion
-            logger.info("Running cache cleanup before ingestion...")
-            await asyncio.to_thread(_cleanup_stale_caches)
-
-            # Health-check-based selective ingestion
-            if db_weather is not None:
-                health = await asyncio.to_thread(db_weather.get_health)
-                unhealthy = [k for k, v in health.get("sources", {}).items() if not v.get("healthy")]
-                if not unhealthy:
-                    logger.info("All weather sources healthy — skipping ingestion")
-                else:
-                    logger.info(f"Unhealthy sources: {unhealthy} — ingesting selectively")
-                    # Default CMEMS viewport bounds (same as _auto_prefetch_all)
-                    cmems_bounds = dict(
-                        lat_min=25.0, lat_max=60.0, lon_min=-20.0, lon_max=40.0
-                    )
-                    ice_bounds = dict(
-                        lat_min=55.0, lat_max=75.0, lon_min=-20.0, lon_max=40.0
-                    )
-                    for src in unhealthy:
-                        try:
-                            if src == "gfs":
-                                await asyncio.to_thread(weather_ingestion.ingest_wind, True)
-                            elif src == "cmems_wave":
-                                await asyncio.to_thread(
-                                    weather_ingestion.ingest_waves, True, **cmems_bounds
-                                )
-                            elif src == "cmems_current":
-                                await asyncio.to_thread(
-                                    weather_ingestion.ingest_currents, True, **cmems_bounds
-                                )
-                            elif src == "cmems_ice":
-                                await asyncio.to_thread(
-                                    weather_ingestion.ingest_ice, True, **ice_bounds
-                                )
-                            elif src == "gfs_visibility":
-                                await asyncio.to_thread(weather_ingestion.ingest_visibility, True)
-                            logger.info(f"Selective ingestion {src} complete")
-                        except Exception as e:
-                            logger.error(f"Selective ingestion {src} failed: {e}")
-                    weather_ingestion._supersede_old_runs()
-                    weather_ingestion.cleanup_orphaned_grid_data()
-                    logger.info("Selective weather ingestion complete")
-            else:
-                logger.info("Background weather ingestion starting (full)")
-                await asyncio.to_thread(weather_ingestion.ingest_all)
-                logger.info("Background weather ingestion complete")
-
-            # Auto-prefetch all layers so timeline frames are ready
-            logger.info("Starting auto-prefetch of all weather layers...")
-            await asyncio.to_thread(_auto_prefetch_all)
-        except Exception as e:
-            logger.error(f"Background weather ingestion failed: {e}")
-        finally:
-            _ingestion_running = False
-            if r is not None:
-                try:
-                    r.delete(_REDIS_INGESTION_LOCK, _REDIS_INGESTION_STATUS)
-                except Exception:
-                    pass
-
-        await asyncio.sleep(6 * 3600)  # 6 hours
-
-
-@app.post("/api/weather/ingest", tags=["Weather"])
-async def trigger_weather_ingestion():
-    """Trigger an immediate weather ingestion cycle."""
-    global _ingestion_running
-
-    if weather_ingestion is None:
-        raise HTTPException(status_code=503, detail="Weather ingestion not configured (no PostgreSQL)")
-
-    if _is_ingestion_running():
-        return {"status": "already_running", "message": "Ingestion is already in progress"}
-
-    async def _run():
-        global _ingestion_running
-        r = _get_redis()
-        try:
-            if r is not None:
-                acquired = r.set(_REDIS_INGESTION_LOCK, "1", nx=True, ex=7200)
-                if not acquired:
-                    return
-                r.setex(_REDIS_INGESTION_STATUS, 7200, "1")
-            _ingestion_running = True
-            await asyncio.to_thread(_cleanup_stale_caches)
-            await asyncio.to_thread(weather_ingestion.ingest_all)
-            logger.info("Manual ingestion complete, starting auto-prefetch...")
-            await asyncio.to_thread(_auto_prefetch_all)
-        except Exception as e:
-            logger.error(f"Manual ingestion failed: {e}")
-        finally:
-            _ingestion_running = False
-            if r is not None:
-                try:
-                    r.delete(_REDIS_INGESTION_LOCK, _REDIS_INGESTION_STATUS)
-                except Exception:
-                    pass
-
-    task = asyncio.create_task(_run())
-    _background_tasks.add(task)
-    task.add_done_callback(_background_tasks.discard)
-    return {"status": "started", "message": "Weather ingestion triggered in background"}
-
-
-@app.get("/api/weather/ingest/status", tags=["Weather"])
-async def get_ingestion_status():
-    """Get status of weather data ingestion."""
-    if weather_ingestion is None:
-        return {
-            "configured": False,
-            "message": "Weather ingestion not configured (no PostgreSQL)",
-        }
-
-    status = weather_ingestion.get_latest_status()
-    freshness = db_weather.get_freshness() if db_weather else None
-
-    return {
-        "configured": True,
-        "ingesting": _is_ingestion_running(),
-        "freshness": freshness,
-        **status,
-    }
 
 
 # ============================================================================

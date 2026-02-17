@@ -1,11 +1,7 @@
 'use client';
 
-import { useEffect, useState } from 'react';
-import { Wind, Waves, Droplets, Clock, RefreshCw, Database, Snowflake, CloudFog, AudioWaveform, AlertTriangle } from 'lucide-react';
+import { Wind, Waves, Droplets, Clock, RefreshCw, Snowflake, CloudFog, AudioWaveform, Database } from 'lucide-react';
 import { WeatherLayer } from '@/components/MapComponent';
-import { WeatherSyncStatus } from '@/lib/api';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface MapOverlayControlsProps {
   weatherLayer: WeatherLayer;
@@ -14,13 +10,25 @@ interface MapOverlayControlsProps {
   onForecastToggle: () => void;
   isLoadingWeather: boolean;
   onResync: () => void;
-  syncStatus: WeatherSyncStatus | null;
+  layerIngestedAt: string | null;
   resyncRunning: boolean;
 }
 
-interface FreshnessInfo {
-  age_hours: number;
-  latest_ingestion: string;
+function computeStaleness(ingestedAt: string | null): { label: string; color: string } | null {
+  if (!ingestedAt) return null;
+  const ageMs = Date.now() - new Date(ingestedAt).getTime();
+  if (isNaN(ageMs)) return null;
+  const ageHours = ageMs / (1000 * 60 * 60);
+
+  if (ageHours < 1) {
+    const ageMin = Math.max(1, Math.round(ageHours * 60));
+    return { label: `${ageMin}m ago`, color: 'text-green-400' };
+  }
+  if (ageHours < 12) {
+    return { label: `${Math.round(ageHours)}h ago`, color: ageHours < 4 ? 'text-green-400' : 'text-yellow-400' };
+  }
+  const ageDays = Math.round(ageHours / 24);
+  return { label: ageDays >= 1 ? `${ageDays}d ago` : `${Math.round(ageHours)}h ago`, color: 'text-red-400' };
 }
 
 export default function MapOverlayControls({
@@ -30,47 +38,10 @@ export default function MapOverlayControls({
   onForecastToggle,
   isLoadingWeather,
   onResync,
-  syncStatus,
+  layerIngestedAt,
   resyncRunning,
 }: MapOverlayControlsProps) {
-  const [freshness, setFreshness] = useState<FreshnessInfo | null>(null);
-
-  useEffect(() => {
-    const fetchFreshness = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/weather/ingest/status`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.freshness) {
-          setFreshness(data.freshness);
-        }
-      } catch {
-        // Silently ignore — indicator simply won't show
-      }
-    };
-
-    fetchFreshness();
-    const interval = setInterval(fetchFreshness, 60 * 1000); // every 60s
-    return () => clearInterval(interval);
-  }, []);
-
-  const freshnessLabel = freshness
-    ? freshness.age_hours < 4
-      ? `${Math.round(freshness.age_hours)}h ago`
-      : freshness.age_hours < 12
-        ? `${Math.round(freshness.age_hours)}h ago`
-        : 'stale'
-    : null;
-
-  const freshnessColor = freshness
-    ? freshness.age_hours < 4
-      ? 'text-green-400'
-      : freshness.age_hours < 12
-        ? 'text-yellow-400'
-        : 'text-red-400'
-    : 'text-gray-500';
-
-  const outOfSync = syncStatus && !syncStatus.in_sync;
+  const staleness = weatherLayer !== 'none' ? computeStaleness(layerIngestedAt) : null;
 
   return (
     <div className="absolute top-3 right-3 z-[1000] flex flex-col gap-1.5">
@@ -119,24 +90,20 @@ export default function MapOverlayControls({
           onClick={onForecastToggle}
         />
       )}
-      <button
-        onClick={onResync}
-        disabled={isLoadingWeather || resyncRunning}
-        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-maritime-dark/90 backdrop-blur-sm border border-white/10 text-gray-400 hover:text-white transition-colors disabled:opacity-50"
-      >
-        <RefreshCw className={`w-3.5 h-3.5 ${resyncRunning ? 'animate-spin' : ''}`} />
-        <span>{resyncRunning ? 'Resyncing...' : 'Resync'}</span>
-      </button>
-      {outOfSync && !resyncRunning && (
-        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-orange-900/60 backdrop-blur-sm border border-orange-500/40 text-orange-300">
-          <AlertTriangle className="w-3 h-3" />
-          <span>Out of sync</span>
-        </div>
+      {weatherLayer !== 'none' && (
+        <button
+          onClick={onResync}
+          disabled={isLoadingWeather || resyncRunning}
+          className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-maritime-dark/90 backdrop-blur-sm border border-white/10 text-gray-400 hover:text-white transition-colors disabled:opacity-50"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${resyncRunning ? 'animate-spin' : ''}`} />
+          <span>{resyncRunning ? 'Resyncing...' : 'Resync'}</span>
+        </button>
       )}
-      {freshnessLabel && (
-        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-maritime-dark/90 backdrop-blur-sm border border-white/10 ${freshnessColor}`}>
+      {staleness && (
+        <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-maritime-dark/90 backdrop-blur-sm border border-white/10 ${staleness.color}`}>
           <Database className="w-3 h-3" />
-          <span>{freshnessLabel}</span>
+          <span>{staleness.label}</span>
         </div>
       )}
     </div>

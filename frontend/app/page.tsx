@@ -6,7 +6,7 @@ import Header from '@/components/Header';
 import MapOverlayControls from '@/components/MapOverlayControls';
 import AnalysisPanel from '@/components/AnalysisPanel';
 import { useVoyage } from '@/components/VoyageContext';
-import { apiClient, Position, WindFieldData, WaveFieldData, VelocityData, OptimizationResponse, CreateZoneRequest, WaveForecastFrames, IceForecastFrames, SstForecastFrames, VisForecastFrames, OptimizedRouteKey, AllOptimizationResults, EMPTY_ALL_RESULTS, WeatherSyncStatus } from '@/lib/api';
+import { apiClient, Position, WindFieldData, WaveFieldData, VelocityData, OptimizationResponse, CreateZoneRequest, WaveForecastFrames, IceForecastFrames, SstForecastFrames, VisForecastFrames, OptimizedRouteKey, AllOptimizationResults, EMPTY_ALL_RESULTS } from '@/lib/api';
 import { getAnalyses, saveAnalysis, deleteAnalysis, updateAnalysisMonteCarlo, AnalysisEntry } from '@/lib/analysisStorage';
 import { debugLog } from '@/lib/debugLog';
 import DebugConsole from '@/components/DebugConsole';
@@ -36,12 +36,8 @@ export default function HomePage() {
   const [isCalculating, setIsCalculating] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
 
-  // Cache-first weather readiness gate
-  const [weatherReady, setWeatherReady] = useState(false);
-  const [weatherEnsuring, setWeatherEnsuring] = useState(false);
-
-  // Viewport sync status
-  const [syncStatus, setSyncStatus] = useState<WeatherSyncStatus | null>(null);
+  // Per-layer staleness indicator (ISO timestamp from backend)
+  const [layerIngestedAt, setLayerIngestedAt] = useState<string | null>(null);
   const [resyncRunning, setResyncRunning] = useState(false);
 
   // Weather visualization
@@ -83,104 +79,6 @@ export default function HomePage() {
     setAnalyses(getAnalyses());
   }, []);
 
-  // Startup gate: single entry point for weather readiness.
-  //
-  // Sync badge = DATA AVAILABILITY (present + complete), not freshness.
-  // Freshness is communicated by the toast and the "Xh ago" overlay label.
-  //
-  // 1. Check health → if all sources present+complete → ready immediately.
-  // 2. If some genuinely missing → ensure-all (no force) → poll → ready.
-  // 3. Sync badge is set ONCE here and only changed by manual resync button.
-  useEffect(() => {
-    let cancelled = false;
-    const startup = async () => {
-      setWeatherEnsuring(true);
-      debugLog('info', 'WEATHER', 'Startup: checking weather health...');
-      try {
-        const health = await apiClient.getWeatherHealth();
-        if (cancelled) return;
-
-        const sources = Object.values(health.sources) as Array<{ present: boolean; complete: boolean; healthy: boolean; label: string }>;
-        const allPresent = sources.every(s => s.present && s.complete);
-        const missing = sources.filter(s => !s.present).map((s: any) => s.label);
-
-        if (allPresent) {
-          // All data available — ready immediately (even if stale)
-          debugLog('info', 'WEATHER', 'All sources present — ready immediately');
-          setWeatherReady(true);
-          setWeatherEnsuring(false);
-          setSyncStatus({ in_sync: true, coverage: 'full', db_bounds: null });
-          showFreshnessToast();
-          return;
-        }
-
-        // Some sources genuinely missing — fetch gaps
-        debugLog('info', 'WEATHER', `Missing sources: ${missing.join(', ')} — fetching...`);
-        await apiClient.ensureAllWeatherData({
-          lat_min: -85, lat_max: 85, lon_min: -179.75, lon_max: 179.75,
-        });
-
-        // Poll until all present or timeout (2 min, every 5s)
-        let filled = false;
-        for (let i = 0; i < 24; i++) {
-          if (cancelled) return;
-          await new Promise(r => setTimeout(r, 5000));
-          try {
-            const h = await apiClient.getWeatherHealth();
-            const nowPresent = Object.values(h.sources).every((s: any) => s.present && s.complete);
-            if (nowPresent) {
-              debugLog('info', 'WEATHER', `All sources present after ${(i + 1) * 5}s`);
-              filled = true;
-              break;
-            }
-            debugLog('info', 'WEATHER', `Waiting for sources... (${i + 1}/24)`);
-          } catch { break; }
-        }
-
-        if (!cancelled) {
-          setWeatherReady(true);
-          setSyncStatus({
-            in_sync: filled,
-            coverage: filled ? 'full' : 'partial',
-            db_bounds: null,
-          });
-          showFreshnessToast();
-        }
-      } catch (error) {
-        if (!cancelled) {
-          debugLog('warn', 'WEATHER', `Startup failed: ${error} — proceeding with existing data`);
-          setWeatherReady(true);
-          setSyncStatus({ in_sync: false, coverage: 'none', db_bounds: null });
-        }
-      } finally {
-        if (!cancelled) setWeatherEnsuring(false);
-      }
-    };
-
-    // Freshness toast — informational only, never triggers fetching
-    const showFreshnessToast = async () => {
-      try {
-        const freshness = await apiClient.getWeatherFreshness();
-        if (freshness.status === 'no_data' || freshness.status === 'unavailable') {
-          toast.error('No weather data available', 'Use the resync button to download.');
-          return;
-        }
-        const ageHours = freshness.age_hours;
-        if (ageHours === null) return;
-        if (ageHours < 4) {
-          const ageMin = Math.round(ageHours * 60);
-          toast.info('Weather data is current', `Updated ${ageMin < 60 ? `${ageMin} min` : `${ageHours.toFixed(1)}h`} ago`);
-        } else if (ageHours < 12) {
-          toast.warning('Weather data is aging', `Data is ${ageHours.toFixed(1)}h old. Use resync to refresh.`);
-        } else {
-          toast.error('Weather data is stale', `Data is ${ageHours.toFixed(1)}h old. Use resync to refresh.`);
-        }
-      } catch { /* ignore */ }
-    };
-
-    startup();
-    return () => { cancelled = true; };
-  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Compute visible zone types from context
   const visibleZoneTypes = useMemo(() => {
@@ -208,9 +106,6 @@ export default function HomePage() {
   const waypointsRef = useRef(waypoints);
   useEffect(() => { waypointsRef.current = waypoints; }, [waypoints]);
 
-  const weatherReadyRef = useRef(weatherReady);
-  useEffect(() => { weatherReadyRef.current = weatherReady; }, [weatherReady]);
-
   // Load weather data
   const loadWeatherData = useCallback(async (vp?: typeof viewport, layer?: WeatherLayer) => {
     const v = vp || viewportRef.current;
@@ -232,52 +127,55 @@ export default function HomePage() {
 
     setIsLoadingWeather(true);
     const t0 = performance.now();
-    const dbOnly = weatherReadyRef.current;
-    const mode = dbOnly ? 'DB' : 'FULL';
-    debugLog('info', 'API', `Loading ${activeLayer} weather [${mode}]: zoom=${v.zoom}, bbox=[${params.lat_min.toFixed(1)},${params.lat_max.toFixed(1)},${params.lon_min.toFixed(1)},${params.lon_max.toFixed(1)}]`);
+    debugLog('info', 'API', `Loading ${activeLayer} weather: zoom=${v.zoom}, bbox=[${params.lat_min.toFixed(1)},${params.lat_max.toFixed(1)},${params.lon_min.toFixed(1)},${params.lon_max.toFixed(1)}]`);
     // Helper: treat empty 204 responses as null
     const orNull = <T,>(v: T): T | null => (v && typeof v === 'object' ? v : null);
     try {
       if (activeLayer === 'wind') {
         const [wind, windVel] = await Promise.all([
-          apiClient.getWindField({ ...params, db_only: dbOnly }).then(orNull),
-          apiClient.getWindVelocity({ ...params, db_only: dbOnly }).then(orNull),
+          apiClient.getWindField(params).then(orNull),
+          apiClient.getWindVelocity(params).then(orNull),
         ]);
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Wind loaded in ${dt}ms: grid=${wind?.ny}x${wind?.nx}`);
-        if (wind) setWindData(wind);
-        if (wind) windDataBaseRef.current = wind; // stash for forecast frame reconstruction
+        if (wind) { setWindData(wind); windDataBaseRef.current = wind; }
         if (windVel) setWindVelocityData(windVel);
+        if (wind?.ingested_at) setLayerIngestedAt(wind.ingested_at);
       } else if (activeLayer === 'waves') {
-        const waves = await apiClient.getWaveField({ ...params, db_only: dbOnly }).then(orNull);
+        const waves = await apiClient.getWaveField(params).then(orNull);
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Waves loaded in ${dt}ms: grid=${waves?.ny}x${waves?.nx}`);
         if (waves) setWaveData(waves);
+        if (waves?.ingested_at) setLayerIngestedAt(waves.ingested_at);
       } else if (activeLayer === 'currents') {
-        const currentVel = await apiClient.getCurrentVelocity({ ...params, db_only: dbOnly }).then(orNull).catch(() => null);
+        const currentVel = await apiClient.getCurrentVelocity(params).then(orNull).catch(() => null);
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Currents loaded in ${dt}ms: ${currentVel ? 'yes' : 'no data'}`);
         setCurrentVelocityData(currentVel);
       } else if (activeLayer === 'ice') {
-        const data = await apiClient.getIceField({ ...params, db_only: dbOnly }).then(orNull);
+        const data = await apiClient.getIceField(params).then(orNull);
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Ice loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
         if (data) setExtendedWeatherData(data);
+        if (data?.ingested_at) setLayerIngestedAt(data.ingested_at);
       } else if (activeLayer === 'visibility') {
-        const data = await apiClient.getVisibilityField({ ...params, db_only: dbOnly }).then(orNull);
+        const data = await apiClient.getVisibilityField(params).then(orNull);
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Visibility loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
         if (data) setExtendedWeatherData(data);
+        if (data?.ingested_at) setLayerIngestedAt(data.ingested_at);
       } else if (activeLayer === 'sst') {
-        const data = await apiClient.getSstField({ ...params, db_only: dbOnly }).then(orNull);
+        const data = await apiClient.getSstField(params).then(orNull);
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `SST loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
         if (data) setExtendedWeatherData(data);
+        if (data?.ingested_at) setLayerIngestedAt(data.ingested_at);
       } else if (activeLayer === 'swell') {
         const data = await apiClient.getSwellField(params);
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Swell loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
         setExtendedWeatherData(data);
+        if (data?.ingested_at) setLayerIngestedAt(data.ingested_at);
       }
     } catch (error) {
       debugLog('error', 'API', `Weather load failed: ${error}`);
@@ -286,10 +184,13 @@ export default function HomePage() {
     }
   }, []);
 
-  // Reload weather when layer changes (both modes — user explicitly toggled a layer)
+  // Reload weather when layer changes
   useEffect(() => {
-    if (weatherReady && viewport && weatherLayer !== 'none') {
+    if (viewport && weatherLayer !== 'none') {
       loadWeatherData(viewport, weatherLayer);
+    }
+    if (weatherLayer === 'none') {
+      setLayerIngestedAt(null);
     }
   }, [weatherLayer]); // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -919,53 +820,22 @@ export default function HomePage() {
               onWeatherLayerChange={setWeatherLayer}
               forecastEnabled={forecastEnabled}
               onForecastToggle={() => setForecastEnabled(!forecastEnabled)}
-              isLoadingWeather={isLoadingWeather || weatherEnsuring}
-              syncStatus={syncStatus}
+              isLoadingWeather={isLoadingWeather}
+              layerIngestedAt={layerIngestedAt}
               resyncRunning={resyncRunning}
               onResync={async () => {
-                debugLog('info', 'WEATHER', 'Resync: truncating DB + re-fetching all sources...');
+                if (weatherLayer === 'none') return;
+                debugLog('info', 'WEATHER', `Resync: re-fetching ${weatherLayer}...`);
                 setResyncRunning(true);
                 try {
-                  const vp = viewportRef.current;
-                  const bbox = vp ? vp.bounds : { lat_min: -85, lat_max: 85, lon_min: -179.75, lon_max: 179.75 };
-                  await apiClient.triggerWeatherResync(bbox);
-
-                  // Poll resync status every 3s until done
-                  const poll = async () => {
-                    for (let i = 0; i < 600; i++) { // max 30 min
-                      await new Promise(r => setTimeout(r, 3000));
-                      try {
-                        const status = await apiClient.getWeatherResyncStatus();
-                        if (!status.running) {
-                          debugLog('info', 'WEATHER', `Resync complete: phase=${status.phase}`);
-                          break;
-                        }
-                        debugLog('info', 'WEATHER', `Resync progress: ${status.phase} — ${(status.completed || []).join(', ')}`);
-                      } catch {
-                        break;
-                      }
-                    }
-                  };
-                  await poll();
-
-                  // Refresh sync badge (availability-based, not freshness)
-                  const health = await apiClient.getWeatherHealth().catch(() => null);
-                  if (health) {
-                    const allPresent = Object.values(health.sources).every(
-                      (s: any) => s.present && s.complete,
-                    );
-                    setSyncStatus({
-                      in_sync: allPresent,
-                      coverage: allPresent ? 'full' : 'partial',
-                      db_bounds: health.db_bounds,
-                    });
-                  }
+                  const result = await apiClient.resyncWeatherLayer(weatherLayer);
+                  setLayerIngestedAt(result.ingested_at);
+                  await loadWeatherData(viewportRef.current ?? undefined, weatherLayer);
                 } catch (error) {
                   debugLog('error', 'WEATHER', `Resync failed: ${error}`);
                 } finally {
                   setResyncRunning(false);
                 }
-                loadWeatherData();
               }}
             />
 
