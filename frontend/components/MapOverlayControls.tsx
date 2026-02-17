@@ -1,6 +1,6 @@
 'use client';
 
-import { Wind, Waves, Droplets, Clock, RefreshCw, Snowflake, CloudFog, AudioWaveform, Database } from 'lucide-react';
+import { Wind, Waves, Droplets, Clock, RefreshCw, Snowflake, CloudFog, AudioWaveform, Thermometer, Database } from 'lucide-react';
 import { WeatherLayer } from '@/components/MapComponent';
 
 interface MapOverlayControlsProps {
@@ -75,7 +75,12 @@ export default function MapOverlayControls({
         active={weatherLayer === 'visibility'}
         onClick={() => onWeatherLayerChange(weatherLayer === 'visibility' ? 'none' : 'visibility')}
       />
-      {/* SST disabled — global 0.083 deg download too large for current pipeline */}
+      <OverlayButton
+        icon={<Thermometer className="w-4 h-4" />}
+        label="SST"
+        active={weatherLayer === 'sst'}
+        onClick={() => onWeatherLayerChange(weatherLayer === 'sst' ? 'none' : 'sst')}
+      />
       <OverlayButton
         icon={<AudioWaveform className="w-4 h-4" />}
         label="Swell"

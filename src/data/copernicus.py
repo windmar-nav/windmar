@@ -963,7 +963,7 @@ class CopernicusDataProvider:
             elif len(sst.shape) == 3:
                 sst = sst[0]
 
-            sst = np.nan_to_num(sst, nan=15.0)
+            sst = np.nan_to_num(sst, nan=0.0)
 
             return WeatherData(
                 parameter="sst",
@@ -994,16 +994,14 @@ class CopernicusDataProvider:
         Fetch 0-120h sea surface temperature forecast from CMEMS in a single download.
 
         Uses the CMEMS physics dataset (hourly means, 1/12 deg resolution).
+        Viewport-bounded via open_dataset() — same pattern as currents.
+
         Returns:
             Dict mapping forecast_hour -> WeatherData with SST field (°C),
             or None on failure.
         """
         if not self._has_copernicusmarine or not self._has_xarray:
             logger.warning("CMEMS API not available for SST forecast")
-            return None
-
-        if not self.cmems_username or not self.cmems_password:
-            logger.warning("CMEMS credentials not configured for SST forecast")
             return None
 
         import copernicusmarine
@@ -1034,58 +1032,32 @@ class CopernicusDataProvider:
                 ds = None
 
             if ds is None:
-                # Use copernicusmarine.subset() to download a pre-subsetted file
-                # instead of open_dataset() which lazily streams the full grid.
-                # This avoids OOM on global 0.083 deg SST (~3 GB in float64).
-                import tempfile
-                tmp_nc = tempfile.NamedTemporaryFile(suffix=".nc", delete=False, dir=str(self.cache_dir))
-                tmp_path = tmp_nc.name
-                tmp_nc.close()
-
-                logger.info(f"Downloading CMEMS SST forecast (subset) {start_dt} -> {end_dt}")
-                try:
-                    copernicusmarine.subset(
-                        dataset_id=self.CMEMS_PHYSICS_DATASET,
-                        variables=["thetao"],
-                        minimum_longitude=max(lon_min, -180),
-                        maximum_longitude=min(lon_max, 180),
-                        minimum_latitude=max(lat_min, -80),
-                        maximum_latitude=min(lat_max, 80),
-                        start_datetime=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                        end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                        minimum_depth=0,
-                        maximum_depth=2,
-                        username=self.cmems_username,
-                        password=self.cmems_password,
-                        output_filename=tmp_path,
-                        overwrite=True,
-                    )
-                except Exception as e:
-                    logger.error(f"CMEMS SST subset download failed: {e}")
-                    import os
-                    os.unlink(tmp_path) if os.path.exists(tmp_path) else None
+                logger.info(f"Downloading CMEMS SST forecast {start_dt} -> {end_dt}")
+                ds = _retry_download(lambda: copernicusmarine.open_dataset(
+                    dataset_id=self.CMEMS_PHYSICS_DATASET,
+                    variables=["thetao"],
+                    minimum_longitude=lon_min,
+                    maximum_longitude=lon_max,
+                    minimum_latitude=lat_min,
+                    maximum_latitude=lat_max,
+                    start_datetime=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                    end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                    minimum_depth=0,
+                    maximum_depth=2,
+                    username=self.cmems_username,
+                    password=self.cmems_password,
+                ))
+                if ds is None:
+                    logger.error("CMEMS returned None for SST forecast")
                     return None
-
-                import os
-                if not os.path.exists(tmp_path) or os.path.getsize(tmp_path) < 100_000:
-                    logger.warning("SST subset download produced empty or tiny file")
-                    os.unlink(tmp_path) if os.path.exists(tmp_path) else None
-                    return None
-
-                logger.info("Loading SST forecast subset into memory...")
-                ds = xr.open_dataset(tmp_path, engine="h5netcdf")
-                # Subsample to ~0.5 deg for manageable DB storage
-                step = max(1, round(0.5 / 0.083))  # 6x coarsen
-                ds = ds.isel(
-                    latitude=slice(None, None, step),
-                    longitude=slice(None, None, step),
-                ).load()
+                # Load into memory first to avoid hung lazy reads during to_netcdf
+                logger.info("Loading SST forecast data into memory...")
+                ds = ds.load()
                 ds.to_netcdf(cache_file)
                 ds.close()
-                os.unlink(tmp_path)
-                logger.info(f"SST forecast cached (subsampled {step}x): {cache_file}")
+                logger.info(f"SST forecast cached: {cache_file}")
                 fsize = cache_file.stat().st_size
-                if fsize < 50_000:
+                if fsize < 1_000_000:
                     logger.warning(f"SST forecast cache suspiciously small ({fsize} bytes), deleting")
                     cache_file.unlink(missing_ok=True)
                     return None
@@ -1116,7 +1088,7 @@ class CopernicusDataProvider:
                 else:
                     continue
 
-                sst_2d = np.nan_to_num(sst_2d, nan=15.0)
+                sst_2d = np.nan_to_num(sst_2d, nan=0.0)
 
                 frames[fh] = WeatherData(
                     parameter="sst",

@@ -1357,6 +1357,7 @@ _LAYER_TO_SOURCE = {
     "waves": "cmems_wave",
     "currents": "cmems_current",
     "ice": "cmems_ice",
+    "sst": "cmems_sst",
     "visibility": "gfs_visibility",
     "swell": "cmems_wave",  # swell reuses wave data
 }
@@ -1366,6 +1367,7 @@ _LAYER_INGEST_FN = {
     "waves": lambda wi: wi.ingest_waves(True),
     "currents": lambda wi: wi.ingest_currents(True),
     "ice": lambda wi: wi.ingest_ice(True),
+    "sst": lambda wi: wi.ingest_sst(True),
     "visibility": lambda wi: wi.ingest_visibility(True),
     "swell": lambda wi: wi.ingest_waves(True),  # swell reuses wave ingestion
 }
@@ -1408,12 +1410,13 @@ async def api_weather_layer_resync(
     logger.info(f"Per-layer resync starting: {layer}" + (f" bbox=[{lat_min:.1f},{lat_max:.1f}]x[{lon_min:.1f},{lon_max:.1f}]" if has_bbox else ""))
     try:
         # CMEMS layers accept viewport bbox; GFS layers ignore it (global)
-        if has_bbox and layer in ("waves", "currents", "swell", "ice"):
+        if has_bbox and layer in ("waves", "currents", "swell", "ice", "sst"):
             ingest_method = {
                 "waves": weather_ingestion.ingest_waves,
                 "currents": weather_ingestion.ingest_currents,
                 "swell": weather_ingestion.ingest_waves,
                 "ice": weather_ingestion.ingest_ice,
+                "sst": weather_ingestion.ingest_sst,
             }[layer]
             await asyncio.to_thread(
                 ingest_method, True,
@@ -1432,7 +1435,7 @@ async def api_weather_layer_resync(
         cache_dir = Path("/tmp/windmar_cache")
         cache_names = {
             "wind": "wind", "waves": "wave", "currents": "current",
-            "ice": "ice", "visibility": "vis", "swell": "wave",
+            "ice": "ice", "sst": "sst", "visibility": "vis", "swell": "wave",
         }
         layer_cache = cache_dir / cache_names.get(layer, layer)
         if layer_cache.exists():

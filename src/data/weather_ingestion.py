@@ -53,12 +53,11 @@ class WeatherIngestionService:
     def ingest_all(self, force: bool = False,
                    lat_min: Optional[float] = None, lat_max: Optional[float] = None,
                    lon_min: Optional[float] = None, lon_max: Optional[float] = None):
-        """Run full ingestion cycle: wind + waves + currents + ice + visibility.
+        """Run full ingestion cycle: wind + waves + currents + ice + sst + visibility.
 
         Downloads GFS wind and visibility globally (0.5° resolution).
-        Downloads CMEMS waves, currents, and ice for the given viewport bounds
-        (0.083° resolution — global would be too large).
-        SST disabled — global 0.083° download too large for current pipeline.
+        Downloads CMEMS waves, currents, ice, and SST for the given viewport bounds
+        (0.083° resolution — viewport-bounded to keep data volume manageable).
 
         Args:
             force: If True, bypass freshness checks and re-ingest all sources.
@@ -82,7 +81,8 @@ class WeatherIngestionService:
                              lon_min=_lon_min, lon_max=_lon_max)
         self.ingest_ice(force=force, lat_min=_ice_lat_min, lat_max=_ice_lat_max,
                         lon_min=_ice_lon_min, lon_max=_ice_lon_max)
-        # SST disabled — copernicusmarine.subset() downloads 4+ GB for global grid
+        self.ingest_sst(force=force, lat_min=_lat_min, lat_max=_lat_max,
+                        lon_min=_lon_min, lon_max=_lon_max)
         self.ingest_visibility(force=force)
         self._supersede_old_runs()
         self.cleanup_orphaned_grid_data()
@@ -648,20 +648,32 @@ class WeatherIngestionService:
         finally:
             conn.close()
 
-    def ingest_sst(self, force: bool = False):
+    def ingest_sst(self, force: bool = False,
+                   lat_min: Optional[float] = None, lat_max: Optional[float] = None,
+                   lon_min: Optional[float] = None, lon_max: Optional[float] = None):
         """Fetch CMEMS SST forecast (0-120h, 3-hourly) and store in PostgreSQL.
 
-        Skips if a multi-timestep SST run already exists in the DB.
+        Downloads viewport-bounded data via open_dataset() at native 0.083° —
+        same pattern as waves/currents/ice.
+
+        Args:
+            force: Bypass freshness guard.
+            lat_min/lat_max/lon_min/lon_max: Viewport bounds (defaults to class globals).
         """
         source = "cmems_sst"
         if not force and self._has_multistep_run(source):
             logger.debug("Skipping SST ingestion — multi-timestep run exists in DB")
             return
 
+        _lat_min = lat_min if lat_min is not None else self.CMEMS_DEFAULT_LAT_MIN
+        _lat_max = lat_max if lat_max is not None else self.CMEMS_DEFAULT_LAT_MAX
+        _lon_min = lon_min if lon_min is not None else self.CMEMS_DEFAULT_LON_MIN
+        _lon_max = lon_max if lon_max is not None else self.CMEMS_DEFAULT_LON_MAX
+
         logger.info("CMEMS SST forecast ingestion starting")
         try:
             result = self.copernicus_provider.fetch_sst_forecast(
-                self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
+                _lat_min, _lat_max, _lon_min, _lon_max,
             )
             if not result:
                 logger.warning("CMEMS SST forecast fetch returned empty")
