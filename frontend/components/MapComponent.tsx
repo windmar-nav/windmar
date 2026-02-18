@@ -224,13 +224,15 @@ export default function MapComponent({
           />
         )}
 
-        {/* Hover tooltip for waves & swell layers */}
-        {(weatherLayer === 'waves' || weatherLayer === 'swell') && (
+        {/* Hover tooltip for wind, waves, swell, currents, visibility layers */}
+        {(weatherLayer === 'wind' || weatherLayer === 'waves' || weatherLayer === 'swell' || weatherLayer === 'currents' || weatherLayer === 'visibility') && (
           <WaveInfoPopup
-            active={true}
+            layer={weatherLayer as 'wind' | 'waves' | 'swell' | 'currents' | 'visibility'}
             waveData={weatherLayer === 'waves' ? waveData : null}
             windData={windData}
             swellData={weatherLayer === 'swell' ? extendedWeatherData as any : null}
+            currentVelocityData={currentVelocityData}
+            visibilityData={weatherLayer === 'visibility' ? extendedWeatherData as any : null}
           />
         )}
 

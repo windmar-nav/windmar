@@ -3233,6 +3233,65 @@ async def api_trigger_sst_forecast_prefetch(
     return {"status": "started", "message": "SST forecast prefetch triggered in background"}
 
 
+def _rebuild_sst_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
+    """Rebuild SST forecast file cache from PostgreSQL data."""
+    if db_weather is None:
+        return None
+
+    run_time, hours = db_weather.get_available_hours_by_source("cmems_sst")
+    if not hours:
+        return None
+
+    logger.info(f"Rebuilding SST cache from DB: {len(hours)} hours")
+
+    grids = db_weather.get_grids_for_timeline(
+        "cmems_sst", ["sst"],
+        lat_min, lat_max, lon_min, lon_max, hours
+    )
+
+    if not grids or "sst" not in grids or not grids["sst"]:
+        return None
+
+    first_fh = min(grids["sst"].keys())
+    lats_full, lons_full, _ = grids["sst"][first_fh]
+    max_dim = max(len(lats_full), len(lons_full))
+    STEP = max(1, round(max_dim / 250))
+    shared_lats = lats_full[::STEP].tolist()
+    shared_lons = lons_full[::STEP].tolist()
+
+    mask_lats_arr, mask_lons_arr, ocean_mask_arr = _build_ocean_mask(
+        lat_min, lat_max, lon_min, lon_max
+    )
+
+    frames = {}
+    for fh in sorted(hours):
+        if fh in grids["sst"]:
+            _, _, d = grids["sst"][fh]
+            frames[str(fh)] = {
+                "data": np.round(d[::STEP, ::STEP], 2).tolist(),
+            }
+
+    cache_data = {
+        "run_time": run_time.isoformat() if run_time else "",
+        "total_hours": len(frames),
+        "cached_hours": len(frames),
+        "source": "cmems",
+        "lats": shared_lats,
+        "lons": shared_lons,
+        "ny": len(shared_lats),
+        "nx": len(shared_lons),
+        "ocean_mask": ocean_mask_arr,
+        "ocean_mask_lats": mask_lats_arr,
+        "ocean_mask_lons": mask_lons_arr,
+        "colorscale": {"min": -2, "max": 32, "colors": ["#0000ff", "#00ccff", "#00ff88", "#ffff00", "#ff8800", "#ff0000"]},
+        "frames": frames,
+    }
+
+    _sst_cache_put(cache_key, cache_data)
+    logger.info(f"SST cache rebuilt from DB: {len(frames)} frames")
+    return cache_data
+
+
 @app.get("/api/weather/forecast/sst/frames")
 async def api_get_sst_forecast_frames(
     lat_min: float = Query(30.0),
@@ -3243,7 +3302,8 @@ async def api_get_sst_forecast_frames(
     """Return all cached CMEMS SST forecast frames.
 
     Serves the raw JSON file to avoid parse+re-serialize overhead.
-    Falls back to any cache file whose bounds cover the requested viewport.
+    Falls back to any cache file whose bounds cover the requested viewport,
+    then to PostgreSQL if no file cache exists.
     """
     from starlette.responses import Response as RawResponse
     cache_key = f"sst_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
@@ -3255,6 +3315,14 @@ async def api_get_sst_forecast_frames(
             return RawResponse(content=cache_file.read_bytes(), media_type="application/json")
         logger.warning("SST cache %s is partial — deleting", cache_file.name)
         cache_file.unlink(missing_ok=True)
+
+    # Fallback: rebuild from PostgreSQL
+    cached = await asyncio.to_thread(
+        _rebuild_sst_cache_from_db, cache_key, lat_min, lat_max, lon_min, lon_max
+    )
+
+    if cached:
+        return cached
 
     return {
         "run_time": "",
