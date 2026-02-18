@@ -148,6 +148,19 @@ class VesselModel:
                 - time_hours: Time taken (hours)
                 - fuel_breakdown: Breakdown by component
         """
+        # Guard against zero/negative speed (TN002 TEST-FUEL-02)
+        if speed_kts <= 0:
+            return {
+                "fuel_mt": 0.0,
+                "power_kw": 0.0,
+                "required_power_kw": 0.0,
+                "time_hours": 0.0,
+                "fuel_breakdown": {"calm_water": 0.0, "wind": 0.0, "waves": 0.0},
+                "resistance_breakdown_kn": {
+                    "calm_water": 0.0, "wind": 0.0, "waves": 0.0, "total": 0.0,
+                },
+            }
+
         # Convert speed to m/s
         speed_ms = speed_kts * 0.51444
 
