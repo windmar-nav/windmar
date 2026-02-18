@@ -224,12 +224,13 @@ export default function MapComponent({
           />
         )}
 
-        {/* Wave Info Popup (click-to-inspect polar diagram) */}
-        {weatherLayer === 'waves' && (
+        {/* Hover tooltip for waves & swell layers */}
+        {(weatherLayer === 'waves' || weatherLayer === 'swell') && (
           <WaveInfoPopup
-            active={weatherLayer === 'waves'}
-            waveData={waveData}
+            active={true}
+            waveData={weatherLayer === 'waves' ? waveData : null}
             windData={windData}
+            swellData={weatherLayer === 'swell' ? extendedWeatherData as any : null}
           />
         )}
 

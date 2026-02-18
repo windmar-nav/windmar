@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { WindFieldData, WaveFieldData, GridFieldData } from '@/lib/api';
+import { WindFieldData, WaveFieldData, GridFieldData, SwellFieldData } from '@/lib/api';
 import { debugLog } from '@/lib/debugLog';
 import { bilinearInterpolate, bilinearOcean } from '@/lib/gridInterpolation';
 
@@ -70,6 +70,22 @@ const SWELL_RAMP: ColorStop[] = [
   [8, 200,  30,  30],  // 8m+ — red
 ];
 
+// Swell period ramp for arrow coloring (seconds → color)
+// Short wind-sea spillover = white, moderate swell = gold, long ocean swell = cyan, very long = deep blue
+const SWELL_PERIOD_RAMP: ColorStop[] = [
+  [ 5, 255, 255, 255],  // 5s — white (short-period)
+  [ 7, 255, 220, 120],  // 7s — light gold
+  [10, 240, 180,  40],  // 10s — amber
+  [12,  40, 220, 240],  // 12s — cyan
+  [15,  20, 160, 240],  // 15s — bright blue
+  [18,  30,  60, 180],  // 18s+ — deep blue
+];
+
+function swellPeriodColor(period: number): string {
+  const [r, g, b] = interpolateColorRamp(period, SWELL_PERIOD_RAMP, 255, 255, 255);
+  return `rgb(${r},${g},${b})`;
+}
+
 // Visibility ramp (meters) — grey-blue fog severity
 const VIS_RAMP: ColorStop[] = [
   [    0,  60,  60, 100],  // zero vis — dark
@@ -109,20 +125,24 @@ function windColor(speed: number): [number, number, number, number] {
   return [220, 30, 30, 200];
 }
 
-// Wave color scale: meters → RGBA
+// Wave color scale: meters → RGBA (Windy-inspired 8-stop vibrant ramp)
 function waveColor(height: number): [number, number, number, number] {
-  // 0→green, 1→yellow, 2→orange, 3→red, 5+→dark red
+  // 0→deep blue, 0.5→blue, 1→cyan-green, 1.5→green-yellow,
+  // 2→yellow, 3→orange, 4→red-magenta, 6+→purple
   const stops: [number, number, number, number][] = [
-    [0,   0, 200,  50],  // 0m  - green
-    [1, 240, 220,   0],  // 1m  - yellow
-    [2, 240, 130,   0],  // 2m  - orange
-    [3, 220,  30,  30],  // 3m  - red
-    [5, 128,   0,   0],  // 5m+ - dark red
+    [0,    30,  60, 180],  // 0m   - deep blue (calm)
+    [0.5,   0, 140, 220],  // 0.5m - blue
+    [1,     0, 200, 160],  // 1m   - cyan-green
+    [1.5, 120, 220,  40],  // 1.5m - green-yellow
+    [2,   240, 220,   0],  // 2m   - yellow
+    [3,   240, 130,   0],  // 3m   - orange
+    [4,   220,  30,  80],  // 4m   - red-magenta
+    [6,   160,   0, 180],  // 6m+  - purple
   ];
 
-  if (height <= stops[0][0]) return [stops[0][1], stops[0][2], stops[0][3], 160];
+  if (height <= stops[0][0]) return [stops[0][1], stops[0][2], stops[0][3], 140];
   if (height >= stops[stops.length - 1][0])
-    return [stops[stops.length - 1][1], stops[stops.length - 1][2], stops[stops.length - 1][3], 200];
+    return [stops[stops.length - 1][1], stops[stops.length - 1][2], stops[stops.length - 1][3], 180];
 
   for (let i = 0; i < stops.length - 1; i++) {
     if (height >= stops[i][0] && height < stops[i + 1][0]) {
@@ -131,11 +151,11 @@ function waveColor(height: number): [number, number, number, number] {
         Math.round(stops[i][1] + t * (stops[i + 1][1] - stops[i][1])),
         Math.round(stops[i][2] + t * (stops[i + 1][2] - stops[i][2])),
         Math.round(stops[i][3] + t * (stops[i + 1][3] - stops[i][3])),
-        170,
+        155,
       ];
     }
   }
-  return [128, 0, 0, 200];
+  return [160, 0, 180, 180];
 }
 
 // Ice concentration color scale: fraction (0-1) → RGBA (WMO/TD-No. 1215)
@@ -436,11 +456,12 @@ function WeatherGridLayerInner({
             cx: number, cy: number, dirDeg: number, height: number,
             color: string, alpha: number,
           ) => {
-            const propRad = ((dirDeg + 180) * Math.PI) / 180;
+            // Compass bearing to canvas angle: +180 (from→propagation), -90 (compass→canvas)
+            const propRad = ((dirDeg + 90) * Math.PI) / 180;
             const perpRad = propRad + Math.PI / 2;
-            const arcLen = Math.min(12, 4 + height * 3);
-            const curve = Math.min(4, 1.5 + height * 0.8);
-            const crestGap = 3.5;
+            const arcLen = Math.min(16, 6 + height * 4);
+            const curve = Math.min(5, 2 + height * 1.0);
+            const crestGap = 4.5;
 
             ctx.lineCap = 'round';
 
@@ -458,9 +479,19 @@ function WeatherGridLayerInner({
               const cpx = ox + Math.cos(propRad) * curve * scale;
               const cpy = oy + Math.sin(propRad) * curve * scale;
 
+              // Dark outline for contrast against heatmap
+              ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+              ctx.globalAlpha = 1.0;
+              ctx.lineWidth = (k === 0 ? 2.0 : 1.2) + 1.0;
+              ctx.beginPath();
+              ctx.moveTo(x0, y0);
+              ctx.quadraticCurveTo(cpx, cpy, x1, y1);
+              ctx.stroke();
+
+              // Main crest stroke
               ctx.strokeStyle = color;
               ctx.globalAlpha = alpha * (k === 0 ? 1.0 : 0.6);
-              ctx.lineWidth = k === 0 ? 1.5 : 1.0;
+              ctx.lineWidth = k === 0 ? 2.0 : 1.2;
               ctx.beginPath();
               ctx.moveTo(x0, y0);
               ctx.quadraticCurveTo(cpx, cpy, x1, y1);
@@ -522,6 +553,92 @@ function WeatherGridLayerInner({
             }
           }
           ctx.restore();
+        }
+
+        // Draw swell directional arrows (period-colored, height-scaled)
+        if (currentShowArrows && currentMode === 'swell' && currentExtendedData) {
+          const swellExt = currentExtendedData as SwellFieldData;
+          const swDir = swellExt.swell_dir;
+          const swHs = swellExt.swell_hs;
+          const swTp = swellExt.swell_tp;
+
+          if (swDir && swHs) {
+            const spacing = 40;
+            ctx.save();
+
+            for (let ay = spacing / 2; ay < 256; ay += spacing) {
+              for (let ax = spacing / 2; ax < 256; ax += spacing) {
+                const globalX = coords.x * tileSize + ax;
+                const globalY = coords.y * tileSize + ay;
+                const lng = (globalX / Math.pow(2, zoom) / tileSize) * 360 - 180;
+                const latRad = Math.atan(
+                  Math.sinh(Math.PI * (1 - (2 * globalY) / (Math.pow(2, zoom) * tileSize)))
+                );
+                const aLat = (latRad * 180) / Math.PI;
+                if (aLat < latMin || aLat > latMax || lng < lonMin || lng > lonMax) continue;
+
+                const latFracIdx = ((aLat - latStart) / (latEnd - latStart)) * (ny - 1);
+                const lonFracIdx = ((lng - lonStart) / (lonEnd - lonStart)) * (nx - 1);
+                const aLatIdx = Math.floor(latFracIdx);
+                const aLonIdx = Math.floor(lonFracIdx);
+                const aLatFrac = latFracIdx - aLatIdx;
+                const aLonFrac = lonFracIdx - aLonIdx;
+
+                if (oceanMask) {
+                  const mLatIdx = Math.round(((aLat - maskLats[0]) / (maskLats[maskNy - 1] - maskLats[0])) * (maskNy - 1));
+                  const mLonIdx = Math.round(((lng - maskLons[0]) / (maskLons[maskNx - 1] - maskLons[0])) * (maskNx - 1));
+                  if (mLatIdx < 0 || mLatIdx >= maskNy || mLonIdx < 0 || mLonIdx >= maskNx || !oceanMask[mLatIdx]?.[mLonIdx]) continue;
+                }
+
+                const hs = bilinearInterpolate(swHs, aLatIdx, aLonIdx, aLatFrac, aLonFrac, ny, nx);
+                if (hs < 0.3) continue;
+
+                const dir = bilinearInterpolate(swDir, aLatIdx, aLonIdx, aLatFrac, aLonFrac, ny, nx);
+                const tp = swTp ? bilinearInterpolate(swTp, aLatIdx, aLonIdx, aLatFrac, aLonFrac, ny, nx) : 10;
+
+                // Arrow points in propagation direction (where swell is going)
+                const propRad = ((dir + 180) * Math.PI) / 180;
+                // Length scaled by height: 10px at 0.3m, up to 20px at 5m+
+                const len = Math.min(20, 10 + hs * 2.5);
+                const color = swellPeriodColor(tp);
+
+                ctx.translate(ax, ay);
+                ctx.rotate(propRad); // arrow drawn pointing up (-y), rotate by compass bearing
+
+                // Dark outline for contrast against heatmap
+                ctx.globalAlpha = 0.6;
+                ctx.strokeStyle = 'rgba(0,0,0,0.8)';
+                ctx.lineWidth = 3;
+                ctx.lineCap = 'round';
+                ctx.beginPath();
+                ctx.moveTo(0, len / 2);
+                ctx.lineTo(0, -len / 2);
+                ctx.stroke();
+
+                // Colored arrow shaft
+                ctx.globalAlpha = 0.9;
+                ctx.strokeStyle = color;
+                ctx.lineWidth = 1.8;
+                ctx.beginPath();
+                ctx.moveTo(0, len / 2);
+                ctx.lineTo(0, -len / 2);
+                ctx.stroke();
+
+                // Colored arrowhead
+                ctx.fillStyle = color;
+                ctx.beginPath();
+                ctx.moveTo(0, -len / 2 - 1);
+                ctx.lineTo(-4, -len / 2 + 5);
+                ctx.lineTo(4, -len / 2 + 5);
+                ctx.closePath();
+                ctx.fill();
+
+                ctx.globalAlpha = 1.0;
+                ctx.setTransform(1, 0, 0, 1, 0, 0);
+              }
+            }
+            ctx.restore();
+          }
         }
 
     }
