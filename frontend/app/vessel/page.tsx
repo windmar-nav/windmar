@@ -13,11 +13,17 @@ import {
   apiClient, VesselSpecs, FuelScenario,
   CalibrationStatus, CalibrationResult, VesselModelStatus,
   PerformancePredictionRequest, PerformancePredictionResult,
+  ModelCurvesResponse,
 } from '@/lib/api';
 import { formatFuel, formatPower } from '@/lib/utils';
 import { useVoyage } from '@/components/VoyageContext';
 
-type VesselTab = 'specifications' | 'calibration' | 'fuel';
+import {
+  LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
+  Legend, ResponsiveContainer,
+} from 'recharts';
+
+type VesselTab = 'specifications' | 'calibration' | 'fuel' | 'model';
 
 const DEFAULT_SPECS: VesselSpecs = {
   dwt: 49000,
@@ -38,16 +44,18 @@ export default function VesselPage() {
     <div className="min-h-screen bg-gradient-maritime">
       <Header />
 
-      <main className="container mx-auto px-4 pt-20 pb-12">
+      <main className="container mx-auto px-6 pt-20 pb-12">
         {/* Tab bar */}
-        <div className="flex space-x-1 mb-6 bg-maritime-medium/50 backdrop-blur-sm rounded-lg p-1 max-w-xl">
+        <div className="flex space-x-1 mb-6 bg-maritime-medium/50 backdrop-blur-sm rounded-lg p-1 max-w-2xl">
           <TabButton label="Specifications" active={activeTab === 'specifications'} onClick={() => setActiveTab('specifications')} />
           <TabButton label="Calibration" active={activeTab === 'calibration'} onClick={() => setActiveTab('calibration')} />
+          <TabButton label="Model" active={activeTab === 'model'} onClick={() => setActiveTab('model')} />
           <TabButton label="Fuel Analysis" active={activeTab === 'fuel'} onClick={() => setActiveTab('fuel')} />
         </div>
 
         {activeTab === 'specifications' && <SpecificationsSection />}
         {activeTab === 'calibration' && <CalibrationSection />}
+        {activeTab === 'model' && <ModelCurvesSection />}
         {activeTab === 'fuel' && <FuelAnalysisSection />}
       </main>
     </div>
@@ -124,7 +132,7 @@ function SpecificationsSection() {
   }
 
   return (
-    <div className="max-w-4xl">
+    <div>
       {message && (
         <div className={`mb-6 p-4 rounded-lg ${
           message.type === 'success'
@@ -477,6 +485,184 @@ function CalibrationSection() {
         Calibration adjusts the theoretical Holtrop-Mennen model to match your vessel's
         actual performance. Upload noon reports with actual fuel consumption to derive
         calibration factors for hull fouling, wind, and wave response.
+      </div>
+    </div>
+  );
+}
+
+// ─── Model Curves ────────────────────────────────────────────────────────────
+
+const CHART_TOOLTIP_STYLE = {
+  contentStyle: {
+    backgroundColor: 'rgba(26, 41, 66, 0.95)',
+    border: '1px solid rgba(255, 255, 255, 0.1)',
+    borderRadius: '8px',
+    fontSize: '12px',
+  },
+  labelStyle: { color: '#fff', fontWeight: 600 },
+};
+
+function ModelCurvesSection() {
+  const [curves, setCurves] = useState<ModelCurvesResponse | null>(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const data = await apiClient.getModelCurves();
+        setCurves(data);
+      } catch (error) {
+        console.error('Failed to load model curves:', error);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, []);
+
+  if (loading) {
+    return (
+      <div className="flex items-center justify-center h-64">
+        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-primary-400" />
+      </div>
+    );
+  }
+
+  if (!curves) {
+    return <div className="text-gray-400 text-sm">Failed to load model curves</div>;
+  }
+
+  const cal = curves.calibration;
+
+  // Prepare chart data
+  const resistanceData = curves.speed_range_kts.map((spd, i) => ({
+    speed: spd,
+    theoretical: curves.resistance_theoretical_kn[i],
+    calibrated: curves.resistance_calibrated_kn[i],
+  }));
+
+  const powerFuelData = curves.speed_range_kts.map((spd, i) => ({
+    speed: spd,
+    power: curves.power_kw[i],
+    fuel: curves.fuel_mt_per_day[i],
+  }));
+
+  const sfocData = curves.sfoc_curve.load_pct.map((load, i) => ({
+    load,
+    theoretical: curves.sfoc_curve.sfoc_theoretical_gkwh[i],
+    calibrated: curves.sfoc_curve.sfoc_calibrated_gkwh[i],
+  }));
+
+  return (
+    <div className="space-y-6">
+      {/* Calibration banner */}
+      <div className={`p-3 rounded-lg border text-sm flex items-center gap-3 ${
+        cal.calibrated
+          ? 'bg-green-500/10 border-green-500/20 text-green-300'
+          : 'bg-white/5 border-white/10 text-gray-400'
+      }`}>
+        {cal.calibrated ? (
+          <CheckCircle className="w-4 h-4 flex-shrink-0" />
+        ) : (
+          <Info className="w-4 h-4 flex-shrink-0" />
+        )}
+        <span>
+          {cal.calibrated
+            ? `Model calibrated on ${new Date(cal.calibrated_at!).toLocaleDateString()} from ${cal.num_reports_used} reports — MAE: ${cal.calibration_error_mt.toFixed(2)} MT/day`
+            : 'Using theoretical (uncalibrated) model'}
+        </span>
+      </div>
+
+      {/* Calibration factors summary */}
+      {cal.calibrated && (
+        <div className="grid grid-cols-4 gap-3">
+          {(['calm_water', 'wind', 'waves', 'sfoc_factor'] as const).map(key => {
+            const val = cal.factors[key];
+            const pct = ((val - 1) * 100);
+            const label = key === 'calm_water' ? 'Hull' : key === 'sfoc_factor' ? 'SFOC' : key.charAt(0).toUpperCase() + key.slice(1);
+            return (
+              <div key={key} className="bg-maritime-dark rounded-lg p-3 text-center">
+                <div className="text-gray-500 text-xs mb-1">{label}</div>
+                <div className={`text-lg font-bold ${Math.abs(pct) < 0.5 ? 'text-white' : pct > 0 ? 'text-amber-400' : 'text-green-400'}`}>
+                  {pct > 0 ? '+' : ''}{pct.toFixed(1)}%
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Note when uncalibrated — theoretical = calibrated */}
+      {!cal.calibrated && (
+        <div className="text-xs text-gray-500 italic">
+          Theoretical and calibrated curves overlap — calibrate from noon reports or engine log to see the difference.
+        </div>
+      )}
+
+      {/* Charts — 2x2 grid */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Resistance vs Speed */}
+        <Card title="Resistance vs Speed (Calm Water, Laden)" icon={<TrendingUp className="w-5 h-5" />}>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={resistanceData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis dataKey="speed" stroke="#9ca3af" tick={{ fontSize: 12 }} label={{ value: 'Speed (kts)', position: 'insideBottom', offset: -10, style: { fill: '#9ca3af', fontSize: 12 } }} />
+                <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} label={{ value: 'Resistance (kN)', angle: -90, position: 'insideLeft', offset: 5, style: { fill: '#9ca3af', fontSize: 12 } }} />
+                <Tooltip {...CHART_TOOLTIP_STYLE} formatter={(v: number) => `${v.toFixed(1)} kN`} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                <Line type="monotone" dataKey="calibrated" name="Calibrated" stroke="#3b82f6" dot={false} strokeWidth={2.5} />
+                <Line type="monotone" dataKey="theoretical" name="Theoretical" stroke="#94a3b8" strokeDasharray="8 4" dot={false} strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        {/* SFOC vs Engine Load */}
+        <Card title="SFOC vs Engine Load" icon={<Fuel className="w-5 h-5" />}>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={sfocData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis dataKey="load" stroke="#9ca3af" tick={{ fontSize: 12 }} label={{ value: 'Engine Load (% MCR)', position: 'insideBottom', offset: -10, style: { fill: '#9ca3af', fontSize: 12 } }} />
+                <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} label={{ value: 'SFOC (g/kWh)', angle: -90, position: 'insideLeft', offset: 5, style: { fill: '#9ca3af', fontSize: 12 } }} domain={['auto', 'auto']} />
+                <Tooltip {...CHART_TOOLTIP_STYLE} formatter={(v: number) => `${v.toFixed(1)} g/kWh`} />
+                <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
+                <Line type="monotone" dataKey="calibrated" name="Calibrated" stroke="#f97316" dot={false} strokeWidth={2.5} />
+                <Line type="monotone" dataKey="theoretical" name="Theoretical" stroke="#94a3b8" strokeDasharray="8 4" dot={false} strokeWidth={2} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        {/* Power vs Speed */}
+        <Card title="Brake Power vs Speed (Laden)" icon={<Gauge className="w-5 h-5" />}>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={powerFuelData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis dataKey="speed" stroke="#9ca3af" tick={{ fontSize: 12 }} label={{ value: 'Speed (kts)', position: 'insideBottom', offset: -10, style: { fill: '#9ca3af', fontSize: 12 } }} />
+                <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} label={{ value: 'Power (kW)', angle: -90, position: 'insideLeft', offset: 5, style: { fill: '#9ca3af', fontSize: 12 } }} />
+                <Tooltip {...CHART_TOOLTIP_STYLE} formatter={(v: number) => `${v.toLocaleString()} kW`} />
+                <Line type="monotone" dataKey="power" name="Brake Power" stroke="#22c55e" dot={false} strokeWidth={2.5} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
+
+        {/* Fuel vs Speed */}
+        <Card title="Daily Fuel vs Speed (Laden)" icon={<Fuel className="w-5 h-5" />}>
+          <div className="h-80">
+            <ResponsiveContainer width="100%" height="100%">
+              <LineChart data={powerFuelData} margin={{ top: 5, right: 20, bottom: 20, left: 10 }}>
+                <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.1)" />
+                <XAxis dataKey="speed" stroke="#9ca3af" tick={{ fontSize: 12 }} label={{ value: 'Speed (kts)', position: 'insideBottom', offset: -10, style: { fill: '#9ca3af', fontSize: 12 } }} />
+                <YAxis stroke="#9ca3af" tick={{ fontSize: 12 }} label={{ value: 'Fuel (MT/day)', angle: -90, position: 'insideLeft', offset: 5, style: { fill: '#9ca3af', fontSize: 12 } }} />
+                <Tooltip {...CHART_TOOLTIP_STYLE} formatter={(v: number) => `${v.toFixed(2)} MT/day`} />
+                <Line type="monotone" dataKey="fuel" name="Daily Fuel" stroke="#ef4444" dot={false} strokeWidth={2.5} />
+              </LineChart>
+            </ResponsiveContainer>
+          </div>
+        </Card>
       </div>
     </div>
   );

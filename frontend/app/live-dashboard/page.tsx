@@ -205,7 +205,7 @@ export default function LiveDashboardPage() {
     <div className="min-h-screen bg-gradient-maritime">
       <Header />
 
-      <main className="container mx-auto px-4 pt-24 pb-12">
+      <main className="container mx-auto px-6 pt-20 pb-12">
         {/* Hero Section */}
         <div className="mb-8 flex items-center justify-between">
           <div>

@@ -140,7 +140,7 @@ export default function CIICompliancePage() {
     <div className="min-h-screen bg-gradient-maritime">
       <Header />
 
-      <main className="container mx-auto px-4 pt-24 pb-12">
+      <main className="container mx-auto px-6 pt-20 pb-12">
         {/* Hero Section */}
         <div className="mb-8">
           <div className="flex items-center space-x-3 mb-3">

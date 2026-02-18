@@ -61,9 +61,9 @@ export default function EngineLogPage() {
     <div className="min-h-screen bg-gradient-maritime">
       <Header />
 
-      <main className="container mx-auto px-4 pt-20 pb-12">
+      <main className="container mx-auto px-6 pt-20 pb-12">
         {/* Tab bar */}
-        <div className="flex space-x-1 mb-6 bg-maritime-medium/50 backdrop-blur-sm rounded-lg p-1 max-w-xl">
+        <div className="flex space-x-1 mb-6 bg-maritime-medium/50 backdrop-blur-sm rounded-lg p-1 max-w-2xl">
           <TabButton label="Upload" active={activeTab === 'upload'} onClick={() => setActiveTab('upload')} />
           <TabButton label="Entries" active={activeTab === 'entries'} onClick={() => setActiveTab('entries')} />
           <TabButton label="Analytics" active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')} />
@@ -143,7 +143,7 @@ function UploadSection({
   };
 
   return (
-    <div className="max-w-2xl space-y-6">
+    <div className="max-w-3xl space-y-6">
       {/* Upload card */}
       <Card title="Upload Engine Log" icon={<Upload className="w-5 h-5" />}>
         <div className="space-y-4">
@@ -618,22 +618,22 @@ function AnalyticsSection({ summary, filters }: { summary: EngineLogSummaryRespo
 
       {/* Charts 2x2 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title="Fuel Consumption Timeline" className="h-96 overflow-hidden">
+        <Card title="Fuel Consumption Timeline" className="h-80 overflow-hidden">
           <div className="h-[calc(100%-2rem)]">
             <FuelTimelineChart entries={entries} />
           </div>
         </Card>
-        <Card title="RPM Distribution (NOON)" className="h-96 overflow-hidden">
+        <Card title="RPM Distribution (NOON)" className="h-80 overflow-hidden">
           <div className="h-[calc(100%-2rem)]">
             <RpmDistributionChart entries={entries} />
           </div>
         </Card>
-        <Card title="Speed Through Water" className="h-96 overflow-hidden">
+        <Card title="Speed Through Water" className="h-80 overflow-hidden">
           <div className="h-[calc(100%-2rem)]">
             <SpeedTimelineChart entries={entries} />
           </div>
         </Card>
-        <Card title="Event Breakdown" className="h-96 overflow-hidden">
+        <Card title="Event Breakdown" className="h-80 overflow-hidden">
           <div className="h-[calc(100%-2rem)]">
             <EventBreakdownChart eventsBreakdown={summary?.events_breakdown || {}} />
           </div>
@@ -719,22 +719,22 @@ function PerformanceSection({ filters }: { filters: EngineLogFilters }) {
 
       {/* Charts 3x2 */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <Card title="Power-Speed Curve" className="h-96">
+        <Card title="Power-Speed Curve" className="h-80">
           <PowerSpeedChart entries={entries} />
         </Card>
-        <Card title="SFOC vs Engine Load" className="h-96">
+        <Card title="SFOC vs Engine Load" className="h-80">
           <SfocLoadChart entries={entries} />
         </Card>
-        <Card title="Fuel Breakdown" className="h-96">
+        <Card title="Fuel Breakdown" className="h-80">
           <FuelBreakdownChart entries={entries} />
         </Card>
-        <Card title="Propeller Slip & Speed" className="h-96">
+        <Card title="Propeller Slip & Speed" className="h-80">
           <SlipSpeedChart entries={entries} />
         </Card>
-        <Card title="Turbocharger Health" className="h-96">
+        <Card title="Turbocharger Health" className="h-80">
           <TurbochargerChart entries={entries} />
         </Card>
-        <Card title="Thermal Profile" className="h-96">
+        <Card title="Thermal Profile" className="h-80">
           <ThermalProfileChart entries={entries} />
         </Card>
       </div>

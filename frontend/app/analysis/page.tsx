@@ -86,7 +86,7 @@ function AnalysisPage() {
     return (
       <div className="min-h-screen bg-gradient-maritime">
         <Header />
-        <main className="pt-20 px-6 max-w-5xl mx-auto">
+        <main className="container mx-auto px-6 pt-20">
           <p className="text-gray-400">Analysis not found.</p>
           <Link href="/" className="text-primary-400 hover:text-primary-300 text-sm mt-2 inline-block">
             <ArrowLeft className="w-4 h-4 inline mr-1" />
@@ -110,7 +110,7 @@ function AnalysisPage() {
   return (
     <div className="min-h-screen bg-gradient-maritime">
       <Header />
-      <main className="pt-20 pb-12 px-6 max-w-6xl mx-auto">
+      <main className="container mx-auto px-6 pt-20 pb-12">
         {/* Back link */}
         <Link
           href="/"
