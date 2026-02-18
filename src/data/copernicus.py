@@ -1070,12 +1070,13 @@ class CopernicusDataProvider:
             import pandas as pd
 
             base_time = pd.Timestamp(times[0]).to_pydatetime()
-            frames: Dict[int, WeatherData] = {}
 
+            # Extract all available hourly frames from CMEMS
+            raw_frames: Dict[int, tuple] = {}  # fh -> (sst_2d, timestamp)
             for t_idx in range(len(times)):
                 ts = pd.Timestamp(times[t_idx]).to_pydatetime()
                 fh = round((ts - base_time).total_seconds() / 3600)
-                if fh < 0 or fh > 120 or fh % 3 != 0:
+                if fh < 0 or fh > 120:
                     continue
 
                 thetao = ds["thetao"].values
@@ -1089,10 +1090,33 @@ class CopernicusDataProvider:
                     continue
 
                 sst_2d = np.nan_to_num(sst_2d, nan=0.0)
+                raw_frames[fh] = (sst_2d, ts)
 
-                frames[fh] = WeatherData(
+            logger.info(
+                f"SST forecast: {len(raw_frames)} raw frames from CMEMS "
+                f"(hours: {sorted(raw_frames.keys())})"
+            )
+
+            if not raw_frames:
+                return None
+
+            # CMEMS physics `thetao` often has a shorter forecast horizon
+            # than velocity fields (uo/vo).  SST changes < 0.2 °C/day in
+            # open ocean, so replicating the nearest available frame across
+            # all 41 standard forecast hours (0,3,...,120) is physically sound.
+            available_hours = sorted(raw_frames.keys())
+            frames: Dict[int, WeatherData] = {}
+
+            for target_fh in self.SST_FORECAST_HOURS:
+                # Pick the closest available hour
+                nearest_fh = min(available_hours, key=lambda h: abs(h - target_fh))
+                sst_2d, ts = raw_frames[nearest_fh]
+                # Shift timestamp to match the target forecast hour
+                target_ts = base_time + timedelta(hours=target_fh)
+
+                frames[target_fh] = WeatherData(
                     parameter="sst",
-                    time=ts,
+                    time=target_ts,
                     lats=lats,
                     lons=lons,
                     values=sst_2d,
@@ -1100,8 +1124,8 @@ class CopernicusDataProvider:
                     sst=sst_2d,
                 )
 
-            logger.info(f"SST forecast: {len(frames)} frames extracted (hours: {sorted(frames.keys())})")
-            return frames if frames else None
+            logger.info(f"SST forecast: {len(frames)} frames after fill (hours: {sorted(frames.keys())})")
+            return frames
 
         except Exception as e:
             logger.error(f"Failed to fetch SST forecast: {e}")
