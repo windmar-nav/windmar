@@ -298,343 +298,47 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 
 
 # ============================================================================
-# Pydantic Models
+# Pydantic Models (extracted to api/schemas/)
 # ============================================================================
 
-class Position(BaseModel):
-    lat: float = Field(..., ge=-90, le=90)
-    lon: float = Field(..., ge=-180, le=180)
-
-
-class WaypointModel(BaseModel):
-    id: int
-    name: str
-    lat: float
-    lon: float
-
-
-class RouteModel(BaseModel):
-    name: str
-    waypoints: List[WaypointModel]
-
-
-class VoyageRequest(BaseModel):
-    """Request for voyage calculation."""
-    waypoints: List[Position]
-    calm_speed_kts: float = Field(..., gt=0, lt=30, description="Calm water speed in knots")
-    is_laden: bool = True
-    departure_time: Optional[datetime] = None
-    use_weather: bool = True
-
-
-class OptimizationRequest(BaseModel):
-    """Request for route optimization."""
-    origin: Position
-    destination: Position
-    calm_speed_kts: float = Field(..., gt=0, lt=30, description="Calm water speed in knots")
-    is_laden: bool = True
-    departure_time: Optional[datetime] = None
-    optimization_target: str = Field("fuel", description="Minimize 'fuel' or 'time'")
-    grid_resolution_deg: float = Field(0.2, ge=0.05, le=2.0, description="Grid resolution in degrees")
-    max_time_factor: float = Field(1.15, ge=1.0, le=2.0,
-        description="Max voyage time as multiple of direct time (1.15 = 15% longer allowed)")
-    engine: str = Field("astar", description="Optimization engine: 'astar' (A* pathfinding) or 'visir' (VISIR graph-based Dijkstra)")
-    # All user waypoints for multi-segment optimization (respects intermediate via-points)
-    route_waypoints: Optional[List[Position]] = None
-    # Baseline from voyage calculation (enables dual-strategy comparison)
-    baseline_fuel_mt: Optional[float] = None
-    baseline_time_hours: Optional[float] = None
-    baseline_distance_nm: Optional[float] = None
-    # Safety weight: 0.0 = pure fuel optimization, 1.0 = full safety penalties
-    safety_weight: float = Field(0.0, ge=0.0, le=1.0, description="Safety penalty weight: 0=fuel optimal, 1=safety priority")
-
-
-class WeatherProvenanceModel(BaseModel):
-    """Weather data source provenance metadata."""
-    source_type: str  # "forecast", "hindcast", "climatology", "blended"
-    model_name: str  # "GFS", "CMEMS_wave", etc.
-    forecast_lead_hours: float
-    confidence: str  # "high", "medium", "low"
-
-
-class OptimizationLegModel(BaseModel):
-    """Optimized route leg details."""
-    from_lat: float
-    from_lon: float
-    to_lat: float
-    to_lon: float
-    distance_nm: float
-    bearing_deg: float
-    fuel_mt: float
-    time_hours: float
-    sog_kts: float
-    stw_kts: float  # Speed through water (optimized per leg)
-    wind_speed_ms: float
-    wave_height_m: float
-    # Safety metrics per leg
-    safety_status: Optional[str] = None
-    roll_deg: Optional[float] = None
-    pitch_deg: Optional[float] = None
-    # Weather provenance per leg
-    data_source: Optional[str] = None  # "forecast (high confidence)" etc.
-    # Extended weather fields (SPEC-P1)
-    swell_hs_m: Optional[float] = None
-    windsea_hs_m: Optional[float] = None
-    current_effect_kts: Optional[float] = None
-    visibility_m: Optional[float] = None
-    sst_celsius: Optional[float] = None
-    ice_concentration: Optional[float] = None
-
-
-class SafetySummary(BaseModel):
-    """Safety assessment summary for optimized route."""
-    status: str  # "safe", "marginal", "dangerous"
-    warnings: List[str]
-    max_roll_deg: float
-    max_pitch_deg: float
-    max_accel_ms2: float
-
-
-class SpeedScenarioModel(BaseModel):
-    """One speed strategy applied to the optimized path."""
-    strategy: str
-    label: str
-    total_fuel_mt: float
-    total_time_hours: float
-    total_distance_nm: float
-    avg_speed_kts: float
-    speed_profile: List[float]
-    legs: List[OptimizationLegModel]
-    fuel_savings_pct: float
-    time_savings_pct: float
-
-
-class OptimizationResponse(BaseModel):
-    """Route optimization result."""
-    waypoints: List[Position]
-    total_fuel_mt: float
-    total_time_hours: float
-    total_distance_nm: float
-
-    # Comparison with direct route
-    direct_fuel_mt: float
-    direct_time_hours: float
-    fuel_savings_pct: float
-    time_savings_pct: float
-
-    # Per-leg details
-    legs: List[OptimizationLegModel]
-
-    # Speed profile (variable speed optimization)
-    speed_profile: List[float]  # Optimal speed per leg (kts)
-    avg_speed_kts: float
-    variable_speed_enabled: bool
-
-    # Engine used
-    engine: str = "astar"  # "astar" or "visir"
-
-    # Safety assessment
-    safety: Optional[SafetySummary] = None
-
-    # Speed strategy scenarios
-    scenarios: List[SpeedScenarioModel] = []
-    baseline_fuel_mt: Optional[float] = None
-    baseline_time_hours: Optional[float] = None
-    baseline_distance_nm: Optional[float] = None
-
-    # Weather provenance
-    weather_provenance: Optional[List[WeatherProvenanceModel]] = None
-    temporal_weather: bool = False  # True if time-varying weather was used
-
-    # Metadata
-    optimization_target: str
-    grid_resolution_deg: float
-    cells_explored: int
-    optimization_time_ms: float
-
-
-class LegResultModel(BaseModel):
-    """Result for a single leg."""
-    leg_index: int
-    from_wp: WaypointModel
-    to_wp: WaypointModel
-    distance_nm: float
-    bearing_deg: float
-
-    # Weather
-    wind_speed_kts: float
-    wind_dir_deg: float
-    wave_height_m: float
-    wave_dir_deg: float
-    current_speed_ms: float = 0.0
-    current_dir_deg: float = 0.0
-
-    # Speeds
-    calm_speed_kts: float
-    stw_kts: float
-    sog_kts: float
-    speed_loss_pct: float
-
-    # Time
-    time_hours: float
-    departure_time: datetime
-    arrival_time: datetime
-
-    # Fuel
-    fuel_mt: float
-    power_kw: float
-
-    # Data source info (forecast, climatology, blended)
-    data_source: Optional[str] = None
-    forecast_weight: Optional[float] = None
-
-
-class DataSourceSummary(BaseModel):
-    """Summary of data sources used in voyage calculation."""
-    forecast_legs: int
-    blended_legs: int
-    climatology_legs: int
-    forecast_horizon_days: float
-    warning: Optional[str] = None
-
-
-class VoyageResponse(BaseModel):
-    """Complete voyage calculation response."""
-    route_name: str
-    departure_time: datetime
-    arrival_time: datetime
-
-    total_distance_nm: float
-    total_time_hours: float
-    total_fuel_mt: float
-    avg_sog_kts: float
-    avg_stw_kts: float
-
-    legs: List[LegResultModel]
-
-    calm_speed_kts: float
-    is_laden: bool
-
-    # Data source summary
-    data_sources: Optional[DataSourceSummary] = None
-
-
-class MonteCarloRequest(BaseModel):
-    """Request for Monte Carlo voyage simulation."""
-    waypoints: List[Position]
-    calm_speed_kts: float = Field(..., gt=0, lt=30)
-    is_laden: bool = True
-    departure_time: Optional[datetime] = None
-    n_simulations: int = Field(100, ge=10, le=500)
-
-
-class PercentileFloat(BaseModel):
-    p10: float
-    p50: float
-    p90: float
-
-
-class PercentileString(BaseModel):
-    p10: str
-    p50: str
-    p90: str
-
-
-class MonteCarloResponse(BaseModel):
-    """Monte Carlo simulation result."""
-    n_simulations: int
-    eta: PercentileString
-    fuel_mt: PercentileFloat
-    total_time_hours: PercentileFloat
-    computation_time_ms: float
-
-
-class WindDataPoint(BaseModel):
-    """Wind data at a point."""
-    lat: float
-    lon: float
-    u: float  # U component (m/s)
-    v: float  # V component (m/s)
-    speed_kts: float
-    dir_deg: float
-
-
-class WeatherGridResponse(BaseModel):
-    """Weather grid data for visualization."""
-    parameter: str
-    time: datetime
-    bbox: Dict[str, float]
-    resolution: float
-    nx: int
-    ny: int
-    lats: List[float]
-    lons: List[float]
-    data: List[List[float]]  # 2D grid
-
-
-class VelocityDataResponse(BaseModel):
-    """Wind velocity data in leaflet-velocity format."""
-    header: Dict
-    data_u: List[float]
-    data_v: List[float]
-
-
-class VesselConfig(BaseModel):
-    """Vessel configuration.
-
-    Defaults sourced from VesselSpecs (canonical MR tanker definition).
-    At runtime, values are overridden by DB-persisted specs on startup.
-    """
-    dwt: float = VesselSpecs.dwt
-    loa: float = VesselSpecs.loa
-    beam: float = VesselSpecs.beam
-    draft_laden: float = VesselSpecs.draft_laden
-    draft_ballast: float = VesselSpecs.draft_ballast
-    mcr_kw: float = VesselSpecs.mcr_kw
-    sfoc_at_mcr: float = VesselSpecs.sfoc_at_mcr
-    service_speed_laden: float = VesselSpecs.service_speed_laden
-    service_speed_ballast: float = VesselSpecs.service_speed_ballast
-
-
-class NoonReportModel(BaseModel):
-    """Noon report data for calibration."""
-    timestamp: datetime
-    latitude: float = Field(..., ge=-90, le=90)
-    longitude: float = Field(..., ge=-180, le=180)
-    speed_over_ground_kts: float = Field(..., gt=0)
-    speed_through_water_kts: Optional[float] = None
-    fuel_consumption_mt: float = Field(..., gt=0)
-    period_hours: float = Field(24.0, gt=0)
-    is_laden: bool = True
-    heading_deg: float = Field(0.0, ge=0, le=360)
-    wind_speed_kts: Optional[float] = None
-    wind_direction_deg: Optional[float] = None
-    wave_height_m: Optional[float] = None
-    wave_direction_deg: Optional[float] = None
-    engine_power_kw: Optional[float] = None
-
-
-class CalibrationFactorsModel(BaseModel):
-    """Calibration factors for vessel model."""
-    calm_water: float = Field(1.0, description="Hull fouling factor")
-    wind: float = Field(1.0, description="Wind coefficient adjustment")
-    waves: float = Field(1.0, description="Wave response adjustment")
-    sfoc_factor: float = Field(1.0, description="SFOC multiplier")
-    calibrated_at: Optional[datetime] = None
-    num_reports_used: int = 0
-    calibration_error: float = 0.0
-    days_since_drydock: int = 0
-
-
-class CalibrationResponse(BaseModel):
-    """Calibration result response."""
-    factors: CalibrationFactorsModel
-    reports_used: int
-    reports_skipped: int
-    mean_error_before_mt: float
-    mean_error_after_mt: float
-    improvement_pct: float
-    residuals: List[Dict]
+from api.schemas import (  # noqa: E402
+    Position,
+    WaypointModel,
+    RouteModel,
+    VoyageRequest,
+    LegResultModel,
+    DataSourceSummary,
+    VoyageResponse,
+    MonteCarloRequest,
+    PercentileFloat,
+    PercentileString,
+    MonteCarloResponse,
+    WindDataPoint,
+    WeatherGridResponse,
+    VelocityDataResponse,
+    VesselConfig,
+    NoonReportModel,
+    CalibrationFactorsModel,
+    CalibrationResponse,
+    OptimizationRequest,
+    OptimizationLegModel,
+    WeatherProvenanceModel,
+    SafetySummary,
+    SpeedScenarioModel,
+    OptimizationResponse,
+    PerformancePredictionRequest,
+    ZoneCoordinate,
+    CreateZoneRequest,
+    ZoneResponse,
+    CIIFuelConsumption,
+    CIICalculateRequest,
+    CIIProjectRequest,
+    CIIReductionRequest,
+    EngineLogUploadResponse,
+    EngineLogEntryResponse,
+    EngineLogSummaryResponse,
+    EngineLogCalibrateResponse,
+)
 
 
 # ============================================================================
@@ -5658,30 +5362,6 @@ async def get_fuel_scenarios():
     return {"scenarios": scenarios}
 
 
-class PerformancePredictionRequest(BaseModel):
-    """Request for vessel performance prediction under given conditions.
-
-    Two modes:
-    - engine_load_pct set: find achievable speed at this power
-    - calm_speed_kts set: find required power to maintain this calm-water
-      speed through the given weather (speed may drop if MCR exceeded)
-
-    All directions are RELATIVE to the vessel bow:
-    0° = dead ahead (head wind / head seas / head current)
-    90° = beam (port or starboard)
-    180° = dead astern (following wind / following seas / following current)
-    """
-    is_laden: bool = True
-    engine_load_pct: Optional[float] = Field(None, ge=15, le=100, description="Engine load as % of MCR (mode 1)")
-    calm_speed_kts: Optional[float] = Field(None, gt=0, lt=25, description="Target calm-water speed in knots (mode 2)")
-    wind_speed_kts: float = Field(0.0, ge=0, le=100, description="True wind speed (knots)")
-    wind_relative_deg: float = Field(0.0, ge=0, le=180, description="Wind relative to bow: 0=ahead, 90=beam, 180=astern")
-    wave_height_m: float = Field(0.0, ge=0, le=15, description="Significant wave height (m)")
-    wave_relative_deg: float = Field(0.0, ge=0, le=180, description="Waves relative to bow: 0=head seas, 90=beam, 180=following")
-    current_speed_kts: float = Field(0.0, ge=0, le=10, description="Current speed (knots)")
-    current_relative_deg: float = Field(0.0, ge=0, le=180, description="Current relative to bow: 0=head current, 180=following")
-
-
 @app.post("/api/vessel/predict", tags=["Vessel"])
 async def predict_vessel_performance(req: PerformancePredictionRequest):
     """
@@ -5802,34 +5482,6 @@ async def predict_vessel_performance(req: PerformancePredictionRequest):
 # ============================================================================
 # API Endpoints - Regulatory Zones
 # ============================================================================
-
-class ZoneCoordinate(BaseModel):
-    """A coordinate in a zone polygon."""
-    lat: float
-    lon: float
-
-
-class CreateZoneRequest(BaseModel):
-    """Request to create a custom zone."""
-    name: str
-    zone_type: str = Field(..., description="eca, hra, tss, exclusion, custom, etc.")
-    interaction: str = Field(..., description="mandatory, exclusion, penalty, advisory")
-    coordinates: List[ZoneCoordinate]
-    penalty_factor: float = Field(1.0, ge=1.0, le=10.0)
-    notes: Optional[str] = None
-
-
-class ZoneResponse(BaseModel):
-    """Zone information response."""
-    id: str
-    name: str
-    zone_type: str
-    interaction: str
-    penalty_factor: float
-    is_builtin: bool
-    coordinates: List[ZoneCoordinate]
-    notes: Optional[str] = None
-
 
 @app.get("/api/zones")
 async def get_all_zones():
@@ -6151,56 +5803,6 @@ def _cleanup_stale_caches():
 # ============================================================================
 
 
-class CIIFuelConsumption(BaseModel):
-    """Fuel consumption by type in metric tons."""
-    hfo: float = Field(0, ge=0, description="Heavy Fuel Oil (MT)")
-    lfo: float = Field(0, ge=0, description="Light Fuel Oil (MT)")
-    vlsfo: float = Field(0, ge=0, description="Very Low Sulphur Fuel Oil (MT)")
-    mdo: float = Field(0, ge=0, description="Marine Diesel Oil (MT)")
-    mgo: float = Field(0, ge=0, description="Marine Gas Oil (MT)")
-    lng: float = Field(0, ge=0, description="LNG (MT)")
-    lpg_propane: float = Field(0, ge=0, description="LPG Propane (MT)")
-    lpg_butane: float = Field(0, ge=0, description="LPG Butane (MT)")
-    methanol: float = Field(0, ge=0, description="Methanol (MT)")
-    ethanol: float = Field(0, ge=0, description="Ethanol (MT)")
-
-    def to_dict(self) -> Dict[str, float]:
-        return {k: v for k, v in self.model_dump().items() if v > 0}
-
-
-class CIICalculateRequest(BaseModel):
-    """Request for CII calculation."""
-    fuel_consumption_mt: CIIFuelConsumption
-    total_distance_nm: float = Field(..., gt=0)
-    dwt: float = Field(..., gt=0)
-    vessel_type: str = Field("tanker", description="IMO vessel type category")
-    year: int = Field(2024, ge=2019, le=2040)
-    gt: Optional[float] = Field(None, gt=0, description="Gross tonnage (for cruise/ro-ro passenger)")
-
-
-class CIIProjectRequest(BaseModel):
-    """Request for multi-year CII projection."""
-    annual_fuel_mt: CIIFuelConsumption
-    annual_distance_nm: float = Field(..., gt=0)
-    dwt: float = Field(..., gt=0)
-    vessel_type: str = Field("tanker")
-    start_year: int = Field(2024, ge=2019, le=2040)
-    end_year: int = Field(2030, ge=2019, le=2040)
-    fuel_efficiency_improvement_pct: float = Field(0, ge=0, le=20, description="Annual efficiency improvement %")
-    gt: Optional[float] = Field(None, gt=0)
-
-
-class CIIReductionRequest(BaseModel):
-    """Request for CII reduction calculation."""
-    current_fuel_mt: CIIFuelConsumption
-    current_distance_nm: float = Field(..., gt=0)
-    dwt: float = Field(..., gt=0)
-    vessel_type: str = Field("tanker")
-    target_rating: str = Field("C", description="Target rating: A, B, C, or D")
-    target_year: int = Field(2026, ge=2019, le=2040)
-    gt: Optional[float] = Field(None, gt=0)
-
-
 def _resolve_vessel_type(name: str) -> CIIVesselType:
     """Resolve vessel type string to enum."""
     mapping = {vt.value: vt for vt in CIIVesselType}
@@ -6473,69 +6075,6 @@ def _load_vessel_specs_from_db() -> Optional[dict]:
         }
 
 
-class EngineLogUploadResponse(BaseModel):
-    """Response from engine log upload."""
-    status: str
-    batch_id: str
-    imported: int
-    skipped: int
-    date_range: Optional[Dict] = None
-    events_summary: Optional[Dict[str, int]] = None
-
-
-class EngineLogEntryResponse(BaseModel):
-    """Serialized engine log entry."""
-    id: str
-    timestamp: datetime
-    lapse_hours: Optional[float] = None
-    place: Optional[str] = None
-    event: Optional[str] = None
-    rpm: Optional[float] = None
-    engine_distance: Optional[float] = None
-    speed_stw: Optional[float] = None
-    me_power_kw: Optional[float] = None
-    me_load_pct: Optional[float] = None
-    me_fuel_index_pct: Optional[float] = None
-    shaft_power: Optional[float] = None
-    shaft_torque_knm: Optional[float] = None
-    slip_pct: Optional[float] = None
-    hfo_me_mt: Optional[float] = None
-    hfo_ae_mt: Optional[float] = None
-    hfo_boiler_mt: Optional[float] = None
-    hfo_total_mt: Optional[float] = None
-    mgo_me_mt: Optional[float] = None
-    mgo_ae_mt: Optional[float] = None
-    mgo_total_mt: Optional[float] = None
-    methanol_me_mt: Optional[float] = None
-    rob_vlsfo_mt: Optional[float] = None
-    rob_mgo_mt: Optional[float] = None
-    rob_methanol_mt: Optional[float] = None
-    rh_me: Optional[float] = None
-    rh_ae_total: Optional[float] = None
-    tc_rpm: Optional[float] = None
-    scav_air_press_bar: Optional[float] = None
-    fuel_temp_c: Optional[float] = None
-    sw_temp_c: Optional[float] = None
-    upload_batch_id: str
-    source_sheet: Optional[str] = None
-    source_file: Optional[str] = None
-    extended_data: Optional[Dict] = None
-
-    class Config:
-        from_attributes = True
-
-
-class EngineLogSummaryResponse(BaseModel):
-    """Aggregated engine log summary."""
-    total_entries: int
-    date_range: Optional[Dict] = None
-    events_breakdown: Optional[Dict[str, int]] = None
-    fuel_summary: Optional[Dict] = None
-    avg_rpm_at_sea: Optional[float] = None
-    avg_speed_stw: Optional[float] = None
-    batches: Optional[List[Dict]] = None
-
-
 MAX_EXCEL_UPLOAD_BYTES = 50 * 1024 * 1024  # 50 MB
 
 
@@ -6784,17 +6323,6 @@ async def delete_engine_log_batch(
 # ============================================================================
 # Engine Log → Calibration Bridge
 # ============================================================================
-
-class EngineLogCalibrateResponse(BaseModel):
-    """Response from engine-log-based calibration."""
-    status: str
-    factors: CalibrationFactorsModel
-    entries_used: int
-    entries_skipped: int
-    mean_error_before_mt: float
-    mean_error_after_mt: float
-    improvement_pct: float
-
 
 @app.post("/api/engine-log/calibrate", response_model=EngineLogCalibrateResponse, tags=["Engine Log"], dependencies=[Depends(require_not_demo("Engine log calibration"))])
 @limiter.limit("5/minute")
