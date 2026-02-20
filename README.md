@@ -25,16 +25,16 @@ A weather routing and performance analytics platform for Medium Range (MR) Produ
 - **Batch management** — upload, browse, filter, and delete engine log batches
 
 ### Route Optimization
-- **Dual-engine optimization**: A\* grid search + VISIR-style Dijkstra with time-expanded graph
-- Both engines converge on ocean-crossing routes (tested: 901nm Portugal-Casquets, A\* -2.6% fuel, VISIR -0.7% fuel)
+- **Dual-engine optimization**: A\* grid search + Dijkstra with time-expanded graph (inspired by the VISIR model, independently implemented — VISIR itself is GPL-licensed)
+- Both engines converge on ocean-crossing routes (tested: 901nm Portugal-Casquets, A\* -2.6% fuel, Dijkstra -0.7% fuel)
 - All 6 route variants computed per request (2 engines x 3 safety weights: fuel / balanced / safety)
 - Sequential execution with progressive UI updates as each route completes
-- A\* grid at 0.2 deg (~12nm) resolution; VISIR at 0.25 deg (~15nm) — aligned with professional routing software (VISIR-2, StormGeo)
+- A\* grid at 0.2 deg (~12nm) resolution; Dijkstra at 0.25 deg (~15nm) — aligned with professional routing software
 - **Hard avoidance limits** — Hs >= 6m and wind >= 70 kts are instant rejection (no motion calculation)
 - **Seakeeping safety constraints** — graduated roll, pitch, acceleration limits with motion-based cost multipliers
 - Distance-adaptive land mask sampling (~1 check per 2nm, auto-scaled per segment length)
 - Per-edge land crossing checks on both engines using `global-land-mask` (1km resolution)
-- Voluntary speed reduction (VSR) in heavy weather (VISIR engine)
+- Voluntary speed reduction (VSR) in heavy weather (Dijkstra engine)
 - Variable speed optimization (10-18 knots per leg)
 - Turn-angle path smoothing to eliminate grid staircase artifacts
 - RTZ file import/export (IEC 61174 ECDIS standard)
@@ -100,7 +100,7 @@ windmar/
 │   │   ├── weather.py             # 31 weather endpoints, forecast layers, cache mgmt
 │   │   ├── vessel.py              # Vessel specs, calibration, noon reports, prediction
 │   │   ├── voyage.py              # Voyage calculation, Monte Carlo, weather-along-route
-│   │   ├── optimization.py        # A* / VISIR route optimization, optimizer status
+│   │   ├── optimization.py        # A* / Dijkstra route optimization, optimizer status
 │   │   ├── engine_log.py          # Engine log upload, entries, summary, calibration
 │   │   ├── zones.py               # Regulatory zone CRUD and spatial queries
 │   │   ├── cii.py                 # CII compliance calculations and projections
@@ -135,8 +135,8 @@ windmar/
 │   │   ├── vessel_model.py        # Holtrop-Mennen + Kwon resistance, SFOC, performance predictor
 │   │   ├── base_optimizer.py      # Abstract base class for route optimizers
 │   │   ├── route_optimizer.py     # A* grid search with weather costs (0.2 deg)
-│   │   ├── visir_optimizer.py     # VISIR-style Dijkstra time-expanded graph (0.25 deg)
-│   │   ├── router.py              # Engine dispatcher (A*/VISIR selection)
+│   │   ├── visir_optimizer.py     # Dijkstra time-expanded graph, adapted from VISIR approach (0.25 deg)
+│   │   ├── router.py              # Engine dispatcher (A*/Dijkstra selection)
 │   │   ├── voyage.py              # Per-leg voyage calculator (LegWeather, VoyageResult)
 │   │   ├── monte_carlo.py         # Temporal MC simulation with Cholesky correlation
 │   │   ├── grid_weather_provider.py     # Bilinear interpolation from pre-fetched grids
@@ -328,7 +328,7 @@ See `WEATHER_PIPELINE.md` for full technical details on data acquisition, GRIB p
 - `POST /api/voyage/monte-carlo` - Parametric MC simulation (P10/P50/P90)
 
 ### Optimization
-- `POST /api/optimize/route` - Weather-optimal route finding (A\* or VISIR engine)
+- `POST /api/optimize/route` - Weather-optimal route finding (A\* or Dijkstra engine)
 - `GET /api/optimize/status` - Optimizer configuration and available targets
 
 ### Vessel
@@ -442,10 +442,10 @@ Engine log ingestion and analytics, physics model upgrade (SFOC fix, Kwon's wave
 
 **Optimizer Fixes**
 
-- **VISIR cost formula corrected** — safety and zone multipliers now apply to fuel cost only, not the time penalty; previous formula `(fuel + lambda*hours) * safety * zone` inflated detour costs; fixed to `fuel * safety * zone + lambda*hours`
+- **Dijkstra cost formula corrected** — safety and zone multipliers now apply to fuel cost only, not the time penalty; previous formula `(fuel + lambda*hours) * safety * zone` inflated detour costs; fixed to `fuel * safety * zone + lambda*hours`
 - **Hard avoidance limits** — Hs >= 6m and wind >= 70 kts trigger instant rejection (`inf` cost) before computing vessel motions, matching MR Product Tanker operational limits (Beaufort 9+)
-- **Wind speed plumbed to safety checks** — `get_safety_cost_factor()` now receives wind speed in both A\* and VISIR engines
-- **VISIR converges on 901nm route** (Portugal to Casquets): 377 cells, 1.5s compute, -0.7% fuel savings
+- **Wind speed plumbed to safety checks** — `get_safety_cost_factor()` now receives wind speed in both A\* and Dijkstra engines
+- **Dijkstra converges on 901nm route** (Portugal to Casquets): 377 cells, 1.5s compute, -0.7% fuel savings
 - **A\* converges on 901nm route**: -2.6% fuel savings
 
 **Model Curves & Calibration**

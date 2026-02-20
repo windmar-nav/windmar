@@ -3,7 +3,7 @@ FastAPI Backend for WINDMAR — Weather Routing & Performance Analytics.
 
 Provides REST API endpoints for:
 - Weather data visualization (wind/wave fields)
-- Route optimization (A*/VISIR weather routing)
+- Route optimization (A*/Dijkstra weather routing)
 - Voyage calculation (per-leg SOG, ETA, fuel)
 - Vessel configuration and calibration
 - Engine log analytics
@@ -65,7 +65,7 @@ and voyage planning.
 
 ### Features
 - Real-time weather data integration (GFS, Copernicus CMEMS)
-- A*/VISIR weather routing optimization
+- A*/Dijkstra weather routing optimization
 - Vessel performance modeling with calibration
 - Engine log ingestion and analytics
 - Regulatory zone management (ECA, HRA, TSS)

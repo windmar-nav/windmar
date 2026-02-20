@@ -128,7 +128,7 @@ windmar/
 │   │   ├── weather.py          # Weather endpoints, forecast layers
 │   │   ├── vessel.py           # Vessel specs, calibration, prediction
 │   │   ├── voyage.py           # Voyage calc, Monte Carlo
-│   │   ├── optimization.py     # A*/VISIR route optimization
+│   │   ├── optimization.py     # A*/Dijkstra route optimization
 │   │   ├── engine_log.py       # Engine log upload and analytics
 │   │   ├── zones.py            # Regulatory zone CRUD
 │   │   ├── cii.py              # CII compliance
@@ -144,7 +144,7 @@ windmar/
 │   ├── cache.py                # Redis weather cache
 │   └── rate_limit.py           # slowapi rate limiting
 ├── src/                        # Core domain logic
-│   ├── optimization/           # Route optimizers (A*, VISIR, vessel model)
+│   ├── optimization/           # Route optimizers (A*, Dijkstra, vessel model)
 │   ├── data/                   # Weather providers (GFS, CMEMS, Copernicus)
 │   ├── sensors/                # SBG IMU drivers
 │   ├── fusion/                 # Data fusion
