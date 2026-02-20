@@ -12,6 +12,7 @@ import Header from '@/components/Header';
 import MonteCarloPanel from '@/components/MonteCarloPanel';
 import ProfileCharts from '@/components/ProfileCharts';
 import { getAnalyses, AnalysisEntry } from '@/lib/analysisStorage';
+import { DEMO_MODE } from '@/lib/demoMode';
 import { LegResult } from '@/lib/api';
 
 function formatDuration(hours: number): string {
@@ -250,7 +251,7 @@ function AnalysisPage() {
         )}
 
         {/* ── SOG Profile & ETA Comparison ── */}
-        {analysis.optimizations && Object.keys(analysis.optimizations).length > 0 && (
+        {!DEMO_MODE && analysis.optimizations && Object.keys(analysis.optimizations).length > 0 && (
           <div className="mb-8">
             <ProfileCharts
               baseline={analysis.result}

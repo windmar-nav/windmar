@@ -6,6 +6,7 @@ import Link from 'next/link';
 import VoyageDropdown from '@/components/VoyageDropdown';
 import RegulationsDropdown from '@/components/RegulationsDropdown';
 import { useVoyage } from '@/components/VoyageContext';
+import { DEMO_MODE, DEMO_TOOLTIP } from '@/lib/demoMode';
 
 type DropdownId = 'voyage' | 'regulations' | null;
 
@@ -104,6 +105,7 @@ export default function Header({ onFitRoute }: HeaderProps) {
             </Link>
 
             {/* Engine Log — navigates to /engine-log */}
+            {!DEMO_MODE && (
             <Link
               href="/engine-log"
               className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
@@ -112,6 +114,7 @@ export default function Header({ onFitRoute }: HeaderProps) {
               <ScrollText className="w-5 h-5" />
               <span className="text-sm font-medium hidden sm:inline">Engine Log</span>
             </Link>
+            )}
 
             {/* Voyage — dropdown */}
             <div className="relative">
@@ -133,6 +136,7 @@ export default function Header({ onFitRoute }: HeaderProps) {
             </div>
 
             {/* Regulations — dropdown */}
+            {!DEMO_MODE && (
             <div className="relative">
               <button
                 onClick={() => toggle('regulations')}
@@ -148,14 +152,15 @@ export default function Header({ onFitRoute }: HeaderProps) {
               </button>
               {openDropdown === 'regulations' && <RegulationsDropdown />}
             </div>
+            )}
 
             {/* Separator */}
             <div className="w-px h-6 bg-white/10 mx-2" />
 
             {/* Status Indicator */}
-            <div className="flex items-center space-x-2">
-              <div className="w-2 h-2 bg-green-400 rounded-full animate-pulse" />
-              <span className="text-sm text-gray-300">Online</span>
+            <div className="flex items-center space-x-2" title={DEMO_MODE ? DEMO_TOOLTIP : undefined}>
+              <div className={`w-2 h-2 rounded-full animate-pulse ${DEMO_MODE ? 'bg-amber-400' : 'bg-green-400'}`} />
+              <span className="text-sm text-gray-300">{DEMO_MODE ? 'DEMO' : 'Online'}</span>
             </div>
 
             {/* Exit */}

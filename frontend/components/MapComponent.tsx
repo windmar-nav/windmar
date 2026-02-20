@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Loader2 } from 'lucide-react';
 import { Position, WindFieldData, WaveFieldData, VelocityData, CreateZoneRequest, WaveForecastFrames, IceForecastFrames, SstForecastFrames, VisForecastFrames, AllOptimizationResults, RouteVisibility, OptimizedRouteKey, ROUTE_STYLES } from '@/lib/api';
+import { DEMO_MODE, DEMO_BOUNDS } from '@/lib/demoMode';
 
 // Dynamic imports for map components (client-side only)
 const MapContainer = dynamic(
@@ -162,7 +163,7 @@ export default function MapComponent({
         center={DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
         minZoom={3}
-        maxBounds={[[-85, -180], [85, 180]]}
+        maxBounds={DEMO_MODE ? DEMO_BOUNDS : [[-85, -180], [85, 180]]}
         maxBoundsViscosity={1.0}
         worldCopyJump={true}
         style={{ height: '100%', width: '100%' }}

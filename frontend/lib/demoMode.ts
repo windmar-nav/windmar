@@ -11,7 +11,7 @@ export const DEMO_TOOLTIP =
   'This feature is disabled in demo mode.';
 
 /** Canarias -> North Sea bounding box for map lock.
- *  Wave data coverage extends to 67.9°N in snapshot (run 344). */
+ *  Wave data coverage extends to 67.9N in snapshot (run 344). */
 export const DEMO_BOUNDS: [[number, number], [number, number]] = [
   [25, -20],
   [55, 10],

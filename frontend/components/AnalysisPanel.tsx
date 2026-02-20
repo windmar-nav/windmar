@@ -9,6 +9,7 @@ import {
 import Link from 'next/link';
 import RouteImport, { SampleRTZButton } from '@/components/RouteImport';
 import { useVoyage } from '@/components/VoyageContext';
+import { DEMO_MODE } from '@/lib/demoMode';
 import {
   Position, AllOptimizationResults, OptimizedRouteKey,
   RouteVisibility, ROUTE_STYLES, EMPTY_ALL_RESULTS,
@@ -115,6 +116,7 @@ export default function AnalysisPanel({
               <Navigation className="w-10 h-10 text-gray-600 mx-auto mb-3" />
               <p className="text-sm text-gray-400 mb-3">No route loaded</p>
               <div className="flex flex-col gap-2 items-center">
+                {!DEMO_MODE && (
                 <button
                   onClick={() => setShowImport(true)}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-primary-500/20 text-primary-400 hover:bg-primary-500/30 transition-colors"
@@ -122,6 +124,7 @@ export default function AnalysisPanel({
                   <Upload className="w-4 h-4" />
                   Import RTZ
                 </button>
+                )}
                 <button
                   onClick={() => loadSampleRoute(onRouteImport)}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-white/5 text-gray-300 hover:bg-white/10 transition-colors"
@@ -129,6 +132,7 @@ export default function AnalysisPanel({
                   <MapPin className="w-4 h-4" />
                   Load Sample Route
                 </button>
+                {!DEMO_MODE && (
                 <button
                   onClick={() => loadFileRef.current?.click()}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-white/5 text-gray-300 hover:bg-white/10 transition-colors"
@@ -136,6 +140,7 @@ export default function AnalysisPanel({
                   <FolderOpen className="w-4 h-4" />
                   Load from File
                 </button>
+                )}
                 <button
                   onClick={() => onIsEditingChange(true)}
                   className="flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium bg-white/5 text-gray-300 hover:bg-white/10 transition-colors"
