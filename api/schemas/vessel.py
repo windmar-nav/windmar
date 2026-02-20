@@ -11,7 +11,7 @@ from src.optimization.vessel_model import VesselSpecs
 class VesselConfig(BaseModel):
     """Vessel configuration.
 
-    Defaults sourced from VesselSpecs (canonical MR tanker definition).
+    Defaults sourced from VesselSpecs (MR tanker defaults, fully configurable).
     At runtime, values are overridden by DB-persisted specs on startup.
     """
     dwt: float = VesselSpecs.dwt

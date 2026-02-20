@@ -41,7 +41,7 @@ function WaypointEditorInner({
   waypoints,
   onWaypointsChange,
   isEditing,
-  routeColor = '#0073e6',
+  routeColor = '#3a5eae',
 }: WaypointEditorProps) {
   // Dynamic imports for react-leaflet components
   const { useMap, useMapEvents, Marker, Polyline, Popup } = require('react-leaflet');
@@ -53,7 +53,7 @@ function WaypointEditorInner({
   const createNumberedIcon = useCallback((index: number, total: number) => {
     const isFirst = index === 0;
     const isLast = index === total - 1;
-    const color = isFirst ? '#22c55e' : isLast ? '#ef4444' : '#0073e6';
+    const color = isFirst ? '#22c55e' : isLast ? '#ef4444' : '#3a5eae';
 
     return L.divIcon({
       className: 'numbered-waypoint-icon',

@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Ship, Gauge, Shield, Map, LogOut, Cloud, BarChart3, ScrollText } from 'lucide-react';
+import { Ship, Gauge, Shield, Map, LogOut, Cloud, BarChart3, ScrollText, ExternalLink, Info } from 'lucide-react';
 import Link from 'next/link';
 import VoyageDropdown from '@/components/VoyageDropdown';
 import RegulationsDropdown from '@/components/RegulationsDropdown';
@@ -149,6 +149,28 @@ export default function Header({ onFitRoute }: HeaderProps) {
               </button>
               {openDropdown === 'regulations' && <RegulationsDropdown />}
             </div>
+
+            {/* Docs — external link */}
+            <a
+              href="https://windmar-nav.github.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
+              title="Documentation"
+            >
+              <ExternalLink className="w-5 h-5" />
+              <span className="text-sm font-medium hidden sm:inline">Docs</span>
+            </a>
+
+            {/* About */}
+            <Link
+              href="/about"
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
+              title="About"
+            >
+              <Info className="w-5 h-5" />
+              <span className="text-sm font-medium hidden sm:inline">About</span>
+            </Link>
 
             {/* Separator */}
             <div className="w-px h-6 bg-white/10 mx-2" />

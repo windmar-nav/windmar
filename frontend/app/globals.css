@@ -4,8 +4,8 @@
 
 :root {
   --foreground-rgb: 255, 255, 255;
-  --background-start-rgb: 10, 22, 40;
-  --background-end-rgb: 26, 41, 66;
+  --background-start-rgb: 6, 12, 25;
+  --background-end-rgb: 13, 24, 40;
 }
 
 * {
@@ -45,7 +45,7 @@ a {
   height: 100%;
   width: 100%;
   z-index: 1;
-  background: #0a1628 !important; /* Match dark basemap — hides subpixel tile gaps */
+  background: #060c19 !important; /* Match dark basemap — hides subpixel tile gaps */
 }
 
 /* Country name labels on map */
@@ -72,16 +72,16 @@ a {
 }
 
 ::-webkit-scrollbar-track {
-  background: rgba(26, 41, 66, 0.4);
+  background: rgba(13, 24, 40, 0.4);
 }
 
 ::-webkit-scrollbar-thumb {
-  background: rgba(0, 115, 230, 0.5);
+  background: rgba(58, 94, 174, 0.4);
   border-radius: 4px;
 }
 
 ::-webkit-scrollbar-thumb:hover {
-  background: rgba(0, 115, 230, 0.7);
+  background: rgba(58, 94, 174, 0.65);
 }
 
 /* Animations */
@@ -102,15 +102,15 @@ a {
 
 /* Glass morphism effect */
 .glass {
-  background: rgba(26, 41, 66, 0.6);
+  background: rgba(13, 24, 40, 0.6);
   backdrop-filter: blur(10px);
   -webkit-backdrop-filter: blur(10px);
-  border: 1px solid rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.08);
 }
 
 /* Maritime gradient text */
 .maritime-gradient-text {
-  background: linear-gradient(135deg, #0073e6 0%, #008ba2 100%);
+  background: linear-gradient(135deg, #3a5eae 0%, #5c7aa1 100%);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
@@ -118,7 +118,7 @@ a {
 
 /* leaflet-velocity control dark theme override */
 .leaflet-control.velocity-control {
-  background: rgba(10, 22, 40, 0.85) !important;
+  background: rgba(6, 12, 25, 0.85) !important;
   backdrop-filter: blur(8px);
   -webkit-backdrop-filter: blur(8px);
   border: 1px solid rgba(255, 255, 255, 0.1) !important;

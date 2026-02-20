@@ -441,10 +441,10 @@ class VesselCalibrator:
         min_f = 1.0 - self.MAX_FACTOR_DEVIATION
         max_f = 1.0 + self.MAX_FACTOR_DEVIATION
         bounds = [
-            (0.85, 1.5),  # calm_water: allow more range for fouling
+            (0.6, 1.5),   # calm_water: wider range — Holtrop-Mennen can overpredict
             (min_f, max_f),  # wind
             (min_f, max_f),  # waves
-            (0.9, 1.2),  # sfoc_factor
+            (0.85, 1.2),   # sfoc_factor
         ]
 
         # Optimize

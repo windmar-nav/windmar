@@ -63,7 +63,7 @@ describe('FuelChart', () => {
 
     const calmWaterBar = screen.getByTestId('bar-calm_water');
     expect(calmWaterBar).toHaveAttribute('data-name', 'Calm Water');
-    expect(calmWaterBar).toHaveAttribute('data-fill', '#0073e6');
+    expect(calmWaterBar).toHaveAttribute('data-fill', '#3a5eae');
   });
 
   it('renders wind bar with correct config', () => {
@@ -71,7 +71,7 @@ describe('FuelChart', () => {
 
     const windBar = screen.getByTestId('bar-wind');
     expect(windBar).toHaveAttribute('data-name', 'Wind');
-    expect(windBar).toHaveAttribute('data-fill', '#008ba2');
+    expect(windBar).toHaveAttribute('data-fill', '#5c7aa1');
   });
 
   it('renders waves bar with correct config', () => {
@@ -79,7 +79,7 @@ describe('FuelChart', () => {
 
     const wavesBar = screen.getByTestId('bar-waves');
     expect(wavesBar).toHaveAttribute('data-name', 'Waves');
-    expect(wavesBar).toHaveAttribute('data-fill', '#4da5ff');
+    expect(wavesBar).toHaveAttribute('data-fill', '#7692d1');
   });
 
   it('renders chart elements', () => {

@@ -78,7 +78,7 @@ export default function RouteMap({
         <Polyline
           positions={waypoints}
           pathOptions={{
-            color: '#0073e6',
+            color: '#3a5eae',
             weight: 3,
             opacity: 0.8,
           }}

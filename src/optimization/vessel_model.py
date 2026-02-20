@@ -1,5 +1,5 @@
 """
-Vessel fuel consumption model for MR Product Tanker.
+Vessel fuel consumption model for merchant ships.
 
 Implements physics-based model using:
 - Holtrop-Mennen resistance prediction
@@ -40,7 +40,7 @@ def seawater_viscosity(sst_celsius: float) -> float:
 
 @dataclass
 class VesselSpecs:
-    """Vessel specifications for MR Product Tanker."""
+    """Vessel specifications. Defaults are for an MR Product Tanker (49k DWT)."""
 
     # Dimensions
     loa: float = 183.0  # Length overall (m)
@@ -79,10 +79,11 @@ class VesselSpecs:
 
 class VesselModel:
     """
-    Fuel consumption model for MR Product Tanker.
+    Physics-based fuel consumption model for merchant ships.
 
     Calculates fuel consumption based on vessel specs, speed,
-    loading condition, and weather conditions.
+    loading condition, and weather conditions. Defaults to MR
+    Product Tanker parameters; all specs are configurable.
     """
 
     # Seawater properties

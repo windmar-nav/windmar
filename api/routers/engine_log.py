@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, Depends, File, HTTPException, Query, Request, UploadFile
-from sqlalchemy import func
+from sqlalchemy import func, distinct
 
 from api.auth import get_api_key
 from api.database import get_db
@@ -83,14 +83,37 @@ async def upload_engine_log(
     batch_id = uuid_mod.uuid4()
     vessel_uuid = uuid_mod.UUID(vessel_id) if vessel_id else None
 
+    # Build set of existing (timestamp, event) pairs for deduplication
+    existing_keys: set = set()
+    if entries:
+        timestamps = [e["timestamp"] for e in entries if e.get("timestamp")]
+        if timestamps:
+            ts_min, ts_max = min(timestamps), max(timestamps)
+            dup_q = db.query(EngineLogEntry.timestamp, EngineLogEntry.event).filter(
+                EngineLogEntry.timestamp >= ts_min,
+                EngineLogEntry.timestamp <= ts_max,
+            )
+            if vessel_uuid:
+                dup_q = dup_q.filter(EngineLogEntry.vessel_id == vessel_uuid)
+            existing_keys = {(row.timestamp, row.event) for row in dup_q.all()}
+
     db_entries = []
+    skipped = 0
     for entry in entries:
+        ts = entry["timestamp"]
+        ev = entry.get("event")
+
+        # Deduplicate: skip if (timestamp, event) already exists
+        if (ts, ev) in existing_keys:
+            skipped += 1
+            continue
+
         db_entry = EngineLogEntry(
             vessel_id=vessel_uuid,
-            timestamp=entry["timestamp"],
+            timestamp=ts,
             lapse_hours=entry.get("lapse_hours"),
             place=entry.get("place"),
-            event=entry.get("event"),
+            event=ev,
             rpm=entry.get("rpm"),
             engine_distance=entry.get("engine_distance"),
             speed_stw=entry.get("speed_stw"),
@@ -123,6 +146,8 @@ async def upload_engine_log(
             extended_data=entry.get("extended_data"),
         )
         db_entries.append(db_entry)
+        # Track within-batch duplicates too
+        existing_keys.add((ts, ev))
 
     db.add_all(db_entries)
     db.commit()
@@ -133,7 +158,7 @@ async def upload_engine_log(
         status="success",
         batch_id=str(batch_id),
         imported=len(db_entries),
-        skipped=0,
+        skipped=skipped,
         date_range=stats.get("date_range"),
         events_summary=stats.get("events_breakdown"),
     )
@@ -285,16 +310,27 @@ async def calibrate_from_engine_log(
     db=Depends(get_db),
 ):
     """
-    Calibrate vessel model from engine log NOON entries.
+    Calibrate vessel model from NOON-at-sea engine log entries.
 
-    Converts NOON entries (speed, fuel, power, RPM) into NoonReport objects,
-    feeds them to VesselCalibrator.calibrate(), and applies the resulting
-    factors to the vessel model.
+    Only NOON entries where the vessel is steaming at sea are used:
+    - event = NOON
+    - place = "at sea" (case-insensitive)
+    - RPM > 0 (main engine running)
+    - ME fuel consumption > 0 (engine burning fuel)
+    - speed STW > 0
+    Entries are deduplicated by timestamp to prevent double-counting
+    from overlapping uploads.
     """
     _vs = get_vessel_state()
 
-    # Query NOON entries
-    query = db.query(EngineLogEntry).filter(EngineLogEntry.event == "NOON")
+    # Query NOON at-sea entries only:
+    # place must be "at sea" (case-insensitive) — excludes port, anchorage, yard
+    # RPM > 0 means ME is turning
+    query = db.query(EngineLogEntry).filter(
+        EngineLogEntry.event == "NOON",
+        func.lower(func.trim(EngineLogEntry.place)) == "at sea",
+        EngineLogEntry.rpm > 0,
+    )
     if batch_id:
         try:
             bid = uuid_mod.UUID(batch_id)
@@ -304,19 +340,57 @@ async def calibrate_from_engine_log(
 
     noon_rows = query.order_by(EngineLogEntry.timestamp).all()
 
-    # Convert to NoonReport objects, skipping invalid entries
+    # Deduplicate by timestamp (keep the first occurrence)
+    seen_timestamps: set = set()
+    unique_rows = []
+    for row in noon_rows:
+        if row.timestamp in seen_timestamps:
+            continue
+        seen_timestamps.add(row.timestamp)
+        unique_rows.append(row)
+
+    duplicates_removed = len(noon_rows) - len(unique_rows)
+    if duplicates_removed:
+        logger.info(f"Calibration: removed {duplicates_removed} duplicate NOON entries")
+
+    # Convert to NoonReport objects — only NOON at-sea entries
+    # The physics model predicts ME fuel only (brake power × SFOC × time).
+    # We must compare against ME-specific fuel when available, not total fuel
+    # which includes auxiliary engines and boiler.
     noon_reports: List[NoonReport] = []
     skipped = 0
-    for row in noon_rows:
+    for row in unique_rows:
         speed = row.speed_stw
-        hfo = row.hfo_total_mt or 0.0
-        mgo = row.mgo_total_mt or 0.0
-        fuel = hfo + mgo
+        hfo_me = row.hfo_me_mt or 0.0
+        mgo_me = row.mgo_me_mt or 0.0
+        hfo_total = row.hfo_total_mt or 0.0
+        mgo_total = row.mgo_total_mt or 0.0
 
-        # Skip entries with no speed or no fuel
-        if not speed or speed <= 0 or fuel <= 0:
+        # Prefer ME-specific fuel (matches the physics model prediction).
+        # Fall back to total fuel only when ME columns are not reported.
+        me_fuel_available = (row.hfo_me_mt is not None or row.mgo_me_mt is not None)
+        if me_fuel_available:
+            fuel = hfo_me + mgo_me
+            if fuel <= 0:
+                skipped += 1
+                continue
+        else:
+            fuel = hfo_total + mgo_total
+            if fuel <= 0:
+                skipped += 1
+                continue
+
+        # Must have valid speed
+        if not speed or speed <= 0:
             skipped += 1
             continue
+
+        # Determine loading condition from ME load %.
+        # Laden voyages: higher displacement → more resistance → higher ME load.
+        # Threshold 55% separates the bimodal distribution observed in the data.
+        is_laden = True  # default when ME load % not reported
+        if row.me_load_pct is not None:
+            is_laden = row.me_load_pct > 55.0
 
         noon_reports.append(NoonReport(
             timestamp=row.timestamp,
@@ -326,7 +400,7 @@ async def calibrate_from_engine_log(
             speed_through_water_kts=speed,
             fuel_consumption_mt=fuel,
             period_hours=row.lapse_hours if row.lapse_hours and row.lapse_hours > 0 else 24.0,
-            is_laden=True,
+            is_laden=is_laden,
             engine_power_kw=row.me_power_kw,
             engine_rpm=row.rpm,
         ))
@@ -334,8 +408,9 @@ async def calibrate_from_engine_log(
     if len(noon_reports) < VesselCalibrator.MIN_REPORTS:
         raise HTTPException(
             status_code=400,
-            detail=f"Need at least {VesselCalibrator.MIN_REPORTS} valid NOON entries for calibration. "
-                   f"Found {len(noon_reports)} valid, {skipped} skipped."
+            detail=f"Need at least {VesselCalibrator.MIN_REPORTS} valid NOON-at-sea entries for calibration. "
+                   f"Found {len(noon_reports)} valid, {skipped} skipped, "
+                   f"{duplicates_removed} duplicates removed."
         )
 
     try:
@@ -361,7 +436,7 @@ async def calibrate_from_engine_log(
                 days_since_drydock=result.factors.days_since_drydock,
             ),
             entries_used=result.reports_used,
-            entries_skipped=skipped,
+            entries_skipped=skipped + duplicates_removed,
             mean_error_before_mt=result.mean_error_before,
             mean_error_after_mt=result.mean_error_after,
             improvement_pct=result.improvement_pct,

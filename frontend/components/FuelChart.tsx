@@ -28,7 +28,7 @@ export default function FuelChart({ data }: FuelChartProps) {
         />
         <Tooltip
           contentStyle={{
-            backgroundColor: 'rgba(26, 41, 66, 0.9)',
+            backgroundColor: 'rgba(13, 24, 40, 0.9)',
             border: '1px solid rgba(255, 255, 255, 0.1)',
             borderRadius: '8px',
           }}
@@ -38,9 +38,9 @@ export default function FuelChart({ data }: FuelChartProps) {
           wrapperStyle={{ paddingTop: '20px' }}
           iconType="circle"
         />
-        <Bar dataKey="calm_water" name="Calm Water" fill="#0073e6" stackId="a" />
-        <Bar dataKey="wind" name="Wind" fill="#008ba2" stackId="a" />
-        <Bar dataKey="waves" name="Waves" fill="#4da5ff" stackId="a" />
+        <Bar dataKey="calm_water" name="Calm Water" fill="#3a5eae" stackId="a" />
+        <Bar dataKey="wind" name="Wind" fill="#5c7aa1" stackId="a" />
+        <Bar dataKey="waves" name="Waves" fill="#7692d1" stackId="a" />
       </BarChart>
     </ResponsiveContainer>
   );

@@ -36,6 +36,26 @@ class TestUpload:
         assert resp.status_code == 400
 
 
+class TestDeduplication:
+    def test_duplicate_upload_skips_existing(self, client, sample_elog_bytes):
+        """Uploading the same file twice should deduplicate entries."""
+        resp1 = client.post("/api/engine-log/upload",
+                            files={"file": ("test_elog.xlsx", sample_elog_bytes)})
+        assert resp1.status_code == 200
+        assert resp1.json()["imported"] == 3
+        assert resp1.json()["skipped"] == 0
+
+        resp2 = client.post("/api/engine-log/upload",
+                            files={"file": ("test_elog.xlsx", sample_elog_bytes)})
+        assert resp2.status_code == 200
+        assert resp2.json()["imported"] == 0
+        assert resp2.json()["skipped"] == 3
+
+        # Total entries should be 3, not 6
+        entries = client.get("/api/engine-log/entries").json()
+        assert len(entries) == 3
+
+
 class TestQuery:
     @pytest.fixture(autouse=True)
     def _upload(self, client, sample_elog_bytes):

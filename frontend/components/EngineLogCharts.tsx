@@ -9,7 +9,7 @@ import {
 import { EngineLogEntryResponse } from '@/lib/api';
 
 const MARITIME_TOOLTIP = {
-  backgroundColor: 'rgba(26, 41, 66, 0.9)',
+  backgroundColor: 'rgba(13, 24, 40, 0.9)',
   border: '1px solid rgba(255, 255, 255, 0.1)',
   borderRadius: '8px',
 };
@@ -64,7 +64,7 @@ export function FuelTimelineChart({ entries }: FuelTimelineChartProps) {
         />
         <Tooltip contentStyle={MARITIME_TOOLTIP} labelStyle={{ color: '#fff' }} />
         <Legend wrapperStyle={{ paddingTop: '10px' }} iconType="circle" />
-        <Line type="monotone" dataKey="HFO" stroke="#0073e6" strokeWidth={2} dot={{ r: 2 }} />
+        <Line type="monotone" dataKey="HFO" stroke="#3a5eae" strokeWidth={2} dot={{ r: 2 }} />
         <Line type="monotone" dataKey="MGO" stroke="#00b4d8" strokeWidth={2} dot={{ r: 2 }} />
       </LineChart>
     </ResponsiveContainer>
@@ -112,7 +112,7 @@ export function RpmDistributionChart({ entries }: RpmDistributionChartProps) {
           label={{ value: 'Count', angle: -90, position: 'insideLeft', style: { fill: '#9ca3af' } }}
         />
         <Tooltip contentStyle={MARITIME_TOOLTIP} labelStyle={{ color: '#fff' }} />
-        <Bar dataKey="count" name="Entries" fill="#008ba2" radius={[4, 4, 0, 0]} />
+        <Bar dataKey="count" name="Entries" fill="#5c7aa1" radius={[4, 4, 0, 0]} />
       </BarChart>
     </ResponsiveContainer>
   );
@@ -318,7 +318,7 @@ export function PowerSpeedChart({ entries, mcrPower = 6600, serviceSpeed = 13 }:
           data={data}
           dataKey="speed"
           name="Actual"
-          fill="#0073e6"
+          fill="#3a5eae"
           fillOpacity={0.7}
         />
       </ComposedChart>
@@ -392,7 +392,7 @@ export function SfocLoadChart({ entries, mcrSfoc = 171 }: SfocLoadChartProps) {
           strokeDasharray="6 4"
           label={{ value: `MCR ${mcrSfoc}`, fill: '#f59e0b', fontSize: 11, position: 'right' }}
         />
-        <Scatter name="SFOC" data={data} fill="#008ba2" fillOpacity={0.7} />
+        <Scatter name="SFOC" data={data} fill="#5c7aa1" fillOpacity={0.7} />
       </ScatterChart>
     </ResponsiveContainer>
   );
@@ -445,8 +445,8 @@ export function FuelBreakdownChart({ entries }: FuelBreakdownChartProps) {
         />
         <Tooltip contentStyle={MARITIME_TOOLTIP} labelStyle={{ color: '#fff' }} />
         <Legend wrapperStyle={{ paddingTop: '10px' }} iconType="circle" />
-        <Bar dataKey="ME" stackId="fuel" fill="#0073e6" radius={[0, 0, 0, 0]} />
-        <Bar dataKey="AE" stackId="fuel" fill="#008ba2" />
+        <Bar dataKey="ME" stackId="fuel" fill="#3a5eae" radius={[0, 0, 0, 0]} />
+        <Bar dataKey="AE" stackId="fuel" fill="#5c7aa1" />
         <Bar dataKey="Boiler" stackId="fuel" fill="#f59e0b" />
         <Bar dataKey="MGO" stackId="fuel" fill="#22c55e" radius={[4, 4, 0, 0]} />
       </BarChart>
@@ -532,21 +532,21 @@ export function TurbochargerChart({ entries }: TurbochargerChartProps) {
         <XAxis dataKey="date" stroke="#9ca3af" style={AXIS_STYLE} />
         <YAxis
           yAxisId="left"
-          stroke="#0073e6"
+          stroke="#3a5eae"
           style={AXIS_STYLE}
-          label={{ value: 'TC RPM', angle: -90, position: 'insideLeft', style: { fill: '#0073e6' } }}
+          label={{ value: 'TC RPM', angle: -90, position: 'insideLeft', style: { fill: '#3a5eae' } }}
         />
         <YAxis
           yAxisId="right"
           orientation="right"
-          stroke="#008ba2"
+          stroke="#5c7aa1"
           style={AXIS_STYLE}
-          label={{ value: 'Scav Air (bar)', angle: 90, position: 'insideRight', style: { fill: '#008ba2' } }}
+          label={{ value: 'Scav Air (bar)', angle: 90, position: 'insideRight', style: { fill: '#5c7aa1' } }}
         />
         <Tooltip contentStyle={MARITIME_TOOLTIP} labelStyle={{ color: '#fff' }} />
         <Legend wrapperStyle={{ paddingTop: '10px' }} iconType="circle" />
-        <Line yAxisId="left" type="monotone" dataKey="tcRpm" name="TC RPM" stroke="#0073e6" strokeWidth={2} dot={{ r: 2 }} />
-        <Line yAxisId="right" type="monotone" dataKey="scavAir" name="Scav Air" stroke="#008ba2" strokeWidth={2} dot={{ r: 2 }} connectNulls />
+        <Line yAxisId="left" type="monotone" dataKey="tcRpm" name="TC RPM" stroke="#3a5eae" strokeWidth={2} dot={{ r: 2 }} />
+        <Line yAxisId="right" type="monotone" dataKey="scavAir" name="Scav Air" stroke="#5c7aa1" strokeWidth={2} dot={{ r: 2 }} connectNulls />
       </ComposedChart>
     </ResponsiveContainer>
   );
