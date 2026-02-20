@@ -76,7 +76,18 @@ jobs:
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:demo
             docker pull ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-frontend:demo
 
+            # Ensure data dir and snapshot placeholder exist (prevents Docker dir-mount)
+            mkdir -p data
+            if [ ! -f data/demo-snapshot.sql.gz ]; then
+              echo "-- Empty snapshot placeholder" | gzip > data/demo-snapshot.sql.gz
+              echo "WARNING: demo-snapshot.sql.gz was missing, created placeholder"
+            fi
+
             docker compose -f docker-compose.demo.yml down
             docker compose -f docker-compose.demo.yml up -d --force-recreate
+
+            # Wait for services to be healthy
+            sleep 30
+            docker compose -f docker-compose.demo.yml ps
 
             docker image prune -f
