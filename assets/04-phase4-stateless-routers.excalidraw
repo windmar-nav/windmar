@@ -1,0 +1,412 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "mcp-excalidraw-server",
+  "elements": [
+    {
+      "id": "mlv1mrw42g3a2wdxlcr",
+      "type": "text",
+      "x": 200,
+      "y": 15,
+      "strokeColor": "#1e1e1e",
+      "text": "Phase 4: Stateless Router Extraction",
+      "fontSize": 28,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw4ob80mpz9l1",
+      "type": "text",
+      "x": 200,
+      "y": 50,
+      "strokeColor": "#868e96",
+      "text": "main.py 5309→4629 LOC | 4 new routers | 23 endpoints moved | 93 routes",
+      "fontSize": 14,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "m4",
+      "type": "rectangle",
+      "x": 300,
+      "y": 100,
+      "width": 280,
+      "height": 65,
+      "backgroundColor": "#fff3bf",
+      "strokeColor": "#e67700",
+      "strokeWidth": 2,
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw4ffedt0hjru6",
+      "type": "text",
+      "x": 320,
+      "y": 112,
+      "strokeColor": "#e67700",
+      "text": "api/main.py\n4,629 LOC · 93 routes",
+      "fontSize": 16,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "zones",
+      "type": "rectangle",
+      "x": 40,
+      "y": 240,
+      "width": 180,
+      "height": 60,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw48ycpe3jvyi2",
+      "type": "text",
+      "x": 55,
+      "y": 252,
+      "strokeColor": "#2f9e44",
+      "text": "zones.py (211)\n7 endpoints",
+      "fontSize": 13,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "cii",
+      "type": "rectangle",
+      "x": 250,
+      "y": 240,
+      "width": 180,
+      "height": 60,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw477b8px4tyzy",
+      "type": "text",
+      "x": 270,
+      "y": 252,
+      "strokeColor": "#2f9e44",
+      "text": "cii.py (175)\n5 endpoints",
+      "fontSize": 13,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "rts",
+      "type": "rectangle",
+      "x": 460,
+      "y": 240,
+      "width": 180,
+      "height": 60,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw4cnkyejm3b2a",
+      "type": "text",
+      "x": 475,
+      "y": 252,
+      "strokeColor": "#2f9e44",
+      "text": "routes.py (117)\n2 endpoints",
+      "fontSize": 13,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "sys",
+      "type": "rectangle",
+      "x": 670,
+      "y": 240,
+      "width": 180,
+      "height": 60,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw40l18168goja",
+      "type": "text",
+      "x": 685,
+      "y": 252,
+      "strokeColor": "#2f9e44",
+      "text": "system.py (260)\n9 endpoints",
+      "fontSize": 13,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw4744b2bcroyd",
+      "type": "arrow",
+      "x": 359.4143504200047,
+      "y": 168.24363489435274,
+      "width": -200,
+      "height": 70,
+      "strokeColor": "#2f9e44",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -154.46506447637313,
+          68.51273021129452
+        ]
+      ],
+      "endArrowhead": "arrow",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1,
+      "startBinding": {
+        "elementId": "m4",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "zones",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mlv1mrw494cfn718g5q",
+      "type": "arrow",
+      "x": 411.658262782236,
+      "y": 171.4698886744255,
+      "width": -60,
+      "height": 70,
+      "strokeColor": "#2f9e44",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -45.13470738265386,
+          62.06022265114899
+        ]
+      ],
+      "endArrowhead": "arrow",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1,
+      "startBinding": {
+        "elementId": "m4",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "cii",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mlv1mrw49086rs6m2s7",
+      "type": "arrow",
+      "x": 470.9975603804354,
+      "y": 171.24695047554425,
+      "width": 80,
+      "height": 70,
+      "strokeColor": "#2f9e44",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          50.004879239129195,
+          62.506099048911494
+        ]
+      ],
+      "endArrowhead": "arrow",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1,
+      "startBinding": {
+        "elementId": "m4",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "rts",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mlv1mrw43wp8orp5cmx",
+      "type": "arrow",
+      "x": 522.9865504380638,
+      "y": 168.15828339135555,
+      "width": 200,
+      "height": 70,
+      "strokeColor": "#2f9e44",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          159.84508094205432,
+          68.6834332172889
+        ]
+      ],
+      "endArrowhead": "arrow",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1,
+      "startBinding": {
+        "elementId": "m4",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "sys",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mlv1mrw4ocoyhajsmce",
+      "type": "rectangle",
+      "x": 40,
+      "y": 340,
+      "width": 160,
+      "height": 45,
+      "backgroundColor": "#e7f5ff",
+      "strokeColor": "#1971c2",
+      "strokeWidth": 1,
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw4bcf76k7ciy5",
+      "type": "text",
+      "x": 50,
+      "y": 350,
+      "strokeColor": "#1971c2",
+      "text": "state.py (341)",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw4e20cz0zmcy",
+      "type": "rectangle",
+      "x": 220,
+      "y": 340,
+      "width": 210,
+      "height": 45,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 1,
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw4zkw1oai3bj8",
+      "type": "text",
+      "x": 230,
+      "y": 350,
+      "strokeColor": "#2f9e44",
+      "text": "weather_service.py (536)",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw4uloct2rucug",
+      "type": "rectangle",
+      "x": 450,
+      "y": 340,
+      "width": 250,
+      "height": 45,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 1,
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw49t3no3km5qf",
+      "type": "text",
+      "x": 460,
+      "y": 350,
+      "strokeColor": "#2f9e44",
+      "text": "forecast_layer_mgr.py (296)",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw4ypi1umveu3",
+      "type": "rectangle",
+      "x": 720,
+      "y": 340,
+      "width": 170,
+      "height": 45,
+      "backgroundColor": "#e7f5ff",
+      "strokeColor": "#1971c2",
+      "strokeWidth": 1,
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    },
+    {
+      "id": "mlv1mrw4dieuyvb022a",
+      "type": "text",
+      "x": 730,
+      "y": 350,
+      "strokeColor": "#1971c2",
+      "text": "schemas/ (37 models)",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:27:12.822Z",
+      "updatedAt": "2026-02-20T15:27:12.822Z",
+      "version": 1
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff",
+    "gridSize": null
+  }
+}

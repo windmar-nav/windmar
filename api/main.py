@@ -12,7 +12,6 @@ License: Apache 2.0 - See LICENSE file
 """
 
 import asyncio
-import collections
 import io
 import json
 import logging
@@ -25,7 +24,7 @@ from typing import Dict, List, Optional, Tuple
 import numpy as np
 from fastapi import BackgroundTasks, FastAPI, HTTPException, UploadFile, File, Query, Response, Depends, Request
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import PlainTextResponse, JSONResponse, StreamingResponse
+from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 from api.demo import require_not_demo, is_demo, demo_mode_response
 from fastapi.exceptions import RequestValidationError
@@ -34,7 +33,6 @@ import uvicorn
 
 # File upload size limits (security)
 MAX_UPLOAD_SIZE_BYTES = 10 * 1024 * 1024  # 10 MB general limit
-MAX_RTZ_SIZE_BYTES = 5 * 1024 * 1024  # 5 MB for RTZ files
 MAX_CSV_SIZE_BYTES = 50 * 1024 * 1024  # 50 MB for CSV files
 
 # Import WINDMAR modules
@@ -54,8 +52,7 @@ from src.optimization.vessel_calibration import (
     VesselCalibrator, NoonReport, CalibrationFactors, create_calibrated_model
 )
 from src.routes.rtz_parser import (
-    Route, Waypoint, parse_rtz_string, create_route_from_waypoints,
-    haversine_distance, calculate_bearing
+    create_route_from_waypoints, haversine_distance, calculate_bearing
 )
 from src.data.land_mask import is_ocean
 
@@ -65,19 +62,9 @@ from src.data.copernicus import (
 )
 
 
-from src.compliance.cii import (
-    CIICalculator, VesselType as CIIVesselType, CIIRating, CIIResult,
-    CIIProjection, estimate_cii_from_route, annualize_voyage_cii
-)
-from src.data.regulatory_zones import (
-    get_zone_checker, Zone, ZoneProperties, ZoneType, ZoneInteraction
-)
 from api.config import settings
 from api.middleware import (
     setup_middleware,
-    metrics_collector,
-    structured_logger,
-    get_request_id,
 )
 from api.auth import get_api_key, get_optional_api_key
 from api.rate_limit import limiter, get_rate_limit_string
@@ -246,6 +233,16 @@ try:
 except ImportError:
     logging.getLogger(__name__).info("Live sensor module not available, skipping live routes")
 
+# Include domain routers
+from api.routers.zones import router as zones_router
+from api.routers.cii import router as cii_router
+from api.routers.routes import router as routes_router
+from api.routers.system import router as system_router
+app.include_router(zones_router)
+app.include_router(cii_router)
+app.include_router(routes_router)
+app.include_router(system_router)
+
 # Initialize application state (thread-safe singleton)
 _ = get_app_state()
 
@@ -288,13 +285,6 @@ from api.schemas import (  # noqa: E402
     SpeedScenarioModel,
     OptimizationResponse,
     PerformancePredictionRequest,
-    ZoneCoordinate,
-    CreateZoneRequest,
-    ZoneResponse,
-    CIIFuelConsumption,
-    CIICalculateRequest,
-    CIIProjectRequest,
-    CIIReductionRequest,
     EngineLogUploadResponse,
     EngineLogEntryResponse,
     EngineLogSummaryResponse,
@@ -350,235 +340,8 @@ from api.forecast_layer_manager import (  # noqa: E402
 # Endpoints that referenced it now use get_voyage_data_sources().
 
 # ============================================================================
-# API Endpoints - Core
+# API Endpoints - Core / System (moved to api/routers/system.py)
 # ============================================================================
-
-@app.get("/", tags=["System"])
-async def root():
-    """
-    API root endpoint.
-
-    Returns basic API information and available endpoint categories.
-    """
-    return {
-        "name": "WINDMAR API",
-        "version": "2.1.0",
-        "status": "operational",
-        "docs": "/api/docs",
-        "endpoints": {
-            "health": "/api/health",
-            "metrics": "/api/metrics",
-            "weather": "/api/weather/...",
-            "routes": "/api/routes/...",
-            "voyage": "/api/voyage/...",
-            "vessel": "/api/vessel/...",
-            "zones": "/api/zones/...",
-        }
-    }
-
-
-# =============================================================================
-# Server-Side Event Log Stream (for frontend DebugConsole)
-# =============================================================================
-_log_buffer: collections.deque = collections.deque(maxlen=200)
-_log_event = asyncio.Event()
-
-class _BufferHandler(logging.Handler):
-    """Captures log records into a ring buffer for SSE streaming."""
-    def emit(self, record):
-        try:
-            entry = {
-                "ts": record.created,
-                "level": record.levelname.lower(),
-                "msg": self.format(record),
-            }
-            _log_buffer.append(entry)
-            # Signal waiting SSE clients (thread-safe via asyncio)
-            try:
-                _log_event.set()
-            except Exception:
-                pass
-        except Exception:
-            pass
-
-_buf_handler = _BufferHandler()
-_buf_handler.setLevel(logging.INFO)
-_buf_handler.setFormatter(logging.Formatter("%(message)s"))
-logging.getLogger().addHandler(_buf_handler)
-logging.getLogger("uvicorn.access").addHandler(_buf_handler)
-
-
-@app.get("/api/logs/stream", tags=["System"])
-async def log_stream():
-    """SSE endpoint streaming backend log entries to the frontend console."""
-    async def _generate():
-        last_idx = len(_log_buffer)
-        # Send recent history first
-        for entry in list(_log_buffer)[-50:]:
-            yield f"data: {json.dumps(entry)}\n\n"
-        while True:
-            _log_event.clear()
-            try:
-                await asyncio.wait_for(_log_event.wait(), timeout=15.0)
-            except asyncio.TimeoutError:
-                yield ": keepalive\n\n"
-                continue
-            # Drain new entries
-            buf = list(_log_buffer)
-            for entry in buf[last_idx:]:
-                yield f"data: {json.dumps(entry)}\n\n"
-            last_idx = len(buf)
-
-    return StreamingResponse(
-        _generate(),
-        media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"},
-    )
-
-
-@app.get("/api/health", tags=["System"])
-async def health_check():
-    """
-    Comprehensive health check endpoint for load balancers and orchestrators.
-
-    Checks connectivity to all dependencies:
-    - Database (PostgreSQL)
-    - Cache (Redis)
-    - Weather data providers
-
-    Returns:
-        - status: Overall health status (healthy/degraded/unhealthy)
-        - timestamp: Current UTC timestamp
-        - version: API version
-        - components: Individual component health status
-    """
-    from api.health import perform_full_health_check
-    result = await perform_full_health_check()
-    result["request_id"] = get_request_id()
-    return result
-
-
-@app.get("/api/health/live", tags=["System"])
-async def liveness_check():
-    """
-    Kubernetes liveness probe endpoint.
-
-    Simple check that the service is alive.
-    Use this for K8s livenessProbe configuration.
-    """
-    from api.health import perform_liveness_check
-    return await perform_liveness_check()
-
-
-@app.get("/api/health/ready", tags=["System"])
-async def readiness_check():
-    """
-    Kubernetes readiness probe endpoint.
-
-    Checks if the service is ready to accept traffic.
-    Use this for K8s readinessProbe configuration.
-    """
-    from api.health import perform_readiness_check
-    result = await perform_readiness_check()
-
-    # Return 503 if not ready
-    if result.get("status") != "ready":
-        raise HTTPException(status_code=503, detail="Service not ready")
-
-    return result
-
-
-@app.get("/api/status", tags=["System"])
-async def detailed_status():
-    """
-    Detailed system status endpoint.
-
-    Returns comprehensive information about the system including:
-    - Health status of all components
-    - Cache statistics
-    - Circuit breaker states
-    - Configuration summary
-    """
-    from api.health import get_detailed_status
-    return await get_detailed_status()
-
-
-@app.get("/api/metrics", tags=["System"], response_class=PlainTextResponse)
-async def get_metrics():
-    """
-    Prometheus-compatible metrics endpoint.
-
-    Returns metrics in Prometheus exposition format for scraping.
-    Includes:
-    - Request counts by endpoint and status
-    - Request duration summaries
-    - Error counts
-    - Service uptime
-    """
-    return metrics_collector.get_prometheus_metrics()
-
-
-@app.get("/api/metrics/json", tags=["System"])
-async def get_metrics_json():
-    """
-    Metrics endpoint in JSON format.
-
-    Alternative to Prometheus format for custom dashboards.
-    """
-    return metrics_collector.get_metrics()
-
-
-@app.get("/api/data-sources")
-async def get_data_sources():
-    """
-    Get status of available data sources.
-
-    Shows which Copernicus APIs are configured and available.
-    """
-    # Check if pygrib is available for GFS
-    try:
-        import pygrib
-        has_pygrib = True
-    except ImportError:
-        has_pygrib = False
-
-    return {
-        "gfs": {
-            "available": has_pygrib,
-            "description": "NOAA GFS 0.25° near-real-time wind (updated every 6h, ~3.5h lag)",
-            "requires": "pygrib + libeccodes (no credentials needed)",
-        },
-        "copernicus": {
-            "cds": {
-                "available": copernicus_provider._has_cdsapi,
-                "configured": settings.has_cds_credentials,
-                "description": "Climate Data Store (ERA5 reanalysis wind, ~5-day lag)",
-                "setup": "Set CDSAPI_KEY in .env (register at https://cds.climate.copernicus.eu)",
-            },
-            "cmems": {
-                "available": copernicus_provider._has_copernicusmarine,
-                "configured": settings.has_cmems_credentials,
-                "description": "Copernicus Marine Service (waves, currents)",
-                "setup": "Set COPERNICUSMARINE_SERVICE_USERNAME/PASSWORD in .env (register at https://marine.copernicus.eu)",
-            },
-            "xarray": {
-                "available": copernicus_provider._has_xarray,
-                "description": "NetCDF data handling",
-                "setup": "pip install xarray netcdf4",
-            },
-        },
-        "fallback": {
-            "synthetic": {
-                "available": True,
-                "description": "Synthetic data generator (always available)",
-            }
-        },
-        "wind_provider_chain": "GFS → ERA5 → Synthetic",
-        "active_wind_source": "gfs" if has_pygrib else (
-            "era5" if (copernicus_provider._has_cdsapi and settings.has_cds_credentials)
-            else "synthetic"
-        ),
-    }
 
 
 # ============================================================================
@@ -2854,103 +2617,8 @@ async def api_get_swell_field(
 
 
 # ============================================================================
-# API Endpoints - Routes (Layer 2)
+# API Endpoints - Routes (moved to api/routers/routes.py)
 # ============================================================================
-
-@app.post("/api/routes/parse-rtz")
-@limiter.limit(get_rate_limit_string())
-async def parse_rtz(
-    request: Request,
-    file: UploadFile = File(...),
-):
-    """
-    Parse an uploaded RTZ route file.
-
-    Maximum file size: 5 MB.
-    Returns waypoints in standard format.
-    """
-    try:
-        content = await file.read()
-
-        # Validate file size
-        if len(content) > MAX_RTZ_SIZE_BYTES:
-            raise HTTPException(
-                status_code=413,
-                detail=f"File too large. Maximum size: {MAX_RTZ_SIZE_BYTES // (1024*1024)} MB"
-            )
-
-        if len(content) == 0:
-            raise HTTPException(status_code=400, detail="Empty file")
-
-        rtz_string = content.decode('utf-8')
-
-        route = parse_rtz_string(rtz_string)
-
-        return {
-            "name": route.name,
-            "waypoints": [
-                {
-                    "id": wp.id,
-                    "name": wp.name,
-                    "lat": wp.lat,
-                    "lon": wp.lon,
-                }
-                for wp in route.waypoints
-            ],
-            "total_distance_nm": route.total_distance_nm,
-            "legs": [
-                {
-                    "from": leg.from_wp.name,
-                    "to": leg.to_wp.name,
-                    "distance_nm": leg.distance_nm,
-                    "bearing_deg": leg.bearing_deg,
-                }
-                for leg in route.legs
-            ]
-        }
-    except Exception as e:
-        logger.error(f"Failed to parse RTZ: {e}")
-        raise HTTPException(status_code=400, detail=f"Invalid RTZ file: {str(e)}")
-
-
-@app.post("/api/routes/from-waypoints")
-async def create_route_from_wps(
-    waypoints: List[Position],
-    name: str = "Custom Route",
-):
-    """
-    Create a route from a list of waypoints.
-
-    Returns route with calculated distances and bearings.
-    """
-    if len(waypoints) < 2:
-        raise HTTPException(status_code=400, detail="At least 2 waypoints required")
-
-    wps = [(wp.lat, wp.lon) for wp in waypoints]
-    route = create_route_from_waypoints(wps, name)
-
-    return {
-        "name": route.name,
-        "waypoints": [
-            {
-                "id": wp.id,
-                "name": wp.name,
-                "lat": wp.lat,
-                "lon": wp.lon,
-            }
-            for wp in route.waypoints
-        ],
-        "total_distance_nm": route.total_distance_nm,
-        "legs": [
-            {
-                "from": leg.from_wp.name,
-                "to": leg.to_wp.name,
-                "distance_nm": leg.distance_nm,
-                "bearing_deg": leg.bearing_deg,
-            }
-            for leg in route.legs
-        ]
-    }
 
 
 # ============================================================================
@@ -4389,200 +4057,8 @@ async def predict_vessel_performance(req: PerformancePredictionRequest):
 
 
 # ============================================================================
-# API Endpoints - Regulatory Zones
+# API Endpoints - Regulatory Zones (moved to api/routers/zones.py)
 # ============================================================================
-
-@app.get("/api/zones")
-async def get_all_zones():
-    """
-    Get all regulatory zones (built-in and custom).
-
-    Returns GeoJSON FeatureCollection for map display.
-    """
-    zone_checker = get_zone_checker()
-    return zone_checker.export_geojson()
-
-
-@app.get("/api/zones/list")
-async def list_zones():
-    """Get zones as a simple list."""
-    zone_checker = get_zone_checker()
-    zones = []
-    for zone in zone_checker.get_all_zones():
-        zones.append({
-            "id": zone.id,
-            "name": zone.properties.name,
-            "zone_type": zone.properties.zone_type.value,
-            "interaction": zone.properties.interaction.value,
-            "penalty_factor": zone.properties.penalty_factor,
-            "is_builtin": zone.is_builtin,
-        })
-    return {"zones": zones, "count": len(zones)}
-
-
-@app.get("/api/zones/{zone_id}")
-async def get_zone(zone_id: str):
-    """Get a specific zone by ID."""
-    zone_checker = get_zone_checker()
-    zone = zone_checker.get_zone(zone_id)
-
-    if zone is None:
-        raise HTTPException(status_code=404, detail=f"Zone not found: {zone_id}")
-
-    return zone.to_geojson()
-
-
-@app.post("/api/zones", response_model=ZoneResponse, dependencies=[Depends(require_not_demo("Zone creation"))])
-@limiter.limit(get_rate_limit_string())
-async def create_zone(
-    http_request: Request,
-    request: CreateZoneRequest,
-    api_key=Depends(get_api_key),
-):
-    """
-    Create a custom zone.
-
-    Requires authentication via API key.
-
-    Coordinates should be provided as a list of {lat, lon} objects
-    forming a closed polygon (first and last point should match).
-    """
-    import uuid
-
-    zone_checker = get_zone_checker()
-
-    # Validate zone type
-    try:
-        zone_type = ZoneType(request.zone_type)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid zone_type. Valid values: {[t.value for t in ZoneType]}"
-        )
-
-    # Validate interaction
-    try:
-        interaction = ZoneInteraction(request.interaction)
-    except ValueError:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Invalid interaction. Valid values: {[i.value for i in ZoneInteraction]}"
-        )
-
-    # Convert coordinates
-    coords = [(c.lat, c.lon) for c in request.coordinates]
-
-    # Ensure polygon is closed
-    if coords[0] != coords[-1]:
-        coords.append(coords[0])
-
-    # Create zone
-    zone_id = f"custom_{uuid.uuid4().hex[:8]}"
-    zone = Zone(
-        id=zone_id,
-        properties=ZoneProperties(
-            name=request.name,
-            zone_type=zone_type,
-            interaction=interaction,
-            penalty_factor=request.penalty_factor,
-            notes=request.notes,
-        ),
-        coordinates=coords,
-        is_builtin=False,
-    )
-
-    zone_checker.add_zone(zone)
-
-    return ZoneResponse(
-        id=zone.id,
-        name=zone.properties.name,
-        zone_type=zone.properties.zone_type.value,
-        interaction=zone.properties.interaction.value,
-        penalty_factor=zone.properties.penalty_factor,
-        is_builtin=zone.is_builtin,
-        coordinates=[ZoneCoordinate(lat=c[0], lon=c[1]) for c in zone.coordinates],
-        notes=zone.properties.notes,
-    )
-
-
-@app.delete("/api/zones/{zone_id}", dependencies=[Depends(require_not_demo("Zone deletion"))])
-@limiter.limit(get_rate_limit_string())
-async def delete_zone(
-    request: Request,
-    zone_id: str,
-    api_key=Depends(get_api_key),
-):
-    """
-    Delete a custom zone.
-
-    Requires authentication via API key.
-    Built-in zones cannot be deleted.
-    """
-    zone_checker = get_zone_checker()
-
-    zone = zone_checker.get_zone(zone_id)
-    if zone is None:
-        raise HTTPException(status_code=404, detail=f"Zone not found: {zone_id}")
-
-    if zone.is_builtin:
-        raise HTTPException(status_code=400, detail="Cannot delete built-in zones")
-
-    zone_checker.remove_zone(zone_id)
-    return {"status": "deleted", "zone_id": zone_id}
-
-
-@app.get("/api/zones/at-point")
-async def get_zones_at_point(
-    lat: float = Query(..., ge=-90, le=90),
-    lon: float = Query(..., ge=-180, le=180),
-):
-    """Get all zones that contain a specific point."""
-    zone_checker = get_zone_checker()
-    zones = zone_checker.get_zones_at_point(lat, lon)
-
-    return {
-        "position": {"lat": lat, "lon": lon},
-        "zones": [
-            {
-                "id": z.id,
-                "name": z.properties.name,
-                "zone_type": z.properties.zone_type.value,
-                "interaction": z.properties.interaction.value,
-                "penalty_factor": z.properties.penalty_factor,
-            }
-            for z in zones
-        ]
-    }
-
-
-@app.get("/api/zones/check-path")
-async def check_path_zones(
-    lat1: float = Query(..., ge=-90, le=90),
-    lon1: float = Query(..., ge=-180, le=180),
-    lat2: float = Query(..., ge=-90, le=90),
-    lon2: float = Query(..., ge=-180, le=180),
-):
-    """Check which zones a path segment crosses."""
-    zone_checker = get_zone_checker()
-    zones_by_type = zone_checker.check_path_zones(lat1, lon1, lat2, lon2)
-    penalty, warnings = zone_checker.get_path_penalty(lat1, lon1, lat2, lon2)
-
-    return {
-        "path": {
-            "from": {"lat": lat1, "lon": lon1},
-            "to": {"lat": lat2, "lon": lon2},
-        },
-        "zones": {
-            interaction: [
-                {"id": z.id, "name": z.properties.name}
-                for z in zones
-            ]
-            for interaction, zones in zones_by_type.items()
-        },
-        "penalty_factor": penalty if penalty != float('inf') else None,
-        "is_forbidden": penalty == float('inf'),
-        "warnings": warnings,
-    }
 
 
 # ============================================================================
@@ -4671,164 +4147,8 @@ def _cleanup_stale_caches():
 
 
 # ============================================================================
-# CII Compliance API
+# CII Compliance API (moved to api/routers/cii.py)
 # ============================================================================
-
-
-def _resolve_vessel_type(name: str) -> CIIVesselType:
-    """Resolve vessel type string to enum."""
-    mapping = {vt.value: vt for vt in CIIVesselType}
-    if name in mapping:
-        return mapping[name]
-    raise HTTPException(status_code=400, detail=f"Unknown vessel type: {name}. Valid: {list(mapping.keys())}")
-
-
-def _resolve_target_rating(name: str) -> CIIRating:
-    """Resolve rating string to enum."""
-    mapping = {r.value: r for r in CIIRating}
-    if name.upper() in mapping:
-        return mapping[name.upper()]
-    raise HTTPException(status_code=400, detail=f"Unknown rating: {name}. Valid: A, B, C, D, E")
-
-
-def _compliance_status(rating: CIIRating) -> str:
-    if rating in (CIIRating.A, CIIRating.B):
-        return "Compliant"
-    elif rating == CIIRating.C:
-        return "At Risk"
-    else:
-        return "Non-Compliant"
-
-
-@app.get("/api/cii/vessel-types", tags=["CII Compliance"])
-async def get_cii_vessel_types():
-    """List available IMO vessel type categories for CII calculations."""
-    vessel_types = [
-        {"id": vt.value, "name": vt.value.replace("_", " ").title()}
-        for vt in CIIVesselType
-    ]
-    return {"vessel_types": vessel_types}
-
-
-@app.get("/api/cii/fuel-types", tags=["CII Compliance"])
-async def get_cii_fuel_types():
-    """List available fuel types and their CO2 emission factors."""
-    fuel_types = [
-        {"id": fuel, "name": fuel.upper().replace("_", " "), "co2_factor": factor}
-        for fuel, factor in CIICalculator.CO2_FACTORS.items()
-    ]
-    return {"fuel_types": fuel_types}
-
-
-@app.post("/api/cii/calculate", tags=["CII Compliance"])
-async def calculate_cii(request: CIICalculateRequest):
-    """Calculate CII rating for given fuel consumption and distance."""
-    vtype = _resolve_vessel_type(request.vessel_type)
-    gt = request.gt if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER) else None
-
-    try:
-        calc = CIICalculator(vessel_type=vtype, dwt=request.dwt, year=request.year, gt=gt)
-        result = calc.calculate(request.fuel_consumption_mt.to_dict(), request.total_distance_nm)
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    return {
-        "year": result.year,
-        "rating": result.rating.value,
-        "compliance_status": _compliance_status(result.rating),
-        "attained_cii": result.attained_cii,
-        "required_cii": result.required_cii,
-        "rating_boundaries": result.rating_boundaries,
-        "reduction_factor": result.reduction_factor,
-        "total_co2_mt": result.total_co2_mt,
-        "total_distance_nm": result.total_distance_nm,
-        "capacity": result.capacity,
-        "vessel_type": result.vessel_type.value,
-        "margin_to_downgrade": result.margin_to_downgrade,
-        "margin_to_upgrade": result.margin_to_upgrade,
-    }
-
-
-@app.post("/api/cii/project", tags=["CII Compliance"])
-async def project_cii(request: CIIProjectRequest):
-    """Project CII rating across multiple years with optional efficiency improvements."""
-    vtype = _resolve_vessel_type(request.vessel_type)
-    gt = request.gt if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER) else None
-
-    try:
-        calc = CIICalculator(vessel_type=vtype, dwt=request.dwt, year=request.start_year, gt=gt)
-        years = list(range(request.start_year, request.end_year + 1))
-        projections = calc.project_rating(
-            request.annual_fuel_mt.to_dict(),
-            request.annual_distance_nm,
-            years=years,
-            fuel_reduction_rate=request.fuel_efficiency_improvement_pct,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    proj_list = [
-        {
-            "year": p.year,
-            "rating": p.rating.value,
-            "attained_cii": p.attained_cii,
-            "required_cii": p.required_cii,
-            "reduction_factor": p.reduction_factor,
-            "status": p.status,
-        }
-        for p in projections
-    ]
-
-    # Build summary
-    current_rating = projections[0].rating.value if projections else "?"
-    final_rating = projections[-1].rating.value if projections else "?"
-    years_until_d = next(
-        (p.year - projections[0].year for p in projections if p.rating in (CIIRating.D, CIIRating.E)),
-        "N/A"
-    )
-    years_until_e = next(
-        (p.year - projections[0].year for p in projections if p.rating == CIIRating.E),
-        "N/A"
-    )
-
-    if final_rating in ("D", "E"):
-        recommendation = f"Action required: rating degrades to {final_rating} by {projections[-1].year}."
-    elif final_rating == "C":
-        recommendation = "Borderline: rating reaches C. Consider efficiency improvements."
-    else:
-        recommendation = f"On track: rating remains {final_rating} through {projections[-1].year}."
-
-    return {
-        "projections": proj_list,
-        "summary": {
-            "current_rating": current_rating,
-            "final_rating": final_rating,
-            "years_until_d_rating": years_until_d,
-            "years_until_e_rating": years_until_e,
-            "recommendation": recommendation,
-        },
-    }
-
-
-@app.post("/api/cii/reduction", tags=["CII Compliance"])
-async def calculate_cii_reduction(request: CIIReductionRequest):
-    """Calculate fuel reduction needed to achieve a target CII rating."""
-    vtype = _resolve_vessel_type(request.vessel_type)
-    target = _resolve_target_rating(request.target_rating)
-    gt = request.gt if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER) else None
-
-    try:
-        calc = CIICalculator(vessel_type=vtype, dwt=request.dwt, year=request.target_year, gt=gt)
-        result = calc.calculate_required_reduction(
-            request.current_fuel_mt.to_dict(),
-            request.current_distance_nm,
-            target_rating=target,
-            target_year=request.target_year,
-        )
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-    return result
 
 
 # ============================================================================
