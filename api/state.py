@@ -121,6 +121,8 @@ class VesselState:
         """
         Update vessel specifications atomically.
 
+        Rebuilds all dependent objects: model, calculators, optimizers, calibrator.
+
         Args:
             specs_dict: Dictionary of vessel specification parameters
         """
@@ -129,6 +131,7 @@ class VesselState:
         from src.optimization.monte_carlo import MonteCarloSimulator
         from src.optimization.route_optimizer import RouteOptimizer
         from src.optimization.visir_optimizer import VisirOptimizer
+        from src.optimization.vessel_calibration import VesselCalibrator
 
         with self._lock:
             self._specs = VesselSpecs(**specs_dict)
@@ -137,6 +140,8 @@ class VesselState:
             self._monte_carlo_sim = MonteCarloSimulator(voyage_calculator=self._voyage_calculator)
             self._route_optimizer = RouteOptimizer(vessel_model=self._model)
             self._visir_optimizer = VisirOptimizer(vessel_model=self._model)
+            self._calibrator = VesselCalibrator(vessel_specs=self._specs)
+            self._calibration = None
 
             logger.info(f"Vessel specs updated: DWT={self._specs.dwt}")
 

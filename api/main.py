@@ -306,25 +306,14 @@ from api.schemas import (  # noqa: E402
 # Global State
 # ============================================================================
 
-current_vessel_specs = VesselSpecs()
-current_vessel_model = VesselModel(specs=current_vessel_specs)
-voyage_calculator = VoyageCalculator(vessel_model=current_vessel_model)
-monte_carlo_sim = MonteCarloSimulator(voyage_calculator=voyage_calculator)
-route_optimizer = RouteOptimizer(vessel_model=current_vessel_model)
-visir_optimizer = VisirOptimizer(vessel_model=current_vessel_model)
-
-# Vessel calibration state
-vessel_calibrator = VesselCalibrator(vessel_specs=current_vessel_specs)
-current_calibration: Optional[CalibrationFactors] = None
-
 # =============================================================================
-# Weather providers + field fetchers (extracted to weather_service.py)
-# Provider instances are created by ApplicationState (api/state.py).
-# Legacy globals kept as shim aliases until Phase 2b.
+# Centralized state (vessel + weather providers)
+# All vessel globals replaced by VesselState singleton (api/state.py).
 # =============================================================================
-from api.state import get_app_state as _get_app_state
+from api.state import get_app_state, get_vessel_state  # noqa: E402
 
-_app_state = _get_app_state()
+_app_state = get_app_state()
+_vs = get_vessel_state()
 _wx = _app_state.weather_providers
 
 # Shim aliases — endpoints still reference these names directly
@@ -3658,7 +3647,7 @@ async def calculate_voyage(request: VoyageRequest):
 
         wp_func = tracked_weather_provider
 
-    result = voyage_calculator.calculate_voyage(
+    result = _vs.voyage_calculator.calculate_voyage(
         route=route,
         calm_speed_kts=request.calm_speed_kts,
         is_laden=request.is_laden,
@@ -3788,7 +3777,7 @@ async def monte_carlo_simulation(request: MonteCarloRequest):
         logger.warning(f"MC: Failed to pre-fetch route grid, using default provider: {e}")
 
     def _run():
-        return monte_carlo_sim.run(
+        return _vs.monte_carlo_sim.run(
             route=route,
             calm_speed_kts=request.calm_speed_kts,
             is_laden=request.is_laden,
@@ -3951,16 +3940,14 @@ async def optimize_route(request: OptimizationRequest):
 
 def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationResponse":
     """Synchronous route optimization logic (runs in a thread pool)."""
-    global route_optimizer, visir_optimizer
-
     departure = request.departure_time or datetime.utcnow()
 
     # Select optimization engine
     engine_name = request.engine.lower()
     if engine_name == "visir":
-        active_optimizer = visir_optimizer
+        active_optimizer = _vs.visir_optimizer
     else:
-        active_optimizer = route_optimizer
+        active_optimizer = _vs.route_optimizer
     # VISIR uses coarser resolution than A* (0.25° vs 0.1°) for performance;
     # at 0.25° the edge land checks keep routes off land reliably.
     active_optimizer.resolution_deg = (
@@ -4220,8 +4207,8 @@ async def get_optimization_status():
         "default_max_cells": RouteOptimizer.DEFAULT_MAX_CELLS,
         "optimization_targets": ["fuel", "time"],
         "vessel_model": {
-            "dwt": current_vessel_specs.dwt,
-            "service_speed_laden": current_vessel_specs.service_speed_laden,
+            "dwt": _vs.specs.dwt,
+            "service_speed_laden": _vs.specs.service_speed_laden,
         }
     }
 
@@ -4233,7 +4220,7 @@ async def get_optimization_status():
 @app.get("/api/vessel/specs")
 async def get_vessel_specs():
     """Get current vessel specifications."""
-    specs = current_vessel_specs
+    specs = _vs.specs
     return {
         "dwt": specs.dwt,
         "loa": specs.loa,
@@ -4259,12 +4246,8 @@ async def update_vessel_specs(
 
     Requires authentication via API key.
     """
-    global current_vessel_specs, current_vessel_model, voyage_calculator
-
     try:
-        # Use thread-safe state management
-        vessel_state = get_vessel_state()
-        vessel_state.update_specs({
+        _vs.update_specs({
             'dwt': config.dwt,
             'loa': config.loa,
             'beam': config.beam,
@@ -4275,11 +4258,6 @@ async def update_vessel_specs(
             'service_speed_laden': config.service_speed_laden,
             'service_speed_ballast': config.service_speed_ballast,
         })
-
-        # Update legacy globals for backward compatibility
-        current_vessel_specs = vessel_state.specs
-        current_vessel_model = vessel_state.model
-        voyage_calculator = vessel_state.voyage_calculator
 
         # Persist to DB so specs survive container restarts
         try:
@@ -4307,9 +4285,9 @@ async def update_vessel_specs(
 @app.get("/api/vessel/calibration")
 async def get_calibration():
     """Get current vessel calibration factors."""
-    global current_calibration
+    cal = _vs.calibration
 
-    if current_calibration is None:
+    if cal is None:
         return {
             "calibrated": False,
             "factors": {
@@ -4324,15 +4302,15 @@ async def get_calibration():
     return {
         "calibrated": True,
         "factors": {
-            "calm_water": current_calibration.calm_water,
-            "wind": current_calibration.wind,
-            "waves": current_calibration.waves,
-            "sfoc_factor": current_calibration.sfoc_factor,
+            "calm_water": cal.calm_water,
+            "wind": cal.wind,
+            "waves": cal.waves,
+            "sfoc_factor": cal.sfoc_factor,
         },
-        "calibrated_at": current_calibration.calibrated_at.isoformat() if current_calibration.calibrated_at else None,
-        "num_reports_used": current_calibration.num_reports_used,
-        "calibration_error_mt": current_calibration.calibration_error,
-        "days_since_drydock": current_calibration.days_since_drydock,
+        "calibrated_at": cal.calibrated_at.isoformat() if cal.calibrated_at else None,
+        "num_reports_used": cal.num_reports_used,
+        "calibration_error_mt": cal.calibration_error,
+        "days_since_drydock": cal.days_since_drydock,
     }
 
 
@@ -4348,9 +4326,7 @@ async def set_calibration_factors(
 
     Requires authentication via API key.
     """
-    global current_calibration, current_vessel_model, voyage_calculator, route_optimizer, visir_optimizer
-
-    current_calibration = CalibrationFactors(
+    _vs.update_calibration(CalibrationFactors(
         calm_water=factors.calm_water,
         wind=factors.wind,
         waves=factors.waves,
@@ -4358,17 +4334,7 @@ async def set_calibration_factors(
         calibrated_at=datetime.utcnow(),
         num_reports_used=0,
         days_since_drydock=factors.days_since_drydock,
-    )
-
-    # Use thread-safe state management
-    vessel_state = get_vessel_state()
-    vessel_state.update_calibration(current_calibration)
-
-    # Update legacy globals for backward compatibility
-    current_vessel_model = vessel_state.model
-    voyage_calculator = vessel_state.voyage_calculator
-    route_optimizer = vessel_state.route_optimizer
-    visir_optimizer = vessel_state.visir_optimizer
+    ))
 
     return {"status": "success", "message": "Calibration factors updated"}
 
@@ -4376,10 +4342,8 @@ async def set_calibration_factors(
 @app.get("/api/vessel/noon-reports")
 async def get_noon_reports():
     """Get list of uploaded noon reports."""
-    global vessel_calibrator
-
     return {
-        "count": len(vessel_calibrator.noon_reports),
+        "count": len(_vs.calibrator.noon_reports),
         "reports": [
             {
                 "timestamp": r.timestamp.isoformat(),
@@ -4390,7 +4354,7 @@ async def get_noon_reports():
                 "period_hours": r.period_hours,
                 "is_laden": r.is_laden,
             }
-            for r in vessel_calibrator.noon_reports
+            for r in _vs.calibrator.noon_reports
         ]
     }
 
@@ -4407,8 +4371,6 @@ async def add_noon_report(
 
     Requires authentication via API key.
     """
-    global vessel_calibrator
-
     nr = NoonReport(
         timestamp=report.timestamp,
         latitude=report.latitude,
@@ -4426,11 +4388,11 @@ async def add_noon_report(
         engine_power_kw=report.engine_power_kw,
     )
 
-    vessel_calibrator.add_noon_report(nr)
+    _vs.calibrator.add_noon_report(nr)
 
     return {
         "status": "success",
-        "total_reports": len(vessel_calibrator.noon_reports),
+        "total_reports": len(_vs.calibrator.noon_reports),
     }
 
 
@@ -4458,8 +4420,6 @@ async def upload_noon_reports_csv(
     - wave_height_m, wave_direction_deg (optional)
     - heading_deg (optional)
     """
-    global vessel_calibrator
-
     try:
         # Read and validate file size
         content = await file.read()
@@ -4480,7 +4440,7 @@ async def upload_noon_reports_csv(
 
         try:
             # Import from CSV
-            count = vessel_calibrator.add_noon_reports_from_csv(tmp_path)
+            count = _vs.calibrator.add_noon_reports_from_csv(tmp_path)
         finally:
             # Cleanup
             tmp_path.unlink()
@@ -4488,7 +4448,7 @@ async def upload_noon_reports_csv(
         return {
             "status": "success",
             "imported": count,
-            "total_reports": len(vessel_calibrator.noon_reports),
+            "total_reports": len(_vs.calibrator.noon_reports),
         }
 
     except HTTPException:
@@ -4510,8 +4470,6 @@ async def upload_noon_reports_excel(
 
     Uses ExcelParser to auto-detect column mappings.
     """
-    global vessel_calibrator
-
     try:
         content = await file.read()
         if len(content) > MAX_CSV_SIZE_BYTES:
@@ -4531,14 +4489,14 @@ async def upload_noon_reports_excel(
             tmp_path = Path(tmp.name)
 
         try:
-            count = vessel_calibrator.add_noon_reports_from_excel(tmp_path)
+            count = _vs.calibrator.add_noon_reports_from_excel(tmp_path)
         finally:
             tmp_path.unlink()
 
         return {
             "status": "success",
             "imported": count,
-            "total_reports": len(vessel_calibrator.noon_reports),
+            "total_reports": len(_vs.calibrator.noon_reports),
         }
 
     except HTTPException:
@@ -4559,9 +4517,7 @@ async def clear_noon_reports(
 
     Requires authentication via API key.
     """
-    global vessel_calibrator
-
-    vessel_calibrator.noon_reports = []
+    _vs.calibrator.noon_reports = []
     return {"status": "success", "message": "All noon reports cleared"}
 
 
@@ -4580,38 +4536,21 @@ async def calibrate_vessel(
     Finds optimal calibration factors that minimize prediction error
     compared to actual fuel consumption.
     """
-    global vessel_calibrator, current_calibration
-    global current_vessel_model, voyage_calculator, route_optimizer, visir_optimizer
-
-    if len(vessel_calibrator.noon_reports) < VesselCalibrator.MIN_REPORTS:
+    if len(_vs.calibrator.noon_reports) < VesselCalibrator.MIN_REPORTS:
         raise HTTPException(
             status_code=400,
             detail=f"Need at least {VesselCalibrator.MIN_REPORTS} noon reports for calibration. "
-                   f"Currently have {len(vessel_calibrator.noon_reports)}."
+                   f"Currently have {len(_vs.calibrator.noon_reports)}."
         )
 
     try:
-        result = vessel_calibrator.calibrate(days_since_drydock=days_since_drydock)
+        result = _vs.calibrator.calibrate(days_since_drydock=days_since_drydock)
 
-        # Store calibration
-        current_calibration = result.factors
-
-        # Update vessel model with calibration (including sfoc_factor)
-        current_vessel_model = VesselModel(
-            specs=current_vessel_specs,
-            calibration_factors={
-                'calm_water': current_calibration.calm_water,
-                'wind': current_calibration.wind,
-                'waves': current_calibration.waves,
-                'sfoc_factor': current_calibration.sfoc_factor,
-            }
-        )
-        voyage_calculator = VoyageCalculator(vessel_model=current_vessel_model)
-        route_optimizer = RouteOptimizer(vessel_model=current_vessel_model)
-        visir_optimizer = VisirOptimizer(vessel_model=current_vessel_model)
+        # Apply calibration atomically (rebuilds model, calculators, optimizers)
+        _vs.update_calibration(result.factors)
 
         # Save calibration to file
-        vessel_calibrator.save_calibration("default", current_calibration)
+        _vs.calibrator.save_calibration("default", _vs.calibration)
 
         return CalibrationResponse(
             factors=CalibrationFactorsModel(
@@ -4650,9 +4589,7 @@ async def estimate_hull_fouling(
     Useful when no noon reports are available but you know
     the vessel's operating history.
     """
-    global vessel_calibrator
-
-    fouling = vessel_calibrator.estimate_hull_fouling(
+    fouling = _vs.calibrator.estimate_hull_fouling(
         days_since_drydock=days_since_drydock,
         operating_regions=operating_regions,
     )
@@ -4675,9 +4612,9 @@ async def get_vessel_model_status():
     factors with timestamp, and derived performance values (optimal speeds,
     daily fuel at service speed).
     """
-    specs = current_vessel_specs
-    cal = current_calibration
-    model = current_vessel_model
+    specs = _vs.specs
+    cal = _vs.calibration
+    model = _vs.model
 
     # Compute optimal speeds and daily fuel at service speed
     optimal_laden = model.get_optimal_speed(is_laden=True)
@@ -4755,9 +4692,9 @@ async def get_vessel_model_curves():
     """
     import numpy as np
 
-    specs = current_vessel_specs
-    model = current_vessel_model
-    cal = current_calibration
+    specs = _vs.specs
+    model = _vs.model
+    cal = _vs.calibration
 
     # Speed range: 5-16 kts in 0.5 kts steps
     speeds = list(np.arange(5.0, 16.5, 0.5))
@@ -4843,8 +4780,8 @@ async def get_fuel_scenarios():
     Returns 4 daily fuel scenarios: calm laden, head wind laden,
     rough seas laden, and calm ballast.
     """
-    specs = current_vessel_specs
-    model = current_vessel_model
+    specs = _vs.specs
+    model = _vs.model
 
     # Scenario 1: Calm water laden (24h at service speed)
     distance_calm_laden = specs.service_speed_laden * 24
@@ -4920,7 +4857,7 @@ async def predict_vessel_performance(req: PerformancePredictionRequest):
 
     All directions are relative to bow (0=ahead, 90=beam, 180=astern).
     """
-    model = current_vessel_model
+    model = _vs.model
 
     # Convert relative directions to absolute with heading=0
     heading = 0.0
@@ -5248,9 +5185,6 @@ def _is_wave_prefetch_running() -> bool:
 @app.on_event("startup")
 async def startup_event():
     """Run migrations, load persisted vessel specs, and start background weather ingestion."""
-    global current_vessel_specs, current_vessel_model, voyage_calculator
-    global route_optimizer, visir_optimizer, vessel_calibrator, current_calibration
-
     _run_weather_migrations()
 
     # Ensure cache dirs exist (volume mounts may lack subdirectories)
@@ -5261,14 +5195,7 @@ async def startup_event():
     try:
         saved_specs = _load_vessel_specs_from_db()
         if saved_specs is not None:
-            vessel_state = get_vessel_state()
-            vessel_state.update_specs(saved_specs)
-            current_vessel_specs = vessel_state.specs
-            current_vessel_model = vessel_state.model
-            voyage_calculator = vessel_state.voyage_calculator
-            route_optimizer = vessel_state.route_optimizer
-            visir_optimizer = vessel_state.visir_optimizer
-            vessel_calibrator = VesselCalibrator(vessel_specs=current_vessel_specs)
+            _vs.update_specs(saved_specs)
             logger.info("Vessel specs loaded from DB: %s kW / %s kts",
                         saved_specs.get("mcr_kw"), saved_specs.get("service_speed_laden"))
     except Exception as e:
@@ -5276,21 +5203,9 @@ async def startup_event():
 
     # Auto-load saved calibration from disk (survives container restarts)
     try:
-        _saved_cal = vessel_calibrator.load_calibration("default")
+        _saved_cal = _vs.calibrator.load_calibration("default")
         if _saved_cal is not None:
-            current_calibration = _saved_cal
-            current_vessel_model = VesselModel(
-                specs=current_vessel_specs,
-                calibration_factors={
-                    'calm_water': _saved_cal.calm_water,
-                    'wind': _saved_cal.wind,
-                    'waves': _saved_cal.waves,
-                    'sfoc_factor': _saved_cal.sfoc_factor,
-                }
-            )
-            voyage_calculator = VoyageCalculator(vessel_model=current_vessel_model)
-            route_optimizer = RouteOptimizer(vessel_model=current_vessel_model)
-            visir_optimizer = VisirOptimizer(vessel_model=current_vessel_model)
+            _vs.update_calibration(_saved_cal)
             logger.info(
                 "Auto-loaded calibration: calm_water=%.4f, sfoc_factor=%.4f, reports=%d",
                 _saved_cal.calm_water, _saved_cal.sfoc_factor, _saved_cal.num_reports_used,
@@ -5886,9 +5801,6 @@ async def calibrate_from_engine_log(
     feeds them to VesselCalibrator.calibrate(), and applies the resulting
     factors to the vessel model.
     """
-    global vessel_calibrator, current_calibration
-    global current_vessel_model, voyage_calculator, route_optimizer, visir_optimizer
-
     import uuid as uuid_mod
 
     # Query NOON entries
@@ -5938,27 +5850,13 @@ async def calibrate_from_engine_log(
 
     try:
         # Feed reports to calibrator and run
-        vessel_calibrator.noon_reports = noon_reports
-        result = vessel_calibrator.calibrate(days_since_drydock=days_since_drydock)
+        _vs.calibrator.noon_reports = noon_reports
+        result = _vs.calibrator.calibrate(days_since_drydock=days_since_drydock)
 
-        # Store calibration
-        current_calibration = result.factors
+        # Apply calibration atomically (rebuilds model, calculators, optimizers)
+        _vs.update_calibration(result.factors)
 
-        # Apply to vessel model (same pattern as POST /api/vessel/calibrate)
-        current_vessel_model = VesselModel(
-            specs=current_vessel_specs,
-            calibration_factors={
-                'calm_water': current_calibration.calm_water,
-                'wind': current_calibration.wind,
-                'waves': current_calibration.waves,
-                'sfoc_factor': current_calibration.sfoc_factor,
-            }
-        )
-        voyage_calculator = VoyageCalculator(vessel_model=current_vessel_model)
-        route_optimizer = RouteOptimizer(vessel_model=current_vessel_model)
-        visir_optimizer = VisirOptimizer(vessel_model=current_vessel_model)
-
-        vessel_calibrator.save_calibration("default", current_calibration)
+        _vs.calibrator.save_calibration("default", _vs.calibration)
 
         return EngineLogCalibrateResponse(
             status="calibrated",

@@ -1,0 +1,324 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "mcp-excalidraw-server",
+  "elements": [
+    {
+      "id": "mlv0ggfg6lpz5uwfr4",
+      "type": "text",
+      "x": 300,
+      "y": 20,
+      "strokeColor": "#1e1e1e",
+      "text": "Phase 2: State Centralization",
+      "fontSize": 28,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T14:54:18.437Z",
+      "updatedAt": "2026-02-20T14:54:18.437Z",
+      "version": 1
+    },
+    {
+      "id": "mlv0ggfg5wwhtpybk78",
+      "type": "text",
+      "x": 300,
+      "y": 55,
+      "strokeColor": "#868e96",
+      "text": "main.py 6926→5898 LOC  |  8 vessel globals → 0  |  93 routes preserved",
+      "fontSize": 14,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T14:54:18.437Z",
+      "updatedAt": "2026-02-20T14:54:18.437Z",
+      "version": 1
+    },
+    {
+      "id": "main",
+      "type": "rectangle",
+      "x": 350,
+      "y": 110,
+      "width": 280,
+      "height": 80,
+      "backgroundColor": "#fff3bf",
+      "strokeColor": "#e67700",
+      "strokeWidth": 2,
+      "createdAt": "2026-02-20T14:54:18.437Z",
+      "updatedAt": "2026-02-20T14:54:18.437Z",
+      "version": 1
+    },
+    {
+      "id": "mlv0ggfg8fml2iop6yr",
+      "type": "text",
+      "x": 370,
+      "y": 125,
+      "strokeColor": "#e67700",
+      "text": "api/main.py\n5,898 LOC · 93 routes",
+      "fontSize": 16,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T14:54:18.437Z",
+      "updatedAt": "2026-02-20T14:54:18.437Z",
+      "version": 1
+    },
+    {
+      "id": "state",
+      "type": "rectangle",
+      "x": 50,
+      "y": 280,
+      "width": 260,
+      "height": 120,
+      "backgroundColor": "#d0ebff",
+      "strokeColor": "#1971c2",
+      "strokeWidth": 2,
+      "createdAt": "2026-02-20T14:54:18.437Z",
+      "updatedAt": "2026-02-20T14:54:18.437Z",
+      "version": 1
+    },
+    {
+      "id": "mlv0ggfg9cr3wn04fz",
+      "type": "text",
+      "x": 70,
+      "y": 295,
+      "strokeColor": "#1971c2",
+      "text": "api/state.py  (341 LOC)\nVesselState (RLock)\n  specs, model, calculators\nApplicationState (singleton)\n  weather providers",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T14:54:18.437Z",
+      "updatedAt": "2026-02-20T14:54:18.437Z",
+      "version": 1
+    },
+    {
+      "id": "weather",
+      "type": "rectangle",
+      "x": 370,
+      "y": 280,
+      "width": 260,
+      "height": 120,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "createdAt": "2026-02-20T14:54:18.437Z",
+      "updatedAt": "2026-02-20T14:54:18.437Z",
+      "version": 1
+    },
+    {
+      "id": "mlv0ggfgnj90tnqd9vk",
+      "type": "text",
+      "x": 390,
+      "y": 295,
+      "strokeColor": "#2f9e44",
+      "text": "api/weather_service.py\n536 LOC\nRedis cache layer\n6 field fetchers\nOcean mask + GFS supplement",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T14:54:18.437Z",
+      "updatedAt": "2026-02-20T14:54:18.437Z",
+      "version": 1
+    },
+    {
+      "id": "schemas",
+      "type": "rectangle",
+      "x": 690,
+      "y": 280,
+      "width": 240,
+      "height": 100,
+      "backgroundColor": "#e7f5ff",
+      "strokeColor": "#1971c2",
+      "strokeWidth": 2,
+      "createdAt": "2026-02-20T14:54:18.437Z",
+      "updatedAt": "2026-02-20T14:54:18.437Z",
+      "version": 1
+    },
+    {
+      "id": "mlv0ggfgixyh44fgh8b",
+      "type": "text",
+      "x": 710,
+      "y": 295,
+      "strokeColor": "#1971c2",
+      "text": "api/schemas/ (Phase 1)\n8 files · 37 models\nPydantic BaseModel\nre-exported via __init__",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T14:54:18.438Z",
+      "updatedAt": "2026-02-20T14:54:18.438Z",
+      "version": 1
+    },
+    {
+      "id": "mlv0ggfgqgyqwdvjcm",
+      "type": "arrow",
+      "x": 417.9160320859756,
+      "y": 194.1804964634343,
+      "width": -180,
+      "height": 85,
+      "strokeColor": "#1971c2",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -133.2004852245828,
+          81.63900707313141
+        ]
+      ],
+      "endArrowhead": "arrow",
+      "createdAt": "2026-02-20T14:54:18.438Z",
+      "updatedAt": "2026-02-20T14:54:18.438Z",
+      "version": 1,
+      "startBinding": {
+        "elementId": "main",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "state",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mlv0ggfgb4zgtn6es9i",
+      "type": "arrow",
+      "x": 492.5257338228769,
+      "y": 197.98894263466008,
+      "width": 0,
+      "height": 85,
+      "strokeColor": "#2f9e44",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          3.8959007752988555,
+          74.02211473067985
+        ]
+      ],
+      "endArrowhead": "arrow",
+      "createdAt": "2026-02-20T14:54:18.438Z",
+      "updatedAt": "2026-02-20T14:54:18.438Z",
+      "version": 1,
+      "startBinding": {
+        "elementId": "main",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "weather",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mlv0ggfgymo23ejlsil",
+      "type": "arrow",
+      "x": 568.0837154081075,
+      "y": 193.92208991706048,
+      "width": 150,
+      "height": 85,
+      "strokeColor": "#1971c2",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          146.0547914060071,
+          82.15582016587905
+        ]
+      ],
+      "endArrowhead": "arrow",
+      "createdAt": "2026-02-20T14:54:18.438Z",
+      "updatedAt": "2026-02-20T14:54:18.438Z",
+      "version": 1,
+      "startBinding": {
+        "elementId": "main",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "schemas",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mlv0ggfg4qq19qcezzn",
+      "type": "text",
+      "x": 55,
+      "y": 420,
+      "strokeColor": "#1971c2",
+      "text": "_vs = get_vessel_state()",
+      "fontSize": 13,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T14:54:18.438Z",
+      "updatedAt": "2026-02-20T14:54:18.438Z",
+      "version": 1
+    },
+    {
+      "id": "mlv0ggfg0ixouez3quzf",
+      "type": "text",
+      "x": 55,
+      "y": 440,
+      "strokeColor": "#868e96",
+      "text": "_vs.specs / _vs.model / _vs.update_specs()",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T14:54:18.438Z",
+      "updatedAt": "2026-02-20T14:54:18.438Z",
+      "version": 1
+    },
+    {
+      "id": "mlv0ggfg8a5rncpw023",
+      "type": "text",
+      "x": 375,
+      "y": 420,
+      "strokeColor": "#2f9e44",
+      "text": "get_wind_field() / get_wave_field()",
+      "fontSize": 13,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T14:54:18.438Z",
+      "updatedAt": "2026-02-20T14:54:18.438Z",
+      "version": 1
+    },
+    {
+      "id": "mlv0ggfgtqblawplla",
+      "type": "text",
+      "x": 375,
+      "y": 440,
+      "strokeColor": "#868e96",
+      "text": "weather_provider() / get_weather_at_point()",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T14:54:18.438Z",
+      "updatedAt": "2026-02-20T14:54:18.438Z",
+      "version": 1
+    },
+    {
+      "id": "removed",
+      "type": "rectangle",
+      "x": 150,
+      "y": 500,
+      "width": 680,
+      "height": 70,
+      "backgroundColor": "#ffe3e3",
+      "strokeColor": "#e03131",
+      "strokeWidth": 1,
+      "strokeStyle": "dashed",
+      "createdAt": "2026-02-20T14:54:18.438Z",
+      "updatedAt": "2026-02-20T14:54:18.438Z",
+      "version": 1
+    },
+    {
+      "id": "mlv0ggfgzqu8fftr3z",
+      "type": "text",
+      "x": 170,
+      "y": 510,
+      "strokeColor": "#e03131",
+      "text": "REMOVED from main.py:  current_vessel_specs, current_vessel_model, voyage_calculator,\nmonte_carlo_sim, route_optimizer, visir_optimizer, vessel_calibrator, current_calibration\n+ all 'global' statements for vessel state  + weather init/cache/ocean-mask helpers",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T14:54:18.438Z",
+      "updatedAt": "2026-02-20T14:54:18.438Z",
+      "version": 1
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff",
+    "gridSize": null
+  }
+}
