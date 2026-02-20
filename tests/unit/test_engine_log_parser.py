@@ -18,9 +18,7 @@ from src.database.engine_log_parser import (
 )
 
 # Path to real vessel dataset (skip tests if not present)
-SAMPLE_ELOG_FILE = Path(
-    "/home/slmar/Desktop/Spec WindMar/sample-engine-log.xlsx"
-)
+SAMPLE_ELOG_FILE = Path.home() / "data" / "sample-engine-log.xlsx"
 
 
 def _make_elog_excel(
