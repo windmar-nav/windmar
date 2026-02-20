@@ -1,123 +1,13 @@
-"""Integration tests for engine log API endpoints."""
+"""Integration tests for engine log API endpoints.
 
-import io
-import os
-import sys
+Fixtures (db, client, sample_elog_bytes) provided by tests/conftest.py.
+"""
+
 from datetime import datetime
-from pathlib import Path
-from unittest.mock import patch
 
-import pandas as pd
 import pytest
 
-os.environ["ENVIRONMENT"] = "development"
-os.environ["AUTH_ENABLED"] = "false"
-os.environ["RATE_LIMIT_ENABLED"] = "false"
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"
-os.environ["DB_ECHO"] = "false"
-
-from sqlalchemy import create_engine as _real_create_engine
-from sqlalchemy.orm import sessionmaker
-
-
-def _patched_create_engine(url, **kwargs):
-    """Create engine, stripping pool params invalid for SQLite."""
-    if url.startswith("sqlite"):
-        kwargs.pop("pool_size", None)
-        kwargs.pop("max_overflow", None)
-        kwargs.pop("pool_pre_ping", None)
-        kwargs.setdefault("connect_args", {"check_same_thread": False})
-    return _real_create_engine(url, **kwargs)
-
-
-# Patch create_engine before api.database imports it
-with patch("sqlalchemy.create_engine", _patched_create_engine):
-    # Clear any cached imports so patch applies
-    for mod in list(sys.modules.keys()):
-        if mod.startswith("api.database"):
-            del sys.modules[mod]
-    from api.database import Base, get_db, engine as _app_engine
-
-from fastapi.testclient import TestClient
-from api.main import app
 from api.models import EngineLogEntry
-from src.database.engine_log_parser import COLUMN_MAP, DATA_START_ROW
-
-# Use the (now SQLite-backed) app engine for tests
-test_engine = _app_engine
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=test_engine)
-Base.metadata.create_all(bind=test_engine)
-
-
-def _build_elog_bytes(rows, sheet_name="E log"):
-    ncols = 138
-    total_rows = DATA_START_ROW + len(rows)
-    data = [[None] * ncols for _ in range(total_rows)]
-    data[2][8] = "MAIN ENGINE PARAMETERS"
-    data[3][10] = "RPM"
-    data[2][83] = "HFO CONSUMPTION (MT)"
-    data[2][90] = "MGO CONSUMPTION (MT)"
-    for i, row_data in enumerate(rows):
-        for j, val in enumerate(row_data):
-            if j < ncols:
-                data[DATA_START_ROW + i][j] = val
-    df = pd.DataFrame(data)
-    buf = io.BytesIO()
-    with pd.ExcelWriter(buf, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name=sheet_name, index=False, header=False)
-    buf.seek(0)
-    return buf.read()
-
-
-def _make_row(**kwargs):
-    row = [None] * 138
-    for field, value in kwargs.items():
-        if field in COLUMN_MAP:
-            row[COLUMN_MAP[field]] = value
-    return row
-
-
-@pytest.fixture
-def db():
-    connection = test_engine.connect()
-    transaction = connection.begin()
-    session = TestingSessionLocal(bind=connection)
-    yield session
-    session.close()
-    transaction.rollback()
-    connection.close()
-
-
-@pytest.fixture
-def client(db):
-    def override_get_db():
-        try:
-            yield db
-        finally:
-            pass
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as tc:
-        yield tc
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def sample_elog_bytes():
-    rows = [
-        _make_row(date=datetime(2025, 8, 1), datetime_combined=datetime(2025, 8, 1, 12, 0),
-                   event="Noon", rpm=55, lapse_hours=24, place="At Sea", speed_stw=12.5,
-                   me_power_kw=3500, hfo_total_mt=6.0, mgo_total_mt=0.5,
-                   rob_vlsfo_mt=500, rob_mgo_mt=80, rh_me=23.5, rh_ae_total=24),
-        _make_row(date=datetime(2025, 8, 2), datetime_combined=datetime(2025, 8, 2, 12, 0),
-                   event="Noon", rpm=60, lapse_hours=24, place="At Sea", speed_stw=13.0,
-                   me_power_kw=4000, hfo_total_mt=7.0, mgo_total_mt=0.6,
-                   rob_vlsfo_mt=493, rob_mgo_mt=79.4, rh_me=24, rh_ae_total=24),
-        _make_row(date=datetime(2025, 8, 3), datetime_combined=datetime(2025, 8, 3, 8, 0),
-                   event="SOSP", rpm=0, lapse_hours=20, place="Singapore",
-                   hfo_total_mt=0.5, mgo_total_mt=0.3,
-                   rob_vlsfo_mt=492.5, rob_mgo_mt=79.1, rh_me=0, rh_ae_total=20),
-    ]
-    return _build_elog_bytes(rows)
 
 
 class TestUpload:

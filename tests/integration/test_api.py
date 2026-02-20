@@ -2,104 +2,11 @@
 Integration tests for WINDMAR API.
 
 Tests all major API endpoints with authentication and database.
+Fixtures (db, client, api_key, test_vessel) provided by tests/conftest.py.
 """
-import pytest
-from fastapi.testclient import TestClient
-from sqlalchemy import create_engine
-from sqlalchemy.orm import sessionmaker
-from datetime import datetime, timedelta
 import os
 
-# Set test environment
-os.environ["ENVIRONMENT"] = "development"
-os.environ["AUTH_ENABLED"] = "false"  # Disable auth for easier testing
-os.environ["RATE_LIMIT_ENABLED"] = "false"  # Disable rate limiting for tests
-os.environ["DATABASE_URL"] = "sqlite:///:memory:"  # Use in-memory database
-
-from api.main import app
-from api.database import Base, get_db
-from api.models import APIKey, VesselSpec
-from api.auth import hash_api_key, generate_api_key
-
-# Create test database
-SQLALCHEMY_DATABASE_URL = "sqlite:///:memory:"
-engine = create_engine(
-    SQLALCHEMY_DATABASE_URL,
-    connect_args={"check_same_thread": False}
-)
-TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
-
-# Create tables
-Base.metadata.create_all(bind=engine)
-
-
-@pytest.fixture
-def db():
-    """Create a test database session."""
-    connection = engine.connect()
-    transaction = connection.begin()
-    session = TestingSessionLocal(bind=connection)
-
-    yield session
-
-    session.close()
-    transaction.rollback()
-    connection.close()
-
-
-@pytest.fixture
-def client(db):
-    """Create a test client with database override."""
-    def override_get_db():
-        try:
-            yield db
-        finally:
-            pass
-
-    app.dependency_overrides[get_db] = override_get_db
-    with TestClient(app) as test_client:
-        yield test_client
-    app.dependency_overrides.clear()
-
-
-@pytest.fixture
-def api_key(db):
-    """Create a test API key."""
-    plain_key = generate_api_key()
-    key_hash = hash_api_key(plain_key)
-
-    api_key_obj = APIKey(
-        key_hash=key_hash,
-        name="Test Key",
-        is_active=True,
-        rate_limit=1000
-    )
-    db.add(api_key_obj)
-    db.commit()
-    db.refresh(api_key_obj)
-
-    return plain_key
-
-
-@pytest.fixture
-def test_vessel(db):
-    """Create a test vessel."""
-    vessel = VesselSpec(
-        name="Test Vessel",
-        length=183.0,
-        beam=32.0,
-        draft=11.8,
-        displacement=51450.0,
-        deadweight=49000.0,
-        engine_power=8840.0,
-        service_speed=14.5,
-        fuel_type="HFO"
-    )
-    db.add(vessel)
-    db.commit()
-    db.refresh(vessel)
-
-    return vessel
+import pytest
 
 
 # ============================================================================
@@ -112,7 +19,7 @@ def test_root_endpoint(client):
     assert response.status_code == 200
     data = response.json()
     assert data["name"] == "WINDMAR API"
-    assert data["version"] == "2.0.0"
+    assert data["version"] == "2.1.0"
     assert data["status"] == "operational"
 
 
