@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Set, Tuple
 
 import numpy as np
 
+from ..validation import validate_coordinates, validate_speed
 from .vessel_model import VesselModel
 
 
@@ -141,6 +142,18 @@ class MaritimeRouter:
                 - total_time_hours: Total time
                 - weather_along_route: Weather at each waypoint
         """
+        # Validate inputs
+        validate_coordinates(
+            start_pos[0], start_pos[1],
+            "start_position.latitude", "start_position.longitude",
+        )
+        validate_coordinates(
+            end_pos[0], end_pos[1],
+            "end_position.latitude", "end_position.longitude",
+        )
+        if target_speed_kts is not None:
+            validate_speed(target_speed_kts, "target_speed_kts")
+
         if target_speed_kts is None:
             target_speed_kts = (
                 self.vessel_model.specs.service_speed_laden

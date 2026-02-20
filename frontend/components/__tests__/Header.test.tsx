@@ -27,7 +27,7 @@ describe('Header', () => {
     render(<Header />);
 
     expect(screen.getByText('WINDMAR')).toBeInTheDocument();
-    expect(screen.getByText('Marine Route Analysis')).toBeInTheDocument();
+    expect(screen.getByText('Weather Routing & Performance Analytics')).toBeInTheDocument();
   });
 
   it('renders Vessel link to /vessel', () => {
