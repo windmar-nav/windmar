@@ -3,10 +3,11 @@ import './globals.css'
 import { Providers } from './providers'
 import { VoyageProvider } from '@/components/VoyageContext'
 import { DemoFooter } from '@/components/DemoFooter'
+import { AuthGate } from '@/components/AuthGate'
 
 export const metadata: Metadata = {
   title: 'WINDMAR - Weather Routing & Performance Analytics',
-  description: 'Weather routing and performance analytics for MR Product Tankers',
+  description: 'Weather routing and performance analytics for merchant ships',
 }
 
 export default function RootLayout({
@@ -28,8 +29,10 @@ export default function RootLayout({
       </head>
       <body>
         <Providers>
-          <VoyageProvider>{children}</VoyageProvider>
-          <DemoFooter />
+          <AuthGate>
+            <VoyageProvider>{children}</VoyageProvider>
+            <DemoFooter />
+          </AuthGate>
         </Providers>
       </body>
     </html>

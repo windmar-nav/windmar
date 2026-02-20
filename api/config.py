@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     database_url: str = "sqlite:///./windmar.db"
     db_echo: bool = False
     demo_mode: bool = False
+    demo_api_key_hash: Optional[str] = None
 
     # ========================================================================
     # Redis Configuration

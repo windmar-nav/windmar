@@ -1,8 +1,4 @@
 demo-windmar.slmar.co {
-	basic_auth * {
-		demo {env.BASIC_AUTH_HASH}
-	}
-
 	encode gzip
 
 	handle /api/* {

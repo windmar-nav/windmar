@@ -37,6 +37,7 @@ services:
       REDIS_ENABLED: "false"
       REDIS_URL: ""
       DEMO_MODE: "true"
+      DEMO_API_KEY_HASH: ${DEMO_API_KEY_HASH}
       AUTH_ENABLED: "false"
       RATE_LIMIT_ENABLED: "false"
       API_SECRET_KEY: ${API_SECRET_KEY:-change_me}
@@ -72,8 +73,6 @@ services:
   caddy:
     image: caddy:2-alpine
     container_name: windmar-caddy
-    environment:
-      BASIC_AUTH_HASH: ${BASIC_AUTH_HASH}
     ports:
       - "80:80"
       - "443:443"

@@ -10,8 +10,10 @@ import collections
 import json
 import logging
 
-from fastapi import APIRouter, HTTPException
-from fastapi.responses import PlainTextResponse, StreamingResponse
+import bcrypt
+
+from fastapi import APIRouter, HTTPException, Request
+from fastapi.responses import PlainTextResponse, StreamingResponse, JSONResponse
 
 from api.config import settings
 from api.middleware import metrics_collector, get_request_id
@@ -258,3 +260,47 @@ async def get_data_sources():
             else "synthetic"
         ),
     }
+
+
+# =============================================================================
+# Demo Authentication
+# =============================================================================
+
+def _verify_demo_key(plain_key: str) -> bool:
+    """Check a plain-text key against the DEMO_API_KEY_HASH bcrypt hash."""
+    if not settings.demo_api_key_hash:
+        return False
+    try:
+        return bcrypt.checkpw(
+            plain_key.encode("utf-8"),
+            settings.demo_api_key_hash.encode("utf-8"),
+        )
+    except Exception:
+        return False
+
+
+@router.post("/api/demo/verify")
+async def verify_demo_key(request: Request):
+    """
+    Verify a demo licence key.
+
+    Accepts X-API-Key header. Returns 200 if valid, 401 if not.
+    Only functional when DEMO_MODE=true and DEMO_API_KEY_HASH is set.
+    """
+    if not settings.demo_mode:
+        return {"authenticated": True, "demo_mode": False}
+
+    api_key = request.headers.get("X-API-Key", "")
+    if not api_key:
+        return JSONResponse(
+            status_code=401,
+            content={"authenticated": False, "detail": "Licence key is required"},
+        )
+
+    if _verify_demo_key(api_key):
+        return {"authenticated": True, "demo_mode": True}
+
+    return JSONResponse(
+        status_code=401,
+        content={"authenticated": False, "detail": "Invalid licence key"},
+    )
