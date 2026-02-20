@@ -341,6 +341,10 @@ from api.weather_service import (  # noqa: E402
     get_voyage_data_sources,
     CACHE_TTL_MINUTES,
 )
+from api.forecast_layer_manager import (  # noqa: E402
+    wind_layer, wave_layer, current_layer, ice_layer, sst_layer, vis_layer,
+    is_cache_complete, cache_covers_bounds, find_covering_cache,
+)
 
 # Backward compat: get_voyage_data_sources() was a module-level list in main.py.
 # Endpoints that referenced it now use get_voyage_data_sources().
@@ -858,57 +862,8 @@ async def api_get_wind_velocity_format(
 # API Endpoints - GFS Forecast Timeline
 # ============================================================================
 
-# In-progress prefetch tracking
-_prefetch_running = False
-_prefetch_lock = None  # Will be a threading.Lock
-_last_wind_prefetch_run = None  # (run_date, run_hour) tuple from last successful prefetch
-
-def _is_cache_complete(cache_file: Path) -> bool:
-    """Check if a forecast cache file has all expected frames.
-
-    Reads only the first 512 bytes to extract cached_hours / total_hours
-    without parsing the entire multi-MB JSON payload.  Returns True if
-    the file looks complete (or if the check is inconclusive).
-    """
-    import re as _re
-    try:
-        with open(cache_file, "rb") as fh:
-            header = fh.read(512)
-        m_cached = _re.search(rb'"cached_hours"\s*:\s*(\d+)', header)
-        m_total = _re.search(rb'"total_hours"\s*:\s*(\d+)', header)
-        if m_cached and m_total:
-            return int(m_cached.group(1)) >= int(m_total.group(1))
-    except Exception:
-        pass
-    return True  # inconclusive → serve it
-
-
-# File-based cache for wind forecast frames (shared across gunicorn workers)
-_WIND_CACHE_DIR = Path("/tmp/windmar_cache/wind")
-_WIND_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def _wind_cache_key(lat_min, lat_max, lon_min, lon_max):
-    return f"wind_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-
-
-def _wind_cache_get(cache_key: str) -> dict | None:
-    p = _WIND_CACHE_DIR / f"{cache_key}.json"
-    if p.exists():
-        try:
-            import json as _json
-            return _json.loads(p.read_text())
-        except Exception:
-            return None
-    return None
-
-
-def _wind_cache_put(cache_key: str, data: dict):
-    import json as _json
-    p = _WIND_CACHE_DIR / f"{cache_key}.json"
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(_json.dumps(data))
-    tmp.rename(p)  # atomic on same filesystem
+# (Per-layer state, locks, cache I/O, and shared utilities are now in
+#  api.forecast_layer_manager — imported as wind_layer, wave_layer, etc.)
 
 
 def _build_wind_frames(lat_min, lat_max, lon_min, lon_max, run_date, run_hour):
@@ -979,8 +934,8 @@ def _build_wind_frames(lat_min, lat_max, lon_min, lon_max, run_date, run_hour):
         "frames": frames,
     }
 
-    cache_key = _wind_cache_key(lat_min, lat_max, lon_min, lon_max)
-    _wind_cache_put(cache_key, result)
+    cache_key = wind_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    wind_layer.cache_put(cache_key, result)
     logger.info(f"Wind frames cache saved: {len(frames)} frames, key={cache_key}")
     return result
 
@@ -1065,18 +1020,9 @@ def _rebuild_wind_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
         "frames": frames,
     }
 
-    _wind_cache_put(cache_key, result)
+    wind_layer.cache_put(cache_key, result)
     logger.info(f"Wind cache rebuilt from DB: {len(frames)} frames")
     return result
-
-
-def _get_prefetch_lock():
-    """Lazy-init thread lock for prefetch."""
-    global _prefetch_lock
-    if _prefetch_lock is None:
-        import threading
-        _prefetch_lock = threading.Lock()
-    return _prefetch_lock
 
 
 @app.get("/api/weather/forecast/status")
@@ -1091,9 +1037,9 @@ async def api_get_forecast_status(
 
     Checks the file cache first (instant). Falls back to scanning GRIB files.
     """
-    cache_key = _wind_cache_key(lat_min, lat_max, lon_min, lon_max)
-    cached = _wind_cache_get(cache_key)
-    if cached and not _prefetch_running:
+    cache_key = wind_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    cached = wind_layer.cache_get(cache_key)
+    if cached and not wind_layer.is_running:
         cached_hours = len(cached.get("frames", {}))
         return {
             "run_date": cached["run_date"],
@@ -1105,14 +1051,14 @@ async def api_get_forecast_status(
         }
 
     # No file cache — fall back to scanning GRIB files
-    if _last_wind_prefetch_run:
-        run_date, run_hour = _last_wind_prefetch_run
+    if wind_layer.last_run:
+        run_date, run_hour = wind_layer.last_run
     else:
         run_date, run_hour = gfs_provider._get_latest_run()
     hours = gfs_provider.get_cached_forecast_hours(lat_min, lat_max, lon_min, lon_max, run_date, run_hour)
     cached_count = sum(1 for h in hours if h["cached"])
 
-    if cached_count == 0 and not _prefetch_running:
+    if cached_count == 0 and not wind_layer.is_running:
         best = gfs_provider.find_best_cached_run(lat_min, lat_max, lon_min, lon_max)
         if best:
             run_date, run_hour = best
@@ -1141,31 +1087,20 @@ async def api_get_forecast_status(
         "run_hour": run_hour,
         "total_hours": total_count,
         "cached_hours": cached_count,
-        "complete": cached_count == total_count and not _prefetch_running,
-        "prefetch_running": _prefetch_running,
+        "complete": cached_count == total_count and not wind_layer.is_running,
+        "prefetch_running": wind_layer.is_running,
     }
 
 
-def _do_wind_prefetch(lat_min: float, lat_max: float, lon_min: float, lon_max: float):
+def _do_wind_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
     """Download all GFS forecast hours and build wind frames cache."""
-    global _prefetch_running, _last_wind_prefetch_run
-    pflock = _get_prefetch_lock()
-    if not pflock.acquire(blocking=False):
-        return
-    try:
-        _prefetch_running = True
-        run_date, run_hour = gfs_provider._get_latest_run()
-        _last_wind_prefetch_run = (run_date, run_hour)
-        logger.info(f"GFS forecast prefetch started (run {run_date}/{run_hour}z)")
-        gfs_provider.prefetch_forecast_hours(lat_min, lat_max, lon_min, lon_max)
-        logger.info("GFS forecast prefetch completed, building frames cache...")
-        _build_wind_frames(lat_min, lat_max, lon_min, lon_max, run_date, run_hour)
-        logger.info("Wind frames cache ready")
-    except Exception as e:
-        logger.error(f"GFS forecast prefetch failed: {e}")
-    finally:
-        _prefetch_running = False
-        pflock.release()
+    run_date, run_hour = gfs_provider._get_latest_run()
+    mgr.last_run = (run_date, run_hour)
+    logger.info(f"GFS forecast prefetch started (run {run_date}/{run_hour}z)")
+    gfs_provider.prefetch_forecast_hours(lat_min, lat_max, lon_min, lon_max)
+    logger.info("GFS forecast prefetch completed, building frames cache...")
+    _build_wind_frames(lat_min, lat_max, lon_min, lon_max, run_date, run_hour)
+    logger.info("Wind frames cache ready")
 
 
 @app.post("/api/weather/forecast/prefetch", dependencies=[Depends(require_not_demo("Weather prefetch"))])
@@ -1176,22 +1111,8 @@ async def api_trigger_forecast_prefetch(
     lon_min: float = Query(-15.0),
     lon_max: float = Query(40.0),
 ):
-    """
-    Trigger background download of all GFS forecast hours (f000-f120).
-
-    Returns immediately. Poll /api/weather/forecast/status for progress.
-    """
-    global _prefetch_running
-
-    lock = _get_prefetch_lock()
-    if not lock.acquire(blocking=False):
-        return {"status": "already_running", "message": "Prefetch is already in progress"}
-
-    lock.release()
-
-    background_tasks.add_task(_do_wind_prefetch, lat_min, lat_max, lon_min, lon_max)
-
-    return {"status": "started", "message": "Prefetch triggered in background"}
+    """Trigger background download of all GFS forecast hours (f000-f120)."""
+    return wind_layer.trigger_response(background_tasks, _do_wind_prefetch, lat_min, lat_max, lon_min, lon_max)
 
 
 @app.get("/api/weather/forecast/frames")
@@ -1208,8 +1129,8 @@ async def api_get_forecast_frames(
     Serves the raw JSON file to avoid parse+re-serialize overhead.
     """
     from starlette.responses import Response
-    cache_key = _wind_cache_key(lat_min, lat_max, lon_min, lon_max)
-    cache_file = _WIND_CACHE_DIR / f"{cache_key}.json"
+    cache_key = wind_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    cache_file = wind_layer.cache_path(cache_key)
     if cache_file.exists():
         return Response(content=cache_file.read_bytes(), media_type="application/json")
 
@@ -1238,78 +1159,6 @@ async def api_get_forecast_frames(
 # =========================================================================
 # Wave Forecast Endpoints (CMEMS)
 # =========================================================================
-
-_wave_prefetch_running = False
-_wave_prefetch_lock = None
-
-def _get_wave_prefetch_lock():
-    global _wave_prefetch_lock
-    if _wave_prefetch_lock is None:
-        import threading
-        _wave_prefetch_lock = threading.Lock()
-    return _wave_prefetch_lock
-
-# File-based cache for wave forecast frames (shared across workers)
-_WAVE_CACHE_DIR = Path("/tmp/windmar_cache/wave")
-_WAVE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-def _wave_cache_path(cache_key: str) -> Path:
-    return _WAVE_CACHE_DIR / f"{cache_key}.json"
-
-def _wave_cache_get(cache_key: str) -> dict | None:
-    p = _wave_cache_path(cache_key)
-    if p.exists():
-        try:
-            import json as _json
-            return _json.loads(p.read_text())
-        except Exception:
-            return None
-    return None
-
-def _wave_cache_put(cache_key: str, data: dict):
-    import json as _json
-    p = _wave_cache_path(cache_key)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(_json.dumps(data))
-    tmp.rename(p)  # atomic on same filesystem
-
-
-def _cache_covers_bounds(cached_data: dict, lat_min: float, lat_max: float,
-                         lon_min: float, lon_max: float, min_coverage: float = 0.8) -> bool:
-    """Check whether cached data covers the requested bounding box.
-
-    Returns True if the cached lat/lon range covers at least *min_coverage*
-    fraction of the requested span on both axes.  This prevents stale DB data
-    from a previous (different-area) session being served as if it matches the
-    current viewport.
-    """
-    lats = cached_data.get("lats", [])
-    lons = cached_data.get("lons", [])
-    if not lats or not lons:
-        return False
-    data_lat_min, data_lat_max = min(lats), max(lats)
-    data_lon_min, data_lon_max = min(lons), max(lons)
-
-    req_lat_span = max(lat_max - lat_min, 0.01)
-    req_lon_span = max(lon_max - lon_min, 0.01)
-
-    # Overlap on each axis
-    lat_overlap = max(0, min(data_lat_max, lat_max) - max(data_lat_min, lat_min))
-    lon_overlap = max(0, min(data_lon_max, lon_max) - max(data_lon_min, lon_min))
-
-    lat_cov = lat_overlap / req_lat_span
-    lon_cov = lon_overlap / req_lon_span
-
-    covers = lat_cov >= min_coverage and lon_cov >= min_coverage
-    if not covers:
-        logger.info(
-            f"Cache coverage insufficient: lat {lat_cov:.0%} lon {lon_cov:.0%} "
-            f"(need {min_coverage:.0%}). cached=[{data_lat_min:.1f}-{data_lat_max:.1f},"
-            f"{data_lon_min:.1f}-{data_lon_max:.1f}] requested=[{lat_min:.1f}-{lat_max:.1f},"
-            f"{lon_min:.1f}-{lon_max:.1f}]"
-        )
-    return covers
-
 
 def _rebuild_wave_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
     """Rebuild wave forecast file cache from PostgreSQL data."""
@@ -1390,7 +1239,7 @@ def _rebuild_wave_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
         "frames": frames,
     }
 
-    _wave_cache_put(cache_key, cache_data)
+    wave_layer.cache_put(cache_key, cache_data)
     logger.info(f"Wave cache rebuilt from DB: {len(frames)} frames")
     return cache_data
 
@@ -1451,7 +1300,7 @@ def _rebuild_current_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max
         "frames": frames,
     }
 
-    _current_cache_put(cache_key, cache_data)
+    current_layer.cache_put(cache_key, cache_data)
     logger.info(f"Current cache rebuilt from DB: {len(frames)} frames")
     return cache_data
 
@@ -1464,11 +1313,11 @@ async def api_get_wave_forecast_status(
     lon_max: float = Query(40.0),
 ):
     """Get wave forecast prefetch status."""
-    cache_key = f"wave_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-    cached = _wave_cache_get(cache_key)
+    cache_key = wave_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    cached = wave_layer.cache_get(cache_key)
     total_hours = 41  # 0-120h every 3h
 
-    prefetch_running = _is_wave_prefetch_running()
+    prefetch_running = wave_layer.is_running
 
     if cached:
         cached_hours = len(cached.get("frames", {}))
@@ -1510,118 +1359,92 @@ async def api_get_wave_forecast_status(
     }
 
 
-def _do_wave_prefetch(lat_min: float, lat_max: float, lon_min: float, lon_max: float):
+def _do_wave_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
     """Download CMEMS wave forecast and build frames cache."""
-    global _wave_prefetch_running
-    pflock = _get_wave_prefetch_lock()
-    if not pflock.acquire(blocking=False):
+    cache_key_chk = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    existing = mgr.cache_get(cache_key_chk)
+    if existing and len(existing.get("frames", {})) >= 41 and cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
+        logger.info("Wave forecast file cache already complete, skipping CMEMS download")
         return
 
-    r = _get_redis()
-    try:
-        if r is not None:
-            acquired = r.set(_REDIS_PREFETCH_LOCK, "1", nx=True, ex=1200)
-            if not acquired:
-                return
-            r.setex(_REDIS_PREFETCH_STATUS, 1200, "1")
-
-        _wave_prefetch_running = True
-
-        cache_key_chk = f"wave_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-        existing = _wave_cache_get(cache_key_chk)
-        if existing and len(existing.get("frames", {})) >= 41 and _cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
-            logger.info("Wave forecast file cache already complete, skipping CMEMS download")
+    if db_weather is not None:
+        rebuilt = _rebuild_wave_cache_from_db(cache_key_chk, lat_min, lat_max, lon_min, lon_max)
+        if rebuilt and len(rebuilt.get("frames", {})) >= 41 and cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
+            logger.info("Wave forecast rebuilt from DB, skipping CMEMS download")
             return
 
-        if db_weather is not None:
-            rebuilt = _rebuild_wave_cache_from_db(cache_key_chk, lat_min, lat_max, lon_min, lon_max)
-            if rebuilt and len(rebuilt.get("frames", {})) >= 41 and _cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
-                logger.info("Wave forecast rebuilt from DB, skipping CMEMS download")
-                return
+    stale_path = mgr.cache_path(cache_key_chk)
+    if stale_path.exists():
+        stale_path.unlink(missing_ok=True)
+        logger.info(f"Removed stale wave cache: {cache_key_chk}")
 
-        stale_path = _wave_cache_path(cache_key_chk)
-        if stale_path.exists():
-            stale_path.unlink(missing_ok=True)
-            logger.info(f"Removed stale wave cache: {cache_key_chk}")
+    logger.info("CMEMS wave forecast prefetch started")
 
-        logger.info("CMEMS wave forecast prefetch started")
+    result = copernicus_provider.fetch_wave_forecast(lat_min, lat_max, lon_min, lon_max)
+    if result is None:
+        logger.error("Wave forecast fetch returned None")
+        return
 
-        result = copernicus_provider.fetch_wave_forecast(lat_min, lat_max, lon_min, lon_max)
-        if result is None:
-            logger.error("Wave forecast fetch returned None")
-            return
+    mask_lats_arr, mask_lons_arr, ocean_mask_arr = _build_ocean_mask(
+        lat_min, lat_max, lon_min, lon_max
+    )
 
-        mask_lats_arr, mask_lons_arr, ocean_mask_arr = _build_ocean_mask(
-            lat_min, lat_max, lon_min, lon_max
-        )
+    first_wd = next(iter(result.values()))
+    max_dim = max(len(first_wd.lats), len(first_wd.lons))
+    STEP = max(1, round(max_dim / 250))
+    logger.info(f"Wave forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
+    shared_lats = first_wd.lats[::STEP].tolist()
+    shared_lons = first_wd.lons[::STEP].tolist()
 
-        first_wd = next(iter(result.values()))
-        max_dim = max(len(first_wd.lats), len(first_wd.lons))
-        STEP = max(1, round(max_dim / 250))
-        logger.info(f"Wave forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
-        shared_lats = first_wd.lats[::STEP].tolist()
-        shared_lons = first_wd.lons[::STEP].tolist()
+    def _subsample_round(arr):
+        if arr is None:
+            return None
+        sub = arr[::STEP, ::STEP]
+        return np.round(sub, 2).tolist()
 
-        def _subsample_round(arr):
-            if arr is None:
-                return None
-            sub = arr[::STEP, ::STEP]
-            return np.round(sub, 2).tolist()
+    frames = {}
+    for fh, wd in sorted(result.items()):
+        frame = {"data": _subsample_round(wd.values)}
+        if wd.wave_direction is not None:
+            frame["direction"] = _subsample_round(wd.wave_direction)
+        has_decomp = wd.windwave_height is not None and wd.swell_height is not None
+        if has_decomp:
+            frame["windwave"] = {
+                "height": _subsample_round(wd.windwave_height),
+                "period": _subsample_round(wd.windwave_period),
+                "direction": _subsample_round(wd.windwave_direction),
+            }
+            frame["swell"] = {
+                "height": _subsample_round(wd.swell_height),
+                "period": _subsample_round(wd.swell_period),
+                "direction": _subsample_round(wd.swell_direction),
+            }
+        frames[str(fh)] = frame
 
-        frames = {}
-        for fh, wd in sorted(result.items()):
-            frame = {"data": _subsample_round(wd.values)}
-            if wd.wave_direction is not None:
-                frame["direction"] = _subsample_round(wd.wave_direction)
-            has_decomp = wd.windwave_height is not None and wd.swell_height is not None
-            if has_decomp:
-                frame["windwave"] = {
-                    "height": _subsample_round(wd.windwave_height),
-                    "period": _subsample_round(wd.windwave_period),
-                    "direction": _subsample_round(wd.windwave_direction),
-                }
-                frame["swell"] = {
-                    "height": _subsample_round(wd.swell_height),
-                    "period": _subsample_round(wd.swell_period),
-                    "direction": _subsample_round(wd.swell_direction),
-                }
-            frames[str(fh)] = frame
+    cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    mgr.cache_put(cache_key, {
+        "run_time": first_wd.time.isoformat() if first_wd.time else "",
+        "total_hours": 41,
+        "cached_hours": len(frames),
+        "source": "cmems",
+        "lats": shared_lats,
+        "lons": shared_lons,
+        "ny": len(shared_lats),
+        "nx": len(shared_lons),
+        "ocean_mask": ocean_mask_arr,
+        "ocean_mask_lats": mask_lats_arr,
+        "ocean_mask_lons": mask_lons_arr,
+        "colorscale": {"min": 0, "max": 6, "colors": ["#00ff00", "#ffff00", "#ff8800", "#ff0000", "#800000"]},
+        "frames": frames,
+    })
+    logger.info(f"Wave forecast cached: {len(frames)} frames")
 
-        cache_key = f"wave_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-        _wave_cache_put(cache_key, {
-            "run_time": first_wd.time.isoformat() if first_wd.time else "",
-            "total_hours": 41,
-            "cached_hours": len(frames),
-            "source": "cmems",
-            "lats": shared_lats,
-            "lons": shared_lons,
-            "ny": len(shared_lats),
-            "nx": len(shared_lons),
-            "ocean_mask": ocean_mask_arr,
-            "ocean_mask_lats": mask_lats_arr,
-            "ocean_mask_lons": mask_lons_arr,
-            "colorscale": {"min": 0, "max": 6, "colors": ["#00ff00", "#ffff00", "#ff8800", "#ff0000", "#800000"]},
-            "frames": frames,
-        })
-        logger.info(f"Wave forecast cached: {len(frames)} frames")
-
-        if weather_ingestion is not None:
-            try:
-                logger.info("Ingesting wave forecast frames into PostgreSQL...")
-                weather_ingestion.ingest_wave_forecast_frames(result)
-            except Exception as db_e:
-                logger.error(f"Wave forecast DB ingestion failed: {db_e}")
-
-    except Exception as e:
-        logger.error(f"Wave forecast prefetch failed: {e}")
-    finally:
-        _wave_prefetch_running = False
-        if r is not None:
-            try:
-                r.delete(_REDIS_PREFETCH_LOCK, _REDIS_PREFETCH_STATUS)
-            except Exception:
-                pass
-        pflock.release()
+    if weather_ingestion is not None:
+        try:
+            logger.info("Ingesting wave forecast frames into PostgreSQL...")
+            weather_ingestion.ingest_wave_forecast_frames(result)
+        except Exception as db_e:
+            logger.error(f"Wave forecast DB ingestion failed: {db_e}")
 
 
 @app.post("/api/weather/forecast/wave/prefetch", dependencies=[Depends(require_not_demo("Weather prefetch"))])
@@ -1633,19 +1456,7 @@ async def api_trigger_wave_forecast_prefetch(
     lon_max: float = Query(40.0),
 ):
     """Trigger background download of CMEMS wave forecast (0-120h)."""
-    global _wave_prefetch_running
-
-    # Check Redis distributed lock first (cross-worker), then local lock
-    if _is_wave_prefetch_running():
-        return {"status": "already_running", "message": "Wave prefetch is already in progress"}
-
-    lock = _get_wave_prefetch_lock()
-    if not lock.acquire(blocking=False):
-        return {"status": "already_running", "message": "Wave prefetch is already in progress"}
-    lock.release()
-
-    background_tasks.add_task(_do_wave_prefetch, lat_min, lat_max, lon_min, lon_max)
-    return {"status": "started", "message": "Wave forecast prefetch triggered in background"}
+    return wave_layer.trigger_response(background_tasks, _do_wave_prefetch, lat_min, lat_max, lon_min, lon_max)
 
 
 @app.get("/api/weather/forecast/wave/frames")
@@ -1659,14 +1470,10 @@ async def api_get_wave_forecast_frames(
 
     Serves the raw JSON file to avoid parse+re-serialize overhead.
     """
-    from starlette.responses import Response as RawResponse
-    cache_key = f"wave_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-    cache_file = _wave_cache_path(cache_key)
-    if cache_file.exists():
-        if _is_cache_complete(cache_file):
-            return RawResponse(content=cache_file.read_bytes(), media_type="application/json")
-        logger.warning("Wave cache %s is partial — rebuilding from DB", cache_key)
-        cache_file.unlink(missing_ok=True)
+    cache_key = wave_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    raw = wave_layer.serve_frames_file(cache_key)
+    if raw is not None:
+        return raw
 
     # Fallback: rebuild from PostgreSQL
     cached = await asyncio.to_thread(
@@ -1694,51 +1501,6 @@ async def api_get_wave_forecast_frames(
 # Current Forecast Endpoints (CMEMS)
 # =========================================================================
 
-_current_prefetch_running = False
-_current_prefetch_lock = None
-_CURRENT_CACHE_DIR = Path("/tmp/windmar_cache/current")
-_CURRENT_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-_REDIS_CURRENT_PREFETCH_LOCK = "windmar:current_prefetch_lock"
-_REDIS_CURRENT_PREFETCH_STATUS = "windmar:current_prefetch_running"
-
-def _get_current_prefetch_lock():
-    global _current_prefetch_lock
-    if _current_prefetch_lock is None:
-        import threading
-        _current_prefetch_lock = threading.Lock()
-    return _current_prefetch_lock
-
-def _is_current_prefetch_running() -> bool:
-    r = _get_redis()
-    if r is not None:
-        try:
-            return r.exists(_REDIS_CURRENT_PREFETCH_STATUS) > 0
-        except Exception:
-            pass
-    return _current_prefetch_running
-
-def _current_cache_path(cache_key: str) -> Path:
-    return _CURRENT_CACHE_DIR / f"{cache_key}.json"
-
-def _current_cache_get(cache_key: str) -> dict | None:
-    p = _current_cache_path(cache_key)
-    if p.exists():
-        try:
-            import json as _json
-            return _json.loads(p.read_text())
-        except Exception:
-            return None
-    return None
-
-def _current_cache_put(cache_key: str, data: dict):
-    import json as _json
-    p = _current_cache_path(cache_key)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(_json.dumps(data))
-    tmp.rename(p)
-
-
 @app.get("/api/weather/forecast/current/status")
 async def api_get_current_forecast_status(
     lat_min: float = Query(30.0),
@@ -1747,11 +1509,11 @@ async def api_get_current_forecast_status(
     lon_max: float = Query(40.0),
 ):
     """Get current forecast prefetch status."""
-    cache_key = f"current_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-    cached = _current_cache_get(cache_key)
+    cache_key = current_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    cached = current_layer.cache_get(cache_key)
     total_hours = 41
 
-    prefetch_running = _is_current_prefetch_running()
+    prefetch_running = current_layer.is_running
 
     if cached:
         cached_hours = len(cached.get("frames", {}))
@@ -1784,96 +1546,70 @@ async def api_get_current_forecast_status(
     }
 
 
-def _do_current_prefetch(lat_min: float, lat_max: float, lon_min: float, lon_max: float):
+def _do_current_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
     """Download CMEMS current forecast and build frames cache."""
-    global _current_prefetch_running
-    pflock = _get_current_prefetch_lock()
-    if not pflock.acquire(blocking=False):
+    cache_key_chk = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    existing = mgr.cache_get(cache_key_chk)
+    if existing and len(existing.get("frames", {})) >= 41 and cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
+        logger.info("Current forecast file cache already complete, skipping CMEMS download")
         return
 
-    r = _get_redis()
-    try:
-        if r is not None:
-            acquired = r.set(_REDIS_CURRENT_PREFETCH_LOCK, "1", nx=True, ex=1200)
-            if not acquired:
-                return
-            r.setex(_REDIS_CURRENT_PREFETCH_STATUS, 1200, "1")
-
-        _current_prefetch_running = True
-
-        cache_key_chk = f"current_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-        existing = _current_cache_get(cache_key_chk)
-        if existing and len(existing.get("frames", {})) >= 41 and _cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
-            logger.info("Current forecast file cache already complete, skipping CMEMS download")
+    if db_weather is not None:
+        rebuilt = _rebuild_current_cache_from_db(cache_key_chk, lat_min, lat_max, lon_min, lon_max)
+        if rebuilt and len(rebuilt.get("frames", {})) >= 41 and cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
+            logger.info("Current forecast rebuilt from DB, skipping CMEMS download")
             return
 
-        if db_weather is not None:
-            rebuilt = _rebuild_current_cache_from_db(cache_key_chk, lat_min, lat_max, lon_min, lon_max)
-            if rebuilt and len(rebuilt.get("frames", {})) >= 41 and _cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
-                logger.info("Current forecast rebuilt from DB, skipping CMEMS download")
-                return
+    stale_path = mgr.cache_path(cache_key_chk)
+    if stale_path.exists():
+        stale_path.unlink(missing_ok=True)
+        logger.info(f"Removed stale current cache: {cache_key_chk}")
 
-        stale_path = _current_cache_path(cache_key_chk)
-        if stale_path.exists():
-            stale_path.unlink(missing_ok=True)
-            logger.info(f"Removed stale current cache: {cache_key_chk}")
+    logger.info("CMEMS current forecast prefetch started")
 
-        logger.info("CMEMS current forecast prefetch started")
+    result = copernicus_provider.fetch_current_forecast(lat_min, lat_max, lon_min, lon_max)
+    if result is None:
+        logger.error("Current forecast fetch returned None")
+        return
 
-        result = copernicus_provider.fetch_current_forecast(lat_min, lat_max, lon_min, lon_max)
-        if result is None:
-            logger.error("Current forecast fetch returned None")
-            return
+    first_wd = next(iter(result.values()))
+    max_dim = max(len(first_wd.lats), len(first_wd.lons))
+    STEP = max(1, round(max_dim / 250))
+    logger.info(f"Current forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
+    sub_lats = first_wd.lats[::STEP]
+    sub_lons = first_wd.lons[::STEP]
 
-        first_wd = next(iter(result.values()))
-        max_dim = max(len(first_wd.lats), len(first_wd.lons))
-        STEP = max(1, round(max_dim / 250))
-        logger.info(f"Current forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
-        sub_lats = first_wd.lats[::STEP]
-        sub_lons = first_wd.lons[::STEP]
+    frames = {}
+    for fh, wd in sorted(result.items()):
+        if wd.u_component is not None and wd.v_component is not None:
+            u_sub = wd.u_component[::STEP, ::STEP]
+            v_sub = wd.v_component[::STEP, ::STEP]
+            u_m, v_m = _apply_ocean_mask_velocity(u_sub, v_sub, sub_lats, sub_lons)
+            frames[str(fh)] = {
+                "u": np.round(u_m[::-1], 2).tolist(),
+                "v": np.round(v_m[::-1], 2).tolist(),
+            }
 
-        frames = {}
-        for fh, wd in sorted(result.items()):
-            if wd.u_component is not None and wd.v_component is not None:
-                u_sub = wd.u_component[::STEP, ::STEP]
-                v_sub = wd.v_component[::STEP, ::STEP]
-                u_m, v_m = _apply_ocean_mask_velocity(u_sub, v_sub, sub_lats, sub_lons)
-                frames[str(fh)] = {
-                    "u": np.round(u_m[::-1], 2).tolist(),
-                    "v": np.round(v_m[::-1], 2).tolist(),
-                }
+    cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    mgr.cache_put(cache_key, {
+        "run_time": first_wd.time.isoformat() if first_wd.time else "",
+        "total_hours": 41,
+        "cached_hours": len(frames),
+        "source": "cmems",
+        "lats": sub_lats.tolist(),
+        "lons": sub_lons.tolist(),
+        "ny": len(sub_lats),
+        "nx": len(sub_lons),
+        "frames": frames,
+    })
+    logger.info(f"Current forecast cached: {len(frames)} frames")
 
-        cache_key = f"current_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-        _current_cache_put(cache_key, {
-            "run_time": first_wd.time.isoformat() if first_wd.time else "",
-            "total_hours": 41,
-            "cached_hours": len(frames),
-            "source": "cmems",
-            "lats": sub_lats.tolist(),
-            "lons": sub_lons.tolist(),
-            "ny": len(sub_lats),
-            "nx": len(sub_lons),
-            "frames": frames,
-        })
-        logger.info(f"Current forecast cached: {len(frames)} frames")
-
-        if weather_ingestion is not None:
-            try:
-                logger.info("Ingesting current forecast frames into PostgreSQL...")
-                weather_ingestion.ingest_current_forecast_frames(result)
-            except Exception as db_e:
-                logger.error(f"Current forecast DB ingestion failed: {db_e}")
-
-    except Exception as e:
-        logger.error(f"Current forecast prefetch failed: {e}")
-    finally:
-        _current_prefetch_running = False
-        if r is not None:
-            try:
-                r.delete(_REDIS_CURRENT_PREFETCH_LOCK, _REDIS_CURRENT_PREFETCH_STATUS)
-            except Exception:
-                pass
-        pflock.release()
+    if weather_ingestion is not None:
+        try:
+            logger.info("Ingesting current forecast frames into PostgreSQL...")
+            weather_ingestion.ingest_current_forecast_frames(result)
+        except Exception as db_e:
+            logger.error(f"Current forecast DB ingestion failed: {db_e}")
 
 
 @app.post("/api/weather/forecast/current/prefetch", dependencies=[Depends(require_not_demo("Weather prefetch"))])
@@ -1885,18 +1621,7 @@ async def api_trigger_current_forecast_prefetch(
     lon_max: float = Query(40.0),
 ):
     """Trigger background download of CMEMS current forecast (0-120h)."""
-    global _current_prefetch_running
-
-    if _is_current_prefetch_running():
-        return {"status": "already_running", "message": "Current prefetch is already in progress"}
-
-    lock = _get_current_prefetch_lock()
-    if not lock.acquire(blocking=False):
-        return {"status": "already_running", "message": "Current prefetch is already in progress"}
-    lock.release()
-
-    background_tasks.add_task(_do_current_prefetch, lat_min, lat_max, lon_min, lon_max)
-    return {"status": "started", "message": "Current forecast prefetch triggered in background"}
+    return current_layer.trigger_response(background_tasks, _do_current_prefetch, lat_min, lat_max, lon_min, lon_max)
 
 
 @app.get("/api/weather/forecast/current/frames")
@@ -1910,14 +1635,10 @@ async def api_get_current_forecast_frames(
 
     Serves the raw JSON file to avoid parse+re-serialize overhead.
     """
-    from starlette.responses import Response as RawResponse
-    cache_key = f"current_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-    cache_file = _current_cache_path(cache_key)
-    if cache_file.exists():
-        if _is_cache_complete(cache_file):
-            return RawResponse(content=cache_file.read_bytes(), media_type="application/json")
-        logger.warning("Current cache %s is partial — rebuilding from DB", cache_key)
-        cache_file.unlink(missing_ok=True)
+    cache_key = current_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    raw = current_layer.serve_frames_file(cache_key)
+    if raw is not None:
+        return raw
 
     # Fallback: rebuild from PostgreSQL
     cached = await asyncio.to_thread(
@@ -1943,56 +1664,6 @@ async def api_get_current_forecast_frames(
 # =========================================================================
 # Ice Forecast Endpoints (CMEMS, 10-day daily)
 # =========================================================================
-
-_ice_prefetch_running = False
-_ice_prefetch_lock = None
-_ICE_CACHE_DIR = Path("/tmp/windmar_cache/ice")
-_ICE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-_REDIS_ICE_PREFETCH_LOCK = "windmar:ice_prefetch_lock"
-_REDIS_ICE_PREFETCH_STATUS = "windmar:ice_prefetch_running"
-
-
-def _get_ice_prefetch_lock():
-    global _ice_prefetch_lock
-    if _ice_prefetch_lock is None:
-        import threading
-        _ice_prefetch_lock = threading.Lock()
-    return _ice_prefetch_lock
-
-
-def _is_ice_prefetch_running() -> bool:
-    r = _get_redis()
-    if r is not None:
-        try:
-            return r.exists(_REDIS_ICE_PREFETCH_STATUS) > 0
-        except Exception:
-            pass
-    return _ice_prefetch_running
-
-
-def _ice_cache_path(cache_key: str) -> Path:
-    return _ICE_CACHE_DIR / f"{cache_key}.json"
-
-
-def _ice_cache_get(cache_key: str) -> dict | None:
-    p = _ice_cache_path(cache_key)
-    if p.exists():
-        try:
-            import json as _json
-            return _json.loads(p.read_text())
-        except Exception:
-            return None
-    return None
-
-
-def _ice_cache_put(cache_key: str, data: dict):
-    import json as _json
-    p = _ice_cache_path(cache_key)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(_json.dumps(data))
-    tmp.rename(p)
-
 
 def _rebuild_ice_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
     """Rebuild ice forecast file cache from PostgreSQL data."""
@@ -2047,7 +1718,7 @@ def _rebuild_ice_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
         "frames": frames,
     }
 
-    _ice_cache_put(cache_key, cache_data)
+    ice_layer.cache_put(cache_key, cache_data)
     logger.info(f"Ice cache rebuilt from DB: {len(frames)} frames")
     return cache_data
 
@@ -2060,10 +1731,10 @@ async def api_get_ice_forecast_status(
     lon_max: float = Query(40.0),
 ):
     """Get ice forecast prefetch status."""
-    cache_key = f"ice_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-    cached = _ice_cache_get(cache_key)
+    cache_key = ice_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    cached = ice_layer.cache_get(cache_key)
 
-    prefetch_running = _is_ice_prefetch_running()
+    prefetch_running = ice_layer.is_running
 
     if cached:
         cached_hours = len(cached.get("frames", {}))
@@ -2098,104 +1769,78 @@ async def api_get_ice_forecast_status(
     }
 
 
-def _do_ice_prefetch(lat_min: float, lat_max: float, lon_min: float, lon_max: float):
+def _do_ice_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
     """Download CMEMS ice forecast and build frames cache."""
-    global _ice_prefetch_running
-    pflock = _get_ice_prefetch_lock()
-    if not pflock.acquire(blocking=False):
+    cache_key_chk = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    existing = mgr.cache_get(cache_key_chk)
+    if existing and len(existing.get("frames", {})) >= 10 and cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
+        logger.info("Ice forecast file cache already complete, skipping CMEMS download")
         return
 
-    r = _get_redis()
-    try:
-        if r is not None:
-            acquired = r.set(_REDIS_ICE_PREFETCH_LOCK, "1", nx=True, ex=1200)
-            if not acquired:
-                return
-            r.setex(_REDIS_ICE_PREFETCH_STATUS, 1200, "1")
-
-        _ice_prefetch_running = True
-
-        cache_key_chk = f"ice_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-        existing = _ice_cache_get(cache_key_chk)
-        if existing and len(existing.get("frames", {})) >= 10 and _cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
-            logger.info("Ice forecast file cache already complete, skipping CMEMS download")
+    if db_weather is not None:
+        rebuilt = _rebuild_ice_cache_from_db(cache_key_chk, lat_min, lat_max, lon_min, lon_max)
+        if rebuilt and len(rebuilt.get("frames", {})) >= 10 and cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
+            logger.info("Ice forecast rebuilt from DB, skipping CMEMS download")
             return
 
-        if db_weather is not None:
-            rebuilt = _rebuild_ice_cache_from_db(cache_key_chk, lat_min, lat_max, lon_min, lon_max)
-            if rebuilt and len(rebuilt.get("frames", {})) >= 10 and _cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
-                logger.info("Ice forecast rebuilt from DB, skipping CMEMS download")
-                return
+    stale_path = mgr.cache_path(cache_key_chk)
+    if stale_path.exists():
+        stale_path.unlink(missing_ok=True)
+        logger.info(f"Removed stale ice cache: {cache_key_chk}")
 
-        stale_path = _ice_cache_path(cache_key_chk)
-        if stale_path.exists():
-            stale_path.unlink(missing_ok=True)
-            logger.info(f"Removed stale ice cache: {cache_key_chk}")
+    logger.info("CMEMS ice forecast prefetch started")
 
-        logger.info("CMEMS ice forecast prefetch started")
+    result = copernicus_provider.fetch_ice_forecast(lat_min, lat_max, lon_min, lon_max)
+    if result is None:
+        logger.info("CMEMS ice forecast unavailable, generating synthetic")
+        result = synthetic_provider.generate_ice_forecast(lat_min, lat_max, lon_min, lon_max)
 
-        result = copernicus_provider.fetch_ice_forecast(lat_min, lat_max, lon_min, lon_max)
-        if result is None:
-            logger.info("CMEMS ice forecast unavailable, generating synthetic")
-            result = synthetic_provider.generate_ice_forecast(lat_min, lat_max, lon_min, lon_max)
+    if not result:
+        logger.error("Ice forecast fetch returned empty")
+        return
 
-        if not result:
-            logger.error("Ice forecast fetch returned empty")
-            return
+    first_wd = next(iter(result.values()))
+    max_dim = max(len(first_wd.lats), len(first_wd.lons))
+    STEP = max(1, round(max_dim / 250))
+    logger.info(f"Ice forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
+    sub_lats = first_wd.lats[::STEP]
+    sub_lons = first_wd.lons[::STEP]
 
-        first_wd = next(iter(result.values()))
-        max_dim = max(len(first_wd.lats), len(first_wd.lons))
-        STEP = max(1, round(max_dim / 250))
-        logger.info(f"Ice forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
-        sub_lats = first_wd.lats[::STEP]
-        sub_lons = first_wd.lons[::STEP]
+    mask_lats_arr, mask_lons_arr, ocean_mask_arr = _build_ocean_mask(
+        lat_min, lat_max, lon_min, lon_max
+    )
 
-        mask_lats_arr, mask_lons_arr, ocean_mask_arr = _build_ocean_mask(
-            lat_min, lat_max, lon_min, lon_max
-        )
+    frames = {}
+    for fh, wd in sorted(result.items()):
+        siconc = wd.ice_concentration if wd.ice_concentration is not None else wd.values
+        if siconc is not None:
+            frames[str(fh)] = {
+                "data": np.round(siconc[::STEP, ::STEP], 4).tolist(),
+            }
 
-        frames = {}
-        for fh, wd in sorted(result.items()):
-            siconc = wd.ice_concentration if wd.ice_concentration is not None else wd.values
-            if siconc is not None:
-                frames[str(fh)] = {
-                    "data": np.round(siconc[::STEP, ::STEP], 4).tolist(),
-                }
+    cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    mgr.cache_put(cache_key, {
+        "run_time": first_wd.time.isoformat() if first_wd.time else "",
+        "total_hours": len(frames),
+        "cached_hours": len(frames),
+        "source": "cmems",
+        "lats": sub_lats.tolist() if hasattr(sub_lats, 'tolist') else list(sub_lats),
+        "lons": sub_lons.tolist() if hasattr(sub_lons, 'tolist') else list(sub_lons),
+        "ny": len(sub_lats),
+        "nx": len(sub_lons),
+        "ocean_mask": ocean_mask_arr,
+        "ocean_mask_lats": mask_lats_arr,
+        "ocean_mask_lons": mask_lons_arr,
+        "frames": frames,
+    })
+    logger.info(f"Ice forecast cached: {len(frames)} frames")
 
-        cache_key = f"ice_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-        _ice_cache_put(cache_key, {
-            "run_time": first_wd.time.isoformat() if first_wd.time else "",
-            "total_hours": len(frames),
-            "cached_hours": len(frames),
-            "source": "cmems",
-            "lats": sub_lats.tolist() if hasattr(sub_lats, 'tolist') else list(sub_lats),
-            "lons": sub_lons.tolist() if hasattr(sub_lons, 'tolist') else list(sub_lons),
-            "ny": len(sub_lats),
-            "nx": len(sub_lons),
-            "ocean_mask": ocean_mask_arr,
-            "ocean_mask_lats": mask_lats_arr,
-            "ocean_mask_lons": mask_lons_arr,
-            "frames": frames,
-        })
-        logger.info(f"Ice forecast cached: {len(frames)} frames")
-
-        if weather_ingestion is not None:
-            try:
-                logger.info("Ingesting ice forecast frames into PostgreSQL...")
-                weather_ingestion.ingest_ice_forecast_frames(result)
-            except Exception as db_e:
-                logger.error(f"Ice forecast DB ingestion failed: {db_e}")
-
-    except Exception as e:
-        logger.error(f"Ice forecast prefetch failed: {e}")
-    finally:
-        _ice_prefetch_running = False
-        if r is not None:
-            try:
-                r.delete(_REDIS_ICE_PREFETCH_LOCK, _REDIS_ICE_PREFETCH_STATUS)
-            except Exception:
-                pass
-        pflock.release()
+    if weather_ingestion is not None:
+        try:
+            logger.info("Ingesting ice forecast frames into PostgreSQL...")
+            weather_ingestion.ingest_ice_forecast_frames(result)
+        except Exception as db_e:
+            logger.error(f"Ice forecast DB ingestion failed: {db_e}")
 
 
 @app.post("/api/weather/forecast/ice/prefetch", dependencies=[Depends(require_not_demo("Weather prefetch"))])
@@ -2207,18 +1852,7 @@ async def api_trigger_ice_forecast_prefetch(
     lon_max: float = Query(40.0),
 ):
     """Trigger background download of CMEMS ice forecast (10-day daily)."""
-    global _ice_prefetch_running
-
-    if _is_ice_prefetch_running():
-        return {"status": "already_running", "message": "Ice prefetch is already in progress"}
-
-    lock = _get_ice_prefetch_lock()
-    if not lock.acquire(blocking=False):
-        return {"status": "already_running", "message": "Ice prefetch is already in progress"}
-    lock.release()
-
-    background_tasks.add_task(_do_ice_prefetch, lat_min, lat_max, lon_min, lon_max)
-    return {"status": "started", "message": "Ice forecast prefetch triggered in background"}
+    return ice_layer.trigger_response(background_tasks, _do_ice_prefetch, lat_min, lat_max, lon_min, lon_max)
 
 
 @app.get("/api/weather/forecast/ice/frames")
@@ -2232,14 +1866,10 @@ async def api_get_ice_forecast_frames(
 
     Serves the raw JSON file to avoid parse+re-serialize overhead.
     """
-    from starlette.responses import Response as RawResponse
-    cache_key = f"ice_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-    cache_file = _ice_cache_path(cache_key)
-    if cache_file.exists():
-        if _is_cache_complete(cache_file):
-            return RawResponse(content=cache_file.read_bytes(), media_type="application/json")
-        logger.warning("Ice cache %s is partial — rebuilding from DB", cache_key)
-        cache_file.unlink(missing_ok=True)
+    cache_key = ice_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    raw = ice_layer.serve_frames_file(cache_key)
+    if raw is not None:
+        return raw
 
     # Fallback: rebuild from PostgreSQL
     cached = await asyncio.to_thread(
@@ -2266,74 +1896,6 @@ async def api_get_ice_forecast_frames(
 # SST Forecast Prefetch Pipeline
 # ======================================================================
 
-_sst_prefetch_running = False
-_sst_prefetch_lock = None
-_SST_CACHE_DIR = Path("/tmp/windmar_cache/sst")
-_SST_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-_REDIS_SST_PREFETCH_LOCK = "windmar:sst_prefetch_lock"
-_REDIS_SST_PREFETCH_STATUS = "windmar:sst_prefetch_running"
-
-
-def _get_sst_prefetch_lock():
-    global _sst_prefetch_lock
-    if _sst_prefetch_lock is None:
-        import threading
-        _sst_prefetch_lock = threading.Lock()
-    return _sst_prefetch_lock
-
-
-def _is_sst_prefetch_running() -> bool:
-    r = _get_redis()
-    if r is not None:
-        try:
-            return r.exists(_REDIS_SST_PREFETCH_STATUS) > 0
-        except Exception:
-            pass
-    return _sst_prefetch_running
-
-
-def _find_covering_cache(cache_dir: Path, prefix: str, lat_min: float, lat_max: float, lon_min: float, lon_max: float) -> Path | None:
-    """Find a cached JSON file whose bounds fully cover the requested viewport.
-
-    Cache filenames follow the pattern: {prefix}_{lat_min}_{lat_max}_{lon_min}_{lon_max}.json
-    Returns the first file whose bounds enclose the requested area, or None.
-    """
-    import re
-    pattern = re.compile(rf"^{re.escape(prefix)}_(-?\d+)_(-?\d+)_(-?\d+)_(-?\d+)\.json$")
-    for f in cache_dir.glob(f"{prefix}_*.json"):
-        m = pattern.match(f.name)
-        if not m:
-            continue
-        c_lat_min, c_lat_max, c_lon_min, c_lon_max = (float(m.group(i)) for i in range(1, 5))
-        if c_lat_min <= lat_min and c_lat_max >= lat_max and c_lon_min <= lon_min and c_lon_max >= lon_max:
-            return f
-    return None
-
-
-def _sst_cache_path(cache_key: str) -> Path:
-    return _SST_CACHE_DIR / f"{cache_key}.json"
-
-
-def _sst_cache_get(cache_key: str) -> dict | None:
-    p = _sst_cache_path(cache_key)
-    if p.exists():
-        try:
-            import json as _json
-            return _json.loads(p.read_text())
-        except Exception:
-            return None
-    return None
-
-
-def _sst_cache_put(cache_key: str, data: dict):
-    import json as _json
-    p = _sst_cache_path(cache_key)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(_json.dumps(data))
-    tmp.rename(p)
-
-
 @app.get("/api/weather/forecast/sst/status")
 async def api_get_sst_forecast_status(
     lat_min: float = Query(30.0),
@@ -2342,10 +1904,10 @@ async def api_get_sst_forecast_status(
     lon_max: float = Query(40.0),
 ):
     """Get SST forecast prefetch status."""
-    cache_key = f"sst_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-    cached = _sst_cache_get(cache_key)
+    cache_key = sst_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    cached = sst_layer.cache_get(cache_key)
 
-    prefetch_running = _is_sst_prefetch_running()
+    prefetch_running = sst_layer.is_running
 
     if cached:
         cached_hours = len(cached.get("frames", {}))
@@ -2365,96 +1927,70 @@ async def api_get_sst_forecast_status(
     }
 
 
-def _do_sst_prefetch(lat_min: float, lat_max: float, lon_min: float, lon_max: float):
+def _do_sst_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
     """Download CMEMS SST forecast and build frames cache."""
-    global _sst_prefetch_running
-    pflock = _get_sst_prefetch_lock()
-    if not pflock.acquire(blocking=False):
+    cache_key_chk = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    existing = mgr.cache_get(cache_key_chk)
+    if existing and len(existing.get("frames", {})) >= 30 and cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
+        logger.info("SST forecast file cache already complete, skipping CMEMS download")
         return
 
-    r = _get_redis()
-    try:
-        if r is not None:
-            acquired = r.set(_REDIS_SST_PREFETCH_LOCK, "1", nx=True, ex=1200)
-            if not acquired:
-                return
-            r.setex(_REDIS_SST_PREFETCH_STATUS, 1200, "1")
+    stale_path = mgr.cache_path(cache_key_chk)
+    if stale_path.exists():
+        stale_path.unlink(missing_ok=True)
+        logger.info(f"Removed stale SST cache: {cache_key_chk}")
 
-        _sst_prefetch_running = True
+    logger.info("CMEMS SST forecast prefetch started")
 
-        cache_key_chk = f"sst_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-        existing = _sst_cache_get(cache_key_chk)
-        if existing and len(existing.get("frames", {})) >= 30 and _cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
-            logger.info("SST forecast file cache already complete, skipping CMEMS download")
-            return
+    result = copernicus_provider.fetch_sst_forecast(lat_min, lat_max, lon_min, lon_max)
+    if not result:
+        logger.error("SST forecast fetch returned empty")
+        return
 
-        stale_path = _sst_cache_path(cache_key_chk)
-        if stale_path.exists():
-            stale_path.unlink(missing_ok=True)
-            logger.info(f"Removed stale SST cache: {cache_key_chk}")
+    first_wd = next(iter(result.values()))
+    max_dim = max(len(first_wd.lats), len(first_wd.lons))
+    STEP = max(1, round(max_dim / 250))
+    logger.info(f"SST forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
+    sub_lats = first_wd.lats[::STEP]
+    sub_lons = first_wd.lons[::STEP]
 
-        logger.info("CMEMS SST forecast prefetch started")
+    mask_lats_arr, mask_lons_arr, ocean_mask_arr = _build_ocean_mask(
+        lat_min, lat_max, lon_min, lon_max
+    )
 
-        result = copernicus_provider.fetch_sst_forecast(lat_min, lat_max, lon_min, lon_max)
-        if not result:
-            logger.error("SST forecast fetch returned empty")
-            return
+    frames = {}
+    for fh, wd in sorted(result.items()):
+        sst_vals = wd.sst if wd.sst is not None else wd.values
+        if sst_vals is not None:
+            frames[str(fh)] = {
+                "data": np.round(sst_vals[::STEP, ::STEP], 2).tolist(),
+            }
 
-        first_wd = next(iter(result.values()))
-        max_dim = max(len(first_wd.lats), len(first_wd.lons))
-        STEP = max(1, round(max_dim / 250))
-        logger.info(f"SST forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
-        sub_lats = first_wd.lats[::STEP]
-        sub_lons = first_wd.lons[::STEP]
+    cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    mgr.cache_put(cache_key, {
+        "run_time": first_wd.time.isoformat() if first_wd.time else "",
+        "total_hours": len(frames),
+        "cached_hours": len(frames),
+        "source": "cmems",
+        "lats": sub_lats.tolist() if hasattr(sub_lats, 'tolist') else list(sub_lats),
+        "lons": sub_lons.tolist() if hasattr(sub_lons, 'tolist') else list(sub_lons),
+        "ny": len(sub_lats),
+        "nx": len(sub_lons),
+        "ocean_mask": ocean_mask_arr,
+        "ocean_mask_lats": mask_lats_arr,
+        "ocean_mask_lons": mask_lons_arr,
+        "colorscale": {"min": -2, "max": 32, "colors": ["#0000ff", "#00ccff", "#00ff88", "#ffff00", "#ff8800", "#ff0000"]},
+        "frames": frames,
+    })
+    logger.info(f"SST forecast cached: {len(frames)} frames")
 
-        mask_lats_arr, mask_lons_arr, ocean_mask_arr = _build_ocean_mask(
-            lat_min, lat_max, lon_min, lon_max
-        )
-
-        frames = {}
-        for fh, wd in sorted(result.items()):
-            sst_vals = wd.sst if wd.sst is not None else wd.values
-            if sst_vals is not None:
-                frames[str(fh)] = {
-                    "data": np.round(sst_vals[::STEP, ::STEP], 2).tolist(),
-                }
-
-        cache_key = f"sst_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-        _sst_cache_put(cache_key, {
-            "run_time": first_wd.time.isoformat() if first_wd.time else "",
-            "total_hours": len(frames),
-            "cached_hours": len(frames),
-            "source": "cmems",
-            "lats": sub_lats.tolist() if hasattr(sub_lats, 'tolist') else list(sub_lats),
-            "lons": sub_lons.tolist() if hasattr(sub_lons, 'tolist') else list(sub_lons),
-            "ny": len(sub_lats),
-            "nx": len(sub_lons),
-            "ocean_mask": ocean_mask_arr,
-            "ocean_mask_lats": mask_lats_arr,
-            "ocean_mask_lons": mask_lons_arr,
-            "colorscale": {"min": -2, "max": 32, "colors": ["#0000ff", "#00ccff", "#00ff88", "#ffff00", "#ff8800", "#ff0000"]},
-            "frames": frames,
-        })
-        logger.info(f"SST forecast cached: {len(frames)} frames")
-
-        # Also persist to DB so data survives container restarts
-        if weather_ingestion is not None:
-            try:
-                weather_ingestion.ingest_sst_forecast_frames(result)
-                logger.info("SST forecast also ingested to DB")
-            except Exception as db_err:
-                logger.error(f"SST DB ingestion after prefetch failed: {db_err}")
-
-    except Exception as e:
-        logger.error(f"SST forecast prefetch failed: {e}")
-    finally:
-        _sst_prefetch_running = False
-        if r is not None:
-            try:
-                r.delete(_REDIS_SST_PREFETCH_LOCK, _REDIS_SST_PREFETCH_STATUS)
-            except Exception:
-                pass
-        pflock.release()
+    # Also persist to DB so data survives container restarts
+    if weather_ingestion is not None:
+        try:
+            weather_ingestion.ingest_sst_forecast_frames(result)
+            logger.info("SST forecast also ingested to DB")
+        except Exception as db_err:
+            logger.error(f"SST DB ingestion after prefetch failed: {db_err}")
 
 
 @app.post("/api/weather/forecast/sst/prefetch", dependencies=[Depends(require_not_demo("Weather prefetch"))])
@@ -2466,18 +2002,7 @@ async def api_trigger_sst_forecast_prefetch(
     lon_max: float = Query(40.0),
 ):
     """Trigger background download of CMEMS SST forecast (0-120h, 3h steps)."""
-    global _sst_prefetch_running
-
-    if _is_sst_prefetch_running():
-        return {"status": "already_running", "message": "SST prefetch is already in progress"}
-
-    lock = _get_sst_prefetch_lock()
-    if not lock.acquire(blocking=False):
-        return {"status": "already_running", "message": "SST prefetch is already in progress"}
-    lock.release()
-
-    background_tasks.add_task(_do_sst_prefetch, lat_min, lat_max, lon_min, lon_max)
-    return {"status": "started", "message": "SST forecast prefetch triggered in background"}
+    return sst_layer.trigger_response(background_tasks, _do_sst_prefetch, lat_min, lat_max, lon_min, lon_max)
 
 
 def _rebuild_sst_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
@@ -2534,7 +2059,7 @@ def _rebuild_sst_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
         "frames": frames,
     }
 
-    _sst_cache_put(cache_key, cache_data)
+    sst_layer.cache_put(cache_key, cache_data)
     logger.info(f"SST cache rebuilt from DB: {len(frames)} frames")
     return cache_data
 
@@ -2552,16 +2077,10 @@ async def api_get_sst_forecast_frames(
     Falls back to any cache file whose bounds cover the requested viewport,
     then to PostgreSQL if no file cache exists.
     """
-    from starlette.responses import Response as RawResponse
-    cache_key = f"sst_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-    cache_file = _sst_cache_path(cache_key)
-    if not cache_file.exists():
-        cache_file = _find_covering_cache(_SST_CACHE_DIR, "sst", lat_min, lat_max, lon_min, lon_max)
-    if cache_file and cache_file.exists():
-        if _is_cache_complete(cache_file):
-            return RawResponse(content=cache_file.read_bytes(), media_type="application/json")
-        logger.warning("SST cache %s is partial — deleting", cache_file.name)
-        cache_file.unlink(missing_ok=True)
+    cache_key = sst_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    raw = sst_layer.serve_frames_file(cache_key, lat_min, lat_max, lon_min, lon_max, use_covering=True)
+    if raw is not None:
+        return raw
 
     # Fallback: rebuild from PostgreSQL
     cached = await asyncio.to_thread(
@@ -2587,56 +2106,6 @@ async def api_get_sst_forecast_frames(
 # ======================================================================
 # Visibility Forecast Prefetch Pipeline
 # ======================================================================
-
-_vis_prefetch_running = False
-_vis_prefetch_lock = None
-_VIS_CACHE_DIR = Path("/tmp/windmar_cache/vis")
-_VIS_CACHE_DIR.mkdir(parents=True, exist_ok=True)
-
-_REDIS_VIS_PREFETCH_LOCK = "windmar:vis_prefetch_lock"
-_REDIS_VIS_PREFETCH_STATUS = "windmar:vis_prefetch_running"
-
-
-def _get_vis_prefetch_lock():
-    global _vis_prefetch_lock
-    if _vis_prefetch_lock is None:
-        import threading
-        _vis_prefetch_lock = threading.Lock()
-    return _vis_prefetch_lock
-
-
-def _is_vis_prefetch_running() -> bool:
-    r = _get_redis()
-    if r is not None:
-        try:
-            return r.exists(_REDIS_VIS_PREFETCH_STATUS) > 0
-        except Exception:
-            pass
-    return _vis_prefetch_running
-
-
-def _vis_cache_path(cache_key: str) -> Path:
-    return _VIS_CACHE_DIR / f"{cache_key}.json"
-
-
-def _vis_cache_get(cache_key: str) -> dict | None:
-    p = _vis_cache_path(cache_key)
-    if p.exists():
-        try:
-            import json as _json
-            return _json.loads(p.read_text())
-        except Exception:
-            return None
-    return None
-
-
-def _vis_cache_put(cache_key: str, data: dict):
-    import json as _json
-    p = _vis_cache_path(cache_key)
-    tmp = p.with_suffix(".tmp")
-    tmp.write_text(_json.dumps(data))
-    tmp.rename(p)
-
 
 def _rebuild_vis_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
     """Rebuild visibility forecast file cache from PostgreSQL data."""
@@ -2684,7 +2153,7 @@ def _rebuild_vis_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
         "frames": frames,
     }
 
-    _vis_cache_put(cache_key, cache_data)
+    vis_layer.cache_put(cache_key, cache_data)
     logger.info(f"Visibility cache rebuilt from DB: {len(frames)} frames")
     return cache_data
 
@@ -2697,10 +2166,10 @@ async def api_get_vis_forecast_status(
     lon_max: float = Query(40.0),
 ):
     """Get visibility forecast prefetch status."""
-    cache_key = f"vis_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-    cached = _vis_cache_get(cache_key)
+    cache_key = vis_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    cached = vis_layer.cache_get(cache_key)
 
-    prefetch_running = _is_vis_prefetch_running()
+    prefetch_running = vis_layer.is_running
 
     if cached:
         cached_hours = len(cached.get("frames", {}))
@@ -2720,96 +2189,70 @@ async def api_get_vis_forecast_status(
     }
 
 
-def _do_vis_prefetch(lat_min: float, lat_max: float, lon_min: float, lon_max: float):
+def _do_vis_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
     """Download GFS visibility forecast and build frames cache."""
-    global _vis_prefetch_running
-    pflock = _get_vis_prefetch_lock()
-    if not pflock.acquire(blocking=False):
+    cache_key_chk = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    existing = mgr.cache_get(cache_key_chk)
+    if existing and len(existing.get("frames", {})) >= 30 and cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
+        logger.info("Visibility forecast file cache already complete, skipping GFS download")
         return
 
-    r = _get_redis()
-    try:
-        if r is not None:
-            acquired = r.set(_REDIS_VIS_PREFETCH_LOCK, "1", nx=True, ex=1200)
-            if not acquired:
-                return
-            r.setex(_REDIS_VIS_PREFETCH_STATUS, 1200, "1")
+    stale_path = mgr.cache_path(cache_key_chk)
+    if stale_path.exists():
+        stale_path.unlink(missing_ok=True)
+        logger.info(f"Removed stale visibility cache: {cache_key_chk}")
 
-        _vis_prefetch_running = True
+    logger.info("GFS visibility forecast prefetch started")
 
-        cache_key_chk = f"vis_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-        existing = _vis_cache_get(cache_key_chk)
-        if existing and len(existing.get("frames", {})) >= 30 and _cache_covers_bounds(existing, lat_min, lat_max, lon_min, lon_max):
-            logger.info("Visibility forecast file cache already complete, skipping GFS download")
-            return
+    result = gfs_provider.fetch_visibility_forecast(lat_min, lat_max, lon_min, lon_max)
+    if not result:
+        logger.error("Visibility forecast fetch returned empty")
+        return
 
-        stale_path = _vis_cache_path(cache_key_chk)
-        if stale_path.exists():
-            stale_path.unlink(missing_ok=True)
-            logger.info(f"Removed stale visibility cache: {cache_key_chk}")
+    first_wd = next(iter(result.values()))
+    max_dim = max(len(first_wd.lats), len(first_wd.lons))
+    STEP = max(1, round(max_dim / 250))
+    logger.info(f"Visibility forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
+    sub_lats = first_wd.lats[::STEP]
+    sub_lons = first_wd.lons[::STEP]
 
-        logger.info("GFS visibility forecast prefetch started")
+    mask_lats_arr, mask_lons_arr, ocean_mask_arr = _build_ocean_mask(
+        lat_min, lat_max, lon_min, lon_max
+    )
 
-        result = gfs_provider.fetch_visibility_forecast(lat_min, lat_max, lon_min, lon_max)
-        if not result:
-            logger.error("Visibility forecast fetch returned empty")
-            return
+    frames = {}
+    for fh, wd in sorted(result.items()):
+        vis_vals = wd.visibility if wd.visibility is not None else wd.values
+        if vis_vals is not None:
+            frames[str(fh)] = {
+                "data": np.round(vis_vals[::STEP, ::STEP], 1).tolist(),
+            }
 
-        first_wd = next(iter(result.values()))
-        max_dim = max(len(first_wd.lats), len(first_wd.lons))
-        STEP = max(1, round(max_dim / 250))
-        logger.info(f"Visibility forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
-        sub_lats = first_wd.lats[::STEP]
-        sub_lons = first_wd.lons[::STEP]
+    cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    mgr.cache_put(cache_key, {
+        "run_time": first_wd.time.isoformat() if first_wd.time else "",
+        "total_hours": len(frames),
+        "cached_hours": len(frames),
+        "source": "gfs",
+        "lats": sub_lats.tolist() if hasattr(sub_lats, 'tolist') else list(sub_lats),
+        "lons": sub_lons.tolist() if hasattr(sub_lons, 'tolist') else list(sub_lons),
+        "ny": len(sub_lats),
+        "nx": len(sub_lons),
+        "ocean_mask": ocean_mask_arr,
+        "ocean_mask_lats": mask_lats_arr,
+        "ocean_mask_lons": mask_lons_arr,
+        "colorscale": {"min": 0, "max": 50, "colors": ["#ff0000", "#ff8800", "#ffff00", "#88ff00", "#00ff00"]},
+        "frames": frames,
+    })
+    logger.info(f"Visibility forecast cached: {len(frames)} frames")
 
-        mask_lats_arr, mask_lons_arr, ocean_mask_arr = _build_ocean_mask(
-            lat_min, lat_max, lon_min, lon_max
-        )
-
-        frames = {}
-        for fh, wd in sorted(result.items()):
-            vis_vals = wd.visibility if wd.visibility is not None else wd.values
-            if vis_vals is not None:
-                frames[str(fh)] = {
-                    "data": np.round(vis_vals[::STEP, ::STEP], 1).tolist(),
-                }
-
-        cache_key = f"vis_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-        _vis_cache_put(cache_key, {
-            "run_time": first_wd.time.isoformat() if first_wd.time else "",
-            "total_hours": len(frames),
-            "cached_hours": len(frames),
-            "source": "gfs",
-            "lats": sub_lats.tolist() if hasattr(sub_lats, 'tolist') else list(sub_lats),
-            "lons": sub_lons.tolist() if hasattr(sub_lons, 'tolist') else list(sub_lons),
-            "ny": len(sub_lats),
-            "nx": len(sub_lons),
-            "ocean_mask": ocean_mask_arr,
-            "ocean_mask_lats": mask_lats_arr,
-            "ocean_mask_lons": mask_lons_arr,
-            "colorscale": {"min": 0, "max": 50, "colors": ["#ff0000", "#ff8800", "#ffff00", "#88ff00", "#00ff00"]},
-            "frames": frames,
-        })
-        logger.info(f"Visibility forecast cached: {len(frames)} frames")
-
-        # Also persist to DB so data survives container restarts
-        if weather_ingestion is not None:
-            try:
-                weather_ingestion.ingest_visibility_forecast_frames(result)
-                logger.info("Visibility forecast also ingested to DB")
-            except Exception as db_err:
-                logger.error(f"Visibility DB ingestion after prefetch failed: {db_err}")
-
-    except Exception as e:
-        logger.error(f"Visibility forecast prefetch failed: {e}")
-    finally:
-        _vis_prefetch_running = False
-        if r is not None:
-            try:
-                r.delete(_REDIS_VIS_PREFETCH_LOCK, _REDIS_VIS_PREFETCH_STATUS)
-            except Exception:
-                pass
-        pflock.release()
+    # Also persist to DB so data survives container restarts
+    if weather_ingestion is not None:
+        try:
+            weather_ingestion.ingest_visibility_forecast_frames(result)
+            logger.info("Visibility forecast also ingested to DB")
+        except Exception as db_err:
+            logger.error(f"Visibility DB ingestion after prefetch failed: {db_err}")
 
 
 @app.post("/api/weather/forecast/visibility/prefetch", dependencies=[Depends(require_not_demo("Weather prefetch"))])
@@ -2821,18 +2264,7 @@ async def api_trigger_vis_forecast_prefetch(
     lon_max: float = Query(40.0),
 ):
     """Trigger background download of GFS visibility forecast (0-120h, 3h steps)."""
-    global _vis_prefetch_running
-
-    if _is_vis_prefetch_running():
-        return {"status": "already_running", "message": "Visibility prefetch is already in progress"}
-
-    lock = _get_vis_prefetch_lock()
-    if not lock.acquire(blocking=False):
-        return {"status": "already_running", "message": "Visibility prefetch is already in progress"}
-    lock.release()
-
-    background_tasks.add_task(_do_vis_prefetch, lat_min, lat_max, lon_min, lon_max)
-    return {"status": "started", "message": "Visibility forecast prefetch triggered in background"}
+    return vis_layer.trigger_response(background_tasks, _do_vis_prefetch, lat_min, lat_max, lon_min, lon_max)
 
 
 @app.get("/api/weather/forecast/visibility/frames")
@@ -2847,16 +2279,10 @@ async def api_get_vis_forecast_frames(
     Serves the raw JSON file to avoid parse+re-serialize overhead.
     Falls back to any cache file whose bounds cover the requested viewport.
     """
-    from starlette.responses import Response as RawResponse
-    cache_key = f"vis_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
-    cache_file = _vis_cache_path(cache_key)
-    if not cache_file.exists():
-        cache_file = _find_covering_cache(_VIS_CACHE_DIR, "vis", lat_min, lat_max, lon_min, lon_max)
-    if cache_file and cache_file.exists():
-        if _is_cache_complete(cache_file):
-            return RawResponse(content=cache_file.read_bytes(), media_type="application/json")
-        logger.warning("Visibility cache %s is partial — deleting", cache_file.name)
-        cache_file.unlink(missing_ok=True)
+    cache_key = vis_layer.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    raw = vis_layer.serve_frames_file(cache_key, lat_min, lat_max, lon_min, lon_max, use_covering=True)
+    if raw is not None:
+        return raw
 
     # Fallback: rebuild from PostgreSQL
     cached = await asyncio.to_thread(
@@ -5165,21 +4591,6 @@ async def check_path_zones(
 
 # Set of background asyncio tasks — prevents garbage collection (used by forecast prefetch)
 _background_tasks: set = set()
-
-# Redis distributed lock keys (used by forecast prefetch)
-_REDIS_PREFETCH_LOCK = "windmar:wave_prefetch_lock"
-_REDIS_PREFETCH_STATUS = "windmar:wave_prefetch_running"
-
-
-def _is_wave_prefetch_running() -> bool:
-    """Check wave prefetch status via Redis (cross-worker)."""
-    r = _get_redis()
-    if r is not None:
-        try:
-            return r.exists(_REDIS_PREFETCH_STATUS) > 0
-        except Exception:
-            pass
-    return _wave_prefetch_running
 
 
 @app.on_event("startup")

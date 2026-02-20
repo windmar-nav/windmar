@@ -1,0 +1,293 @@
+{
+  "type": "excalidraw",
+  "version": 2,
+  "source": "mcp-excalidraw-server",
+  "elements": [
+    {
+      "id": "mlv17ykgxz32e2hi69m",
+      "type": "text",
+      "x": 250,
+      "y": 15,
+      "strokeColor": "#1e1e1e",
+      "text": "Phase 3: Weather Forecast Dedup",
+      "fontSize": 28,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "mlv17ykhjw64y5vi0tl",
+      "type": "text",
+      "x": 250,
+      "y": 50,
+      "strokeColor": "#868e96",
+      "text": "main.py 5898→5309 LOC | 0 global stmts | 6 layer managers | 93 routes",
+      "fontSize": 14,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "main3",
+      "type": "rectangle",
+      "x": 300,
+      "y": 100,
+      "width": 300,
+      "height": 70,
+      "backgroundColor": "#fff3bf",
+      "strokeColor": "#e67700",
+      "strokeWidth": 2,
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "mlv17ykh3xwj3ly5c1l",
+      "type": "text",
+      "x": 320,
+      "y": 115,
+      "strokeColor": "#e67700",
+      "text": "api/main.py\n5,309 LOC · 93 routes",
+      "fontSize": 16,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "flm",
+      "type": "rectangle",
+      "x": 60,
+      "y": 260,
+      "width": 320,
+      "height": 130,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 2,
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "mlv17ykhomrqnzpn4wr",
+      "type": "text",
+      "x": 80,
+      "y": 275,
+      "strokeColor": "#2f9e44",
+      "text": "api/forecast_layer_manager.py\n296 LOC\nForecastLayerManager class\n  lock, running, cache I/O, Redis sync\n  run_prefetch(), trigger_response()\n  serve_frames_file()",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "layers",
+      "type": "rectangle",
+      "x": 440,
+      "y": 260,
+      "width": 320,
+      "height": 130,
+      "backgroundColor": "#e7f5ff",
+      "strokeColor": "#1971c2",
+      "strokeWidth": 2,
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "mlv17ykhoeommdiqoq",
+      "type": "text",
+      "x": 460,
+      "y": 275,
+      "strokeColor": "#1971c2",
+      "text": "6 layer singletons:\n  wind_layer   (GFS, no Redis)\n  wave_layer   (CMEMS)\n  current_layer (CMEMS)\n  ice_layer    (CMEMS)\n  sst_layer    (CMEMS)\n  vis_layer    (GFS)",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "mlv17ykh0j2e2k4m0wun",
+      "type": "arrow",
+      "x": 401.4638849343517,
+      "y": 175.09505157597033,
+      "width": -120,
+      "height": 85,
+      "strokeColor": "#2f9e44",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          -96.6119803950192,
+          79.80989684805934
+        ]
+      ],
+      "endArrowhead": "arrow",
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1,
+      "startBinding": {
+        "elementId": "main3",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "flm",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "mlv17ykhz6z98u0d6ff",
+      "type": "arrow",
+      "x": 482.5887332560006,
+      "y": 176.2790621242674,
+      "width": 100,
+      "height": 85,
+      "strokeColor": "#1971c2",
+      "points": [
+        [
+          0,
+          0
+        ],
+        [
+          61.13832296168306,
+          77.4418757514652
+        ]
+      ],
+      "endArrowhead": "arrow",
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1,
+      "startBinding": {
+        "elementId": "main3",
+        "focus": 0,
+        "gap": 8
+      },
+      "endBinding": {
+        "elementId": "layers",
+        "focus": 0,
+        "gap": 8
+      }
+    },
+    {
+      "id": "removed3",
+      "type": "rectangle",
+      "x": 120,
+      "y": 430,
+      "width": 660,
+      "height": 60,
+      "backgroundColor": "#ffe3e3",
+      "strokeColor": "#e03131",
+      "strokeWidth": 1,
+      "strokeStyle": "dashed",
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "mlv17ykhu8d1xe6ndve",
+      "type": "text",
+      "x": 140,
+      "y": 440,
+      "strokeColor": "#e03131",
+      "text": "REMOVED: 18 global statements, 6× lock getters, 6× running checkers, 6× cache_get/put,\n6× cache_path, _is_cache_complete, _cache_covers_bounds, _find_covering_cache",
+      "fontSize": 12,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "state3",
+      "type": "rectangle",
+      "x": 60,
+      "y": 530,
+      "width": 160,
+      "height": 50,
+      "backgroundColor": "#d0ebff",
+      "strokeColor": "#1971c2",
+      "strokeWidth": 1,
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "mlv17ykh7ccxfur6a79",
+      "type": "text",
+      "x": 75,
+      "y": 540,
+      "strokeColor": "#1971c2",
+      "text": "state.py (341)",
+      "fontSize": 13,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "wx3",
+      "type": "rectangle",
+      "x": 260,
+      "y": 530,
+      "width": 200,
+      "height": 50,
+      "backgroundColor": "#d3f9d8",
+      "strokeColor": "#2f9e44",
+      "strokeWidth": 1,
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "mlv17ykha4q7o0bxzi",
+      "type": "text",
+      "x": 275,
+      "y": 540,
+      "strokeColor": "#2f9e44",
+      "text": "weather_service.py (536)",
+      "fontSize": 13,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "schemas3",
+      "type": "rectangle",
+      "x": 500,
+      "y": 530,
+      "width": 180,
+      "height": 50,
+      "backgroundColor": "#e7f5ff",
+      "strokeColor": "#1971c2",
+      "strokeWidth": 1,
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    },
+    {
+      "id": "mlv17ykhsj7k1lyy7f",
+      "type": "text",
+      "x": 515,
+      "y": 540,
+      "strokeColor": "#1971c2",
+      "text": "schemas/ (37 models)",
+      "fontSize": 13,
+      "fontFamily": "monospace",
+      "createdAt": "2026-02-20T15:15:41.634Z",
+      "updatedAt": "2026-02-20T15:15:41.634Z",
+      "version": 1
+    }
+  ],
+  "appState": {
+    "viewBackgroundColor": "#ffffff",
+    "gridSize": null
+  }
+}
