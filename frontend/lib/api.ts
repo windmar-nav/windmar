@@ -1051,6 +1051,100 @@ export interface CIIFleetResponse {
   summary: Record<string, number>;
 }
 
+// FuelEU Maritime types
+export interface FuelEUFuelInfo {
+  id: string;
+  name: string;
+  lcv_mj_per_g: number;
+  wtt_gco2eq_per_mj: number;
+  ttw_gco2eq_per_mj: number;
+  wtw_gco2eq_per_mj: number;
+}
+
+export interface FuelEUFuelBreakdown {
+  fuel_type: string;
+  mass_mt: number;
+  energy_mj: number;
+  wtt_gco2eq: number;
+  ttw_gco2eq: number;
+  wtw_gco2eq: number;
+  wtw_intensity: number;
+}
+
+export interface FuelEUCalculateResponse {
+  ghg_intensity: number;
+  total_energy_mj: number;
+  total_co2eq_g: number;
+  fuel_breakdown: FuelEUFuelBreakdown[];
+}
+
+export interface FuelEUComplianceResponse {
+  year: number;
+  ghg_intensity: number;
+  ghg_limit: number;
+  reduction_target_pct: number;
+  compliance_balance_gco2eq: number;
+  total_energy_mj: number;
+  status: string;
+}
+
+export interface FuelEUPenaltyResponse {
+  compliance_balance_gco2eq: number;
+  non_compliant_energy_mj: number;
+  vlsfo_equivalent_mt: number;
+  penalty_eur: number;
+  penalty_per_mt_fuel: number;
+}
+
+export interface FuelEUPoolingVesselResult {
+  name: string;
+  ghg_intensity: number;
+  total_energy_mj: number;
+  total_co2eq_g: number;
+  individual_balance_gco2eq: number;
+  status: string;
+}
+
+export interface FuelEUPoolingResponse {
+  fleet_ghg_intensity: number;
+  fleet_total_energy_mj: number;
+  fleet_total_co2eq_g: number;
+  fleet_balance_gco2eq: number;
+  per_vessel: FuelEUPoolingVesselResult[];
+  status: string;
+}
+
+export interface FuelEUProjectionYear {
+  year: number;
+  ghg_intensity: number;
+  ghg_limit: number;
+  reduction_target_pct: number;
+  compliance_balance_gco2eq: number;
+  total_energy_mj: number;
+  status: string;
+  penalty_eur: number;
+}
+
+export interface FuelEUProjectResponse {
+  projections: FuelEUProjectionYear[];
+}
+
+export interface FuelEULimitYear {
+  year: number;
+  reduction_pct: number;
+  ghg_limit: number;
+}
+
+export interface FuelEULimitsResponse {
+  limits: FuelEULimitYear[];
+  reference_ghg: number;
+}
+
+export interface FuelEUPoolingVessel {
+  name: string;
+  fuel_mt: Record<string, number>;
+}
+
 // Fuel Analysis types
 export interface FuelScenario {
   name: string;
@@ -1875,6 +1969,45 @@ export const apiClient = {
 
   async calculateFleetCII(request: CIIFleetRequest): Promise<CIIFleetResponse> {
     const response = await api.post<CIIFleetResponse>('/api/cii/fleet', request);
+    return response.data;
+  },
+
+  // -------------------------------------------------------------------------
+  // FuelEU Maritime API
+  // -------------------------------------------------------------------------
+
+  async getFuelEUFuelTypes(): Promise<{ fuel_types: FuelEUFuelInfo[] }> {
+    const response = await api.get('/api/fueleu/fuel-types');
+    return response.data;
+  },
+
+  async getFuelEULimits(): Promise<FuelEULimitsResponse> {
+    const response = await api.get<FuelEULimitsResponse>('/api/fueleu/limits');
+    return response.data;
+  },
+
+  async calculateFuelEU(request: { fuel_consumption_mt: Record<string, number>; year: number }): Promise<FuelEUCalculateResponse> {
+    const response = await api.post<FuelEUCalculateResponse>('/api/fueleu/calculate', request);
+    return response.data;
+  },
+
+  async calculateFuelEUCompliance(request: { fuel_consumption_mt: Record<string, number>; year: number }): Promise<FuelEUComplianceResponse> {
+    const response = await api.post<FuelEUComplianceResponse>('/api/fueleu/compliance', request);
+    return response.data;
+  },
+
+  async calculateFuelEUPenalty(request: { fuel_consumption_mt: Record<string, number>; year: number; consecutive_deficit_years?: number }): Promise<FuelEUPenaltyResponse> {
+    const response = await api.post<FuelEUPenaltyResponse>('/api/fueleu/penalty', request);
+    return response.data;
+  },
+
+  async simulateFuelEUPooling(request: { vessels: FuelEUPoolingVessel[]; year: number }): Promise<FuelEUPoolingResponse> {
+    const response = await api.post<FuelEUPoolingResponse>('/api/fueleu/pooling', request);
+    return response.data;
+  },
+
+  async projectFuelEU(request: { fuel_consumption_mt: Record<string, number>; start_year: number; end_year: number; annual_efficiency_improvement_pct?: number }): Promise<FuelEUProjectResponse> {
+    const response = await api.post<FuelEUProjectResponse>('/api/fueleu/project', request);
     return response.data;
   },
 

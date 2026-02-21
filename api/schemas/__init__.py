@@ -74,6 +74,27 @@ from .cii import (  # noqa: F401
     CIIFleetResponse,
 )
 
+# FuelEU Maritime
+from .fueleu import (  # noqa: F401
+    FuelEUFuelConsumption,
+    FuelEUCalculateRequest,
+    FuelEUCalculateResponse,
+    FuelEUComplianceRequest,
+    FuelEUComplianceResponse,
+    FuelEUPenaltyRequest,
+    FuelEUPenaltyResponse,
+    FuelEUPoolingVessel,
+    FuelEUPoolingRequest,
+    FuelEUPoolingResponse,
+    FuelEUProjectRequest,
+    FuelEUProjectResponse,
+    FuelEUProjectionYear,
+    FuelEULimitYear,
+    FuelEULimitsResponse,
+    FuelEUFuelInfo,
+    FuelEUFuelTypesResponse,
+)
+
 # Engine Log
 from .engine_log import (  # noqa: F401
     EngineLogUploadResponse,

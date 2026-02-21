@@ -1,6 +1,6 @@
 'use client';
 
-import { PenTool, Gauge } from 'lucide-react';
+import { PenTool, Gauge, Fuel } from 'lucide-react';
 import Link from 'next/link';
 import { useVoyage, ZONE_TYPES } from '@/components/VoyageContext';
 
@@ -46,6 +46,13 @@ export default function RegulationsDropdown() {
         >
           <Gauge className="w-4 h-4" />
           <span>CII Compliance</span>
+        </Link>
+        <Link
+          href="/fueleu-compliance"
+          className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg text-sm bg-maritime-medium text-gray-400 hover:text-white transition-colors"
+        >
+          <Fuel className="w-4 h-4" />
+          <span>FuelEU Maritime</span>
         </Link>
         <button
           onClick={() => setIsDrawingZone(!isDrawingZone)}

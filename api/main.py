@@ -248,6 +248,7 @@ except ImportError:
 # Include domain routers
 from api.routers.zones import router as zones_router
 from api.routers.cii import router as cii_router
+from api.routers.fueleu import router as fueleu_router
 from api.routers.routes import router as routes_router
 from api.routers.system import router as system_router
 from api.routers.engine_log import router as engine_log_router
@@ -258,6 +259,7 @@ from api.routers.weather import router as weather_router
 from api.routers.voyage_history import router as voyage_history_router
 app.include_router(zones_router)
 app.include_router(cii_router)
+app.include_router(fueleu_router)
 app.include_router(routes_router)
 app.include_router(system_router)
 app.include_router(engine_log_router)
