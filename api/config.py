@@ -18,6 +18,8 @@ class Settings(BaseSettings):
     db_echo: bool = False
     demo_mode: bool = False
     demo_api_key_hash: Optional[str] = None
+    demo_api_key_hashes: str = ""
+    full_api_key_hashes: str = ""
     demo_forecast_step: int = 12
 
     # ========================================================================

@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
+import { setUserTier, clearUserTier } from '@/lib/demoMode';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -20,9 +21,13 @@ export default function LoginPage() {
         method: 'POST',
         headers: { 'X-API-Key': stored },
       })
-        .then(r => { if (r.ok) router.replace('/'); else throw new Error(); })
+        .then(r => {
+          if (r.ok) return r.json().then(data => { setUserTier(data.tier || 'demo'); router.replace('/'); });
+          throw new Error();
+        })
         .catch(() => {
           localStorage.removeItem('windmar_api_key');
+          clearUserTier();
           setChecking(false);
         });
     } else {
@@ -43,7 +48,9 @@ export default function LoginPage() {
         headers: { 'X-API-Key': apiKey.trim() },
       });
       if (!resp.ok) throw new Error();
+      const data = await resp.json();
       localStorage.setItem('windmar_api_key', apiKey.trim());
+      setUserTier(data.tier || 'demo');
       router.replace('/');
     } catch {
       setError('Invalid licence key');

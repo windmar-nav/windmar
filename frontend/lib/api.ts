@@ -3,7 +3,7 @@
  */
 
 import axios from 'axios';
-import { DEMO_MODE } from '@/lib/demoMode';
+import { isDemoUser } from '@/lib/demoMode';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -12,6 +12,17 @@ const api = axios.create({
   headers: {
     'Content-Type': 'application/json',
   },
+});
+
+// Attach X-API-Key to every request so the backend can resolve user tier.
+api.interceptors.request.use((config) => {
+  if (typeof window !== 'undefined') {
+    const key = localStorage.getItem('windmar_api_key');
+    if (key) {
+      config.headers['X-API-Key'] = key;
+    }
+  }
+  return config;
 });
 
 // ============================================================================
@@ -394,6 +405,184 @@ export interface WeatherAlongRouteResponse {
   time: string;
   total_distance_nm: number;
   points: RouteWeatherPoint[];
+}
+
+// Voyage History types
+export interface SaveVoyageLeg {
+  leg_index: number;
+  from_name?: string;
+  from_lat: number;
+  from_lon: number;
+  to_name?: string;
+  to_lat: number;
+  to_lon: number;
+  distance_nm: number;
+  bearing_deg?: number;
+  wind_speed_kts?: number;
+  wind_dir_deg?: number;
+  wave_height_m?: number;
+  wave_dir_deg?: number;
+  current_speed_ms?: number;
+  current_dir_deg?: number;
+  calm_speed_kts?: number;
+  stw_kts?: number;
+  sog_kts?: number;
+  speed_loss_pct?: number;
+  time_hours: number;
+  departure_time?: string;
+  arrival_time?: string;
+  fuel_mt: number;
+  power_kw?: number;
+  data_source?: string;
+}
+
+export interface SaveVoyageRequest {
+  name?: string;
+  departure_port?: string;
+  arrival_port?: string;
+  departure_time: string;
+  arrival_time: string;
+  total_distance_nm: number;
+  total_time_hours: number;
+  total_fuel_mt: number;
+  avg_sog_kts?: number;
+  avg_stw_kts?: number;
+  calm_speed_kts: number;
+  is_laden: boolean;
+  vessel_specs_snapshot?: Record<string, unknown>;
+  cii_estimate?: Record<string, unknown>;
+  notes?: string;
+  legs: SaveVoyageLeg[];
+}
+
+export interface VoyageSummary {
+  id: string;
+  name?: string;
+  departure_port?: string;
+  arrival_port?: string;
+  departure_time: string;
+  arrival_time: string;
+  total_distance_nm: number;
+  total_time_hours: number;
+  total_fuel_mt: number;
+  avg_sog_kts?: number;
+  calm_speed_kts: number;
+  is_laden: boolean;
+  cii_estimate?: Record<string, unknown>;
+  created_at: string;
+}
+
+export interface VoyageLegDetail {
+  id: string;
+  leg_index: number;
+  from_name?: string;
+  from_lat: number;
+  from_lon: number;
+  to_name?: string;
+  to_lat: number;
+  to_lon: number;
+  distance_nm: number;
+  bearing_deg?: number;
+  wind_speed_kts?: number;
+  wind_dir_deg?: number;
+  wave_height_m?: number;
+  wave_dir_deg?: number;
+  current_speed_ms?: number;
+  current_dir_deg?: number;
+  calm_speed_kts?: number;
+  stw_kts?: number;
+  sog_kts?: number;
+  speed_loss_pct?: number;
+  time_hours: number;
+  departure_time?: string;
+  arrival_time?: string;
+  fuel_mt: number;
+  power_kw?: number;
+  data_source?: string;
+}
+
+export interface VoyageDetail extends VoyageSummary {
+  avg_stw_kts?: number;
+  vessel_specs_snapshot?: Record<string, unknown>;
+  notes?: string;
+  updated_at: string;
+  legs: VoyageLegDetail[];
+}
+
+export interface VoyageListResponse {
+  voyages: VoyageSummary[];
+  total: number;
+  limit: number;
+  offset: number;
+}
+
+export interface NoonReportEntry {
+  report_number: number;
+  timestamp: string;
+  lat: number;
+  lon: number;
+  sog_kts?: number;
+  stw_kts?: number;
+  course_deg?: number;
+  distance_since_last_nm: number;
+  fuel_since_last_mt: number;
+  cumulative_distance_nm: number;
+  cumulative_fuel_mt: number;
+  wind_speed_kts?: number;
+  wind_dir_deg?: number;
+  wave_height_m?: number;
+  wave_dir_deg?: number;
+  current_speed_ms?: number;
+  current_dir_deg?: number;
+}
+
+export interface NoonReportsResponse {
+  voyage_id: string;
+  voyage_name?: string;
+  departure_time: string;
+  arrival_time: string;
+  reports: NoonReportEntry[];
+}
+
+export interface DepartureReportData {
+  vessel_name?: string;
+  dwt?: number;
+  departure_port?: string;
+  departure_time: string;
+  loading_condition: string;
+  destination?: string;
+  eta: string;
+  planned_distance_nm: number;
+  planned_speed_kts: number;
+  estimated_fuel_mt: number;
+  weather_at_departure?: Record<string, unknown>;
+}
+
+export interface ArrivalReportData {
+  vessel_name?: string;
+  arrival_port?: string;
+  arrival_time: string;
+  actual_voyage_time_hours: number;
+  total_fuel_consumed_mt: number;
+  average_speed_kts: number;
+  total_distance_nm: number;
+  weather_summary?: Record<string, unknown>;
+  cii_estimate?: Record<string, unknown>;
+}
+
+export interface VoyageReportsResponse {
+  voyage_id: string;
+  departure_report: DepartureReportData;
+  arrival_report: ArrivalReportData;
+  noon_reports: NoonReportEntry[];
+}
+
+export interface VoyageListParams {
+  name?: string;
+  date_from?: string;
+  date_to?: string;
+  limit?: number;
+  offset?: number;
 }
 
 // Optimization types
@@ -1335,7 +1524,7 @@ export const apiClient = {
     color: string;
     message?: string;
   }> {
-    if (DEMO_MODE) {
+    if (isDemoUser()) {
       return { status: 'demo', age_hours: 0, color: 'green', message: 'Demo snapshot' };
     }
     const response = await api.get('/api/weather/freshness');
@@ -1639,6 +1828,47 @@ export const apiClient = {
 
   async disconnectSensor(): Promise<{ status: string }> {
     const response = await api.post('/api/live/disconnect');
+    return response.data;
+  },
+
+  // -------------------------------------------------------------------------
+  // Voyage History API
+  // -------------------------------------------------------------------------
+
+  async saveVoyage(request: SaveVoyageRequest): Promise<VoyageSummary> {
+    const response = await api.post<VoyageSummary>('/api/voyages', request);
+    return response.data;
+  },
+
+  async listVoyages(params: VoyageListParams = {}): Promise<VoyageListResponse> {
+    const response = await api.get<VoyageListResponse>('/api/voyages', { params });
+    return response.data;
+  },
+
+  async getVoyage(id: string): Promise<VoyageDetail> {
+    const response = await api.get<VoyageDetail>(`/api/voyages/${id}`);
+    return response.data;
+  },
+
+  async deleteVoyage(id: string): Promise<{ status: string; voyage_id: string }> {
+    const response = await api.delete(`/api/voyages/${id}`);
+    return response.data;
+  },
+
+  async getVoyageNoonReports(id: string): Promise<NoonReportsResponse> {
+    const response = await api.get<NoonReportsResponse>(`/api/voyages/${id}/noon-reports`);
+    return response.data;
+  },
+
+  async getVoyageReports(id: string): Promise<VoyageReportsResponse> {
+    const response = await api.get<VoyageReportsResponse>(`/api/voyages/${id}/reports`);
+    return response.data;
+  },
+
+  async downloadVoyagePDF(id: string): Promise<Blob> {
+    const response = await api.get(`/api/voyages/${id}/pdf`, {
+      responseType: 'blob',
+    });
     return response.data;
   },
 

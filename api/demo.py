@@ -2,20 +2,109 @@
 Demo mode guards for WINDMAR API.
 
 Provides FastAPI dependencies and helpers that block or stub endpoints
-when DEMO_MODE=true.
+when DEMO_MODE=true. Supports tiered access: demo keys get restricted
+features (frame limiting, blocked writes), full keys unlock everything.
 """
 
-from fastapi import HTTPException
+import logging
+
+import bcrypt
+from fastapi import HTTPException, Request
+
 from api.config import settings
 
+logger = logging.getLogger(__name__)
+
+
+# ============================================================================
+# Tier resolution
+# ============================================================================
+
+def _parse_hashes(csv: str) -> list[str]:
+    """Parse comma-separated bcrypt hashes, stripping whitespace."""
+    if not csv:
+        return []
+    return [h.strip() for h in csv.split(",") if h.strip()]
+
+
+def _check_key_against_hashes(plain_key: str, hashes: list[str]) -> bool:
+    """Check a plain-text key against a list of bcrypt hashes.
+
+    Always iterates ALL hashes to prevent timing oracles.
+    """
+    key_bytes = plain_key.encode("utf-8")
+    matched = False
+    for h in hashes:
+        try:
+            if bcrypt.checkpw(key_bytes, h.encode("utf-8")):
+                matched = True
+            # Do NOT return early — constant-time iteration
+        except Exception:
+            continue
+    return matched
+
+
+def get_user_tier(request: Request) -> str:
+    """Resolve user tier from X-API-Key header.
+
+    Returns ``"full"``, ``"demo"``, or ``"anonymous"``.
+    All hash lists are checked unconditionally to prevent timing oracles.
+    """
+    api_key = request.headers.get("X-API-Key", "")
+    if not api_key:
+        return "anonymous"
+
+    # Check ALL tiers unconditionally (constant-time)
+    full_hashes = _parse_hashes(settings.full_api_key_hashes)
+    is_full = bool(full_hashes) and _check_key_against_hashes(api_key, full_hashes)
+
+    demo_hashes = _parse_hashes(settings.demo_api_key_hashes)
+    is_demo = bool(demo_hashes) and _check_key_against_hashes(api_key, demo_hashes)
+
+    # Legacy single demo key (backwards compat)
+    is_legacy = False
+    if settings.demo_api_key_hash:
+        try:
+            is_legacy = bcrypt.checkpw(
+                api_key.encode("utf-8"),
+                settings.demo_api_key_hash.encode("utf-8"),
+            )
+        except Exception:
+            pass
+
+    # Priority: full > demo > legacy > anonymous
+    if is_full:
+        return "full"
+    if is_demo or is_legacy:
+        return "demo"
+    return "anonymous"
+
+
+def is_demo_user(request: Request) -> bool:
+    """Return True if the current request comes from a demo-tier user."""
+    return get_user_tier(request) == "demo"
+
+
+# ============================================================================
+# FastAPI Depends guards
+# ============================================================================
 
 def require_not_demo(feature_name: str = "This feature"):
-    """FastAPI Depends() guard that raises 403 in demo mode."""
+    """FastAPI Depends() guard — only full-tier users pass on demo deployments.
 
-    def _guard():
-        if settings.demo_mode:
+    On non-demo deployments (DEMO_MODE=false), always passes.
+    On demo deployments, only ``"full"`` tier passes; both ``"demo"``
+    and ``"anonymous"`` (missing/invalid key) get 403.
+    """
+
+    def _guard(request: Request):
+        if not settings.demo_mode:
+            return
+        tier = get_user_tier(request)
+        if tier != "full":
             raise HTTPException(
-                status_code=403, detail=f"{feature_name} is disabled in demo mode."
+                status_code=403,
+                detail=f"{feature_name} is disabled in demo mode.",
             )
 
     return _guard
@@ -31,7 +120,7 @@ def demo_mode_response(feature_name: str = "This feature"):
 
 
 def is_demo() -> bool:
-    """Check if demo mode is active."""
+    """Check if demo mode is active (global deployment flag)."""
     return settings.demo_mode
 
 

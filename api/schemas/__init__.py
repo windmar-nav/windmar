@@ -21,6 +21,18 @@ from .voyage import (  # noqa: F401
     PercentileFloat,
     PercentileString,
     MonteCarloResponse,
+    # Voyage History
+    SaveVoyageLeg,
+    SaveVoyageRequest,
+    VoyageLegResponse,
+    VoyageSummaryResponse,
+    VoyageDetailResponse,
+    VoyageListResponse,
+    NoonReportEntry,
+    NoonReportsResponse,
+    DepartureReportData,
+    ArrivalReportData,
+    VoyageReportsResponse,
 )
 
 # Optimization

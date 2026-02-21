@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { usePathname, useRouter } from 'next/navigation';
-import { DEMO_MODE } from '@/lib/demoMode';
+import { DEMO_MODE, setUserTier, clearUserTier } from '@/lib/demoMode';
 
 const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -36,10 +36,15 @@ export function AuthGate({ children }: AuthGateProps) {
     })
       .then(r => {
         if (r.ok) {
-          setAuthorized(true);
-          setChecking(false);
+          return r.json().then(data => {
+            const tier = data.tier || 'demo';
+            setUserTier(tier);
+            setAuthorized(true);
+            setChecking(false);
+          });
         } else {
           localStorage.removeItem('windmar_api_key');
+          clearUserTier();
           router.replace('/login');
         }
       })

@@ -1,12 +1,12 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Ship, Gauge, Shield, Map, LogOut, Cloud, BarChart3, ScrollText, ExternalLink, Info } from 'lucide-react';
+import { Ship, Gauge, Shield, Map, LogOut, Cloud, BarChart3, ScrollText, ExternalLink, Info, BookOpen } from 'lucide-react';
 import Link from 'next/link';
 import VoyageDropdown from '@/components/VoyageDropdown';
 import RegulationsDropdown from '@/components/RegulationsDropdown';
 import { useVoyage } from '@/components/VoyageContext';
-import { DEMO_MODE, DEMO_TOOLTIP } from '@/lib/demoMode';
+import { DEMO_TOOLTIP, isDemoUser } from '@/lib/demoMode';
 
 type DropdownId = 'voyage' | 'regulations' | null;
 
@@ -114,6 +114,16 @@ export default function Header({ onFitRoute }: HeaderProps) {
               <span className="text-sm font-medium hidden sm:inline">Engine Log</span>
             </Link>
 
+            {/* Voyage History — navigates to /voyages */}
+            <Link
+              href="/voyages"
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
+              title="Voyage History"
+            >
+              <BookOpen className="w-5 h-5" />
+              <span className="text-sm font-medium hidden sm:inline">Voyages</span>
+            </Link>
+
             {/* Voyage — dropdown */}
             <div className="relative">
               <button
@@ -176,9 +186,9 @@ export default function Header({ onFitRoute }: HeaderProps) {
             <div className="w-px h-6 bg-white/10 mx-2" />
 
             {/* Status Indicator */}
-            <div className="flex items-center space-x-2" title={DEMO_MODE ? DEMO_TOOLTIP : undefined}>
-              <div className={`w-2 h-2 rounded-full animate-pulse ${DEMO_MODE ? 'bg-amber-400' : 'bg-green-400'}`} />
-              <span className="text-sm text-gray-300">{DEMO_MODE ? 'DEMO' : 'Online'}</span>
+            <div className="flex items-center space-x-2" title={isDemoUser() ? DEMO_TOOLTIP : undefined}>
+              <div className={`w-2 h-2 rounded-full animate-pulse ${isDemoUser() ? 'bg-amber-400' : 'bg-green-400'}`} />
+              <span className="text-sm text-gray-300">{isDemoUser() ? 'DEMO' : 'Online'}</span>
             </div>
 
             {/* Exit */}

@@ -1,9 +1,9 @@
 'use client';
 
-import { DEMO_MODE } from '@/lib/demoMode';
+import { isDemoUser } from '@/lib/demoMode';
 
 export function DemoFooter() {
-  if (!DEMO_MODE) return null;
+  if (!isDemoUser()) return null;
 
   return (
     <footer className="fixed bottom-0 left-0 right-0 z-50 bg-gray-900/90 backdrop-blur border-t border-white/10 px-4 py-1.5 text-[10px] text-gray-500 text-center">

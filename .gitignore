@@ -60,6 +60,7 @@ htmlcov/
 *.pem
 *.crt
 *.secret
+scripts/generate_tiered_keys.py
 
 # Backups
 docker/backup/backups/

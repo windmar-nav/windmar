@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Wind, Waves, Droplets, Clock, RefreshCw, Snowflake, CloudFog, AudioWaveform, Thermometer, Database } from 'lucide-react';
 import { WeatherLayer } from '@/components/MapComponent';
-import { DEMO_MODE } from '@/lib/demoMode';
+import { isDemoUser } from '@/lib/demoMode';
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
@@ -54,7 +54,9 @@ export default function MapOverlayControls({
     return () => clearInterval(interval);
   }, []);
 
-  const freshnessLabel = DEMO_MODE
+  const _isDemoUser = isDemoUser();
+
+  const freshnessLabel = _isDemoUser
     ? 'Snapshot'
     : freshness
       ? freshness.age_hours < 4
@@ -64,7 +66,7 @@ export default function MapOverlayControls({
           : 'stale'
       : null;
 
-  const freshnessColor = DEMO_MODE
+  const freshnessColor = _isDemoUser
     ? 'text-amber-400'
     : freshness
       ? freshness.age_hours < 4
@@ -100,7 +102,7 @@ export default function MapOverlayControls({
         active={weatherLayer === 'ice'}
         onClick={() => onWeatherLayerChange(weatherLayer === 'ice' ? 'none' : 'ice')}
       />
-      {!DEMO_MODE && (
+      {!_isDemoUser && (
       <OverlayButton
         icon={<CloudFog className="w-4 h-4" />}
         label="Visibility"
@@ -108,7 +110,7 @@ export default function MapOverlayControls({
         onClick={() => onWeatherLayerChange(weatherLayer === 'visibility' ? 'none' : 'visibility')}
       />
       )}
-      {!DEMO_MODE && (
+      {!_isDemoUser && (
       <OverlayButton
         icon={<Thermometer className="w-4 h-4" />}
         label="SST"
@@ -130,7 +132,7 @@ export default function MapOverlayControls({
           onClick={onForecastToggle}
         />
       )}
-      {weatherLayer !== 'none' && !DEMO_MODE && (
+      {weatherLayer !== 'none' && !_isDemoUser && (
         <button
           onClick={onResync}
           disabled={isLoadingWeather || resyncRunning}

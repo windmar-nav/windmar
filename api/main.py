@@ -185,6 +185,53 @@ def _run_weather_migrations():
         logger.error(f"Failed to run weather migrations: {e}")
 
 
+def _run_voyage_migrations():
+    """Apply voyage table migrations if they don't exist yet."""
+    db_url = os.environ.get("DATABASE_URL", settings.database_url)
+    if not db_url.startswith("postgresql"):
+        logger.info("Skipping voyage migrations (non-PostgreSQL database)")
+        return
+    try:
+        import psycopg2
+    except ImportError:
+        logger.warning("psycopg2 not installed, skipping voyage migrations")
+        return
+
+    try:
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = True
+        cur = conn.cursor()
+
+        # Use a different advisory lock ID from weather migrations
+        cur.execute("SELECT pg_try_advisory_lock(20260221)")
+        got_lock = cur.fetchone()[0]
+        if not got_lock:
+            logger.info("Another worker is running voyage migrations, skipping")
+            conn.close()
+            return
+
+        try:
+            cur.execute(
+                "SELECT 1 FROM information_schema.tables WHERE table_name = 'voyages'"
+            )
+            if cur.fetchone():
+                logger.info("Voyage tables already exist")
+                return
+
+            migration_path = Path(__file__).parent.parent / "docker" / "migrations" / "002_voyage_tables.sql"
+            if migration_path.exists():
+                sql = migration_path.read_text()
+                cur.execute(sql)
+                logger.info("Voyage database migration applied successfully")
+            else:
+                logger.warning(f"Migration file not found: {migration_path}")
+        finally:
+            cur.execute("SELECT pg_advisory_unlock(20260221)")
+            conn.close()
+    except Exception as e:
+        logger.error(f"Failed to run voyage migrations: {e}")
+
+
 # =============================================================================
 # Create Application & Include Routers
 # =============================================================================
@@ -208,6 +255,7 @@ from api.routers.vessel import router as vessel_router
 from api.routers.voyage import router as voyage_router
 from api.routers.optimization import router as optimization_router
 from api.routers.weather import router as weather_router
+from api.routers.voyage_history import router as voyage_history_router
 app.include_router(zones_router)
 app.include_router(cii_router)
 app.include_router(routes_router)
@@ -215,6 +263,7 @@ app.include_router(system_router)
 app.include_router(engine_log_router)
 app.include_router(vessel_router)
 app.include_router(voyage_router)
+app.include_router(voyage_history_router)
 app.include_router(optimization_router)
 app.include_router(weather_router)
 
@@ -238,6 +287,7 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
 async def startup_event():
     """Run migrations, load persisted vessel specs, and start background weather ingestion."""
     _run_weather_migrations()
+    _run_voyage_migrations()
 
     # Ensure cache dirs exist (volume mounts may lack subdirectories)
     for sub in ("wind", "wave", "current", "ice", "sst", "vis"):

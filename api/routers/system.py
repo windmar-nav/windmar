@@ -10,13 +10,12 @@ import collections
 import json
 import logging
 
-import bcrypt
-
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import PlainTextResponse, StreamingResponse, JSONResponse
 
 from api.config import settings
 from api.middleware import metrics_collector, get_request_id
+from api.rate_limit import limiter
 from api.state import get_app_state
 
 router = APIRouter(tags=["System"])
@@ -266,29 +265,19 @@ async def get_data_sources():
 # Demo Authentication
 # =============================================================================
 
-def _verify_demo_key(plain_key: str) -> bool:
-    """Check a plain-text key against the DEMO_API_KEY_HASH bcrypt hash."""
-    if not settings.demo_api_key_hash:
-        return False
-    try:
-        return bcrypt.checkpw(
-            plain_key.encode("utf-8"),
-            settings.demo_api_key_hash.encode("utf-8"),
-        )
-    except Exception:
-        return False
-
-
 @router.post("/api/demo/verify")
+@limiter.limit("5/minute")
 async def verify_demo_key(request: Request):
     """
-    Verify a demo licence key.
+    Verify a licence key and return the user's access tier.
 
-    Accepts X-API-Key header. Returns 200 if valid, 401 if not.
-    Only functional when DEMO_MODE=true and DEMO_API_KEY_HASH is set.
+    Accepts X-API-Key header. Returns 200 with tier if valid, 401 if not.
+    Only functional when DEMO_MODE=true.
     """
+    from api.demo import get_user_tier
+
     if not settings.demo_mode:
-        return {"authenticated": True, "demo_mode": False}
+        return {"authenticated": True, "demo_mode": False, "tier": "full"}
 
     api_key = request.headers.get("X-API-Key", "")
     if not api_key:
@@ -297,8 +286,9 @@ async def verify_demo_key(request: Request):
             content={"authenticated": False, "detail": "Licence key is required"},
         )
 
-    if _verify_demo_key(api_key):
-        return {"authenticated": True, "demo_mode": True}
+    tier = get_user_tier(request)
+    if tier in ("full", "demo"):
+        return {"authenticated": True, "demo_mode": True, "tier": tier}
 
     return JSONResponse(
         status_code=401,

@@ -171,6 +171,85 @@ class NoonReport(Base):
         return f"<NoonReport(vessel_id={self.vessel_id}, time={self.report_time})>"
 
 
+class Voyage(Base):
+    """Persisted voyage calculation."""
+
+    __tablename__ = "voyages"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name = Column(String(200), nullable=True, index=True)
+    departure_port = Column(String(200), nullable=True)
+    arrival_port = Column(String(200), nullable=True)
+    departure_time = Column(DateTime, nullable=False)
+    arrival_time = Column(DateTime, nullable=False)
+    total_distance_nm = Column(Float, nullable=False)
+    total_time_hours = Column(Float, nullable=False)
+    total_fuel_mt = Column(Float, nullable=False)
+    avg_sog_kts = Column(Float, nullable=True)
+    avg_stw_kts = Column(Float, nullable=True)
+    calm_speed_kts = Column(Float, nullable=False)
+    is_laden = Column(Boolean, nullable=False, default=True)
+    vessel_specs_snapshot = Column(JSON, nullable=True)
+    cii_estimate = Column(JSON, nullable=True)
+    notes = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=datetime.utcnow, nullable=False)
+    updated_at = Column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False
+    )
+
+    # Relationships
+    legs = relationship("VoyageLeg", back_populates="voyage", cascade="all, delete-orphan", order_by="VoyageLeg.leg_index")
+
+    def __repr__(self):
+        return f"<Voyage(id={self.id}, name='{self.name}')>"
+
+
+class VoyageLeg(Base):
+    """Single leg of a persisted voyage."""
+
+    __tablename__ = "voyage_legs"
+
+    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    voyage_id = Column(
+        UUID(as_uuid=True), ForeignKey("voyages.id", ondelete="CASCADE"), nullable=False
+    )
+    leg_index = Column(Integer, nullable=False)
+    from_name = Column(String(200), nullable=True)
+    from_lat = Column(Float, nullable=False)
+    from_lon = Column(Float, nullable=False)
+    to_name = Column(String(200), nullable=True)
+    to_lat = Column(Float, nullable=False)
+    to_lon = Column(Float, nullable=False)
+    distance_nm = Column(Float, nullable=False)
+    bearing_deg = Column(Float, nullable=True)
+    wind_speed_kts = Column(Float, nullable=True)
+    wind_dir_deg = Column(Float, nullable=True)
+    wave_height_m = Column(Float, nullable=True)
+    wave_dir_deg = Column(Float, nullable=True)
+    current_speed_ms = Column(Float, nullable=True)
+    current_dir_deg = Column(Float, nullable=True)
+    calm_speed_kts = Column(Float, nullable=True)
+    stw_kts = Column(Float, nullable=True)
+    sog_kts = Column(Float, nullable=True)
+    speed_loss_pct = Column(Float, nullable=True)
+    time_hours = Column(Float, nullable=False)
+    departure_time = Column(DateTime, nullable=True)
+    arrival_time = Column(DateTime, nullable=True)
+    fuel_mt = Column(Float, nullable=False)
+    power_kw = Column(Float, nullable=True)
+    data_source = Column(String(50), nullable=True)
+
+    # Relationships
+    voyage = relationship("Voyage", back_populates="legs")
+
+    __table_args__ = (
+        Index("ix_voyage_legs_voyage_id", "voyage_id"),
+    )
+
+    def __repr__(self):
+        return f"<VoyageLeg(voyage_id={self.voyage_id}, leg_index={self.leg_index})>"
+
+
 class EngineLogEntry(Base):
     """Engine log entry from vessel operations.
 

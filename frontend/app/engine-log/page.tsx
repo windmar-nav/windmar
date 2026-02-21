@@ -18,7 +18,7 @@ import {
   apiClient, EngineLogEntryResponse, EngineLogSummaryResponse,
   EngineLogEntriesParams, EngineLogUploadResponse, EngineLogCalibrateResponse,
 } from '@/lib/api';
-import { DEMO_MODE } from '@/lib/demoMode';
+import { isDemoUser } from '@/lib/demoMode';
 
 type EngineLogTab = 'upload' | 'entries' | 'analytics' | 'performance';
 
@@ -43,7 +43,7 @@ function filtersToParams(filters: EngineLogFilters): Omit<EngineLogEntriesParams
 }
 
 export default function EngineLogPage() {
-  const [activeTab, setActiveTab] = useState<EngineLogTab>(DEMO_MODE ? 'entries' : 'upload');
+  const [activeTab, setActiveTab] = useState<EngineLogTab>(isDemoUser() ? 'entries' : 'upload');
   const [summary, setSummary] = useState<EngineLogSummaryResponse | null>(null);
   const [filters, setFilters] = useState<EngineLogFilters>(EMPTY_FILTERS);
 
@@ -65,7 +65,7 @@ export default function EngineLogPage() {
       <main className="container mx-auto px-6 pt-20 pb-12">
         {/* Tab bar */}
         <div className="flex space-x-1 mb-6 bg-maritime-medium/50 backdrop-blur-sm rounded-lg p-1 max-w-2xl">
-          {!DEMO_MODE && <TabButton label="Upload" active={activeTab === 'upload'} onClick={() => setActiveTab('upload')} />}
+          {!isDemoUser() && <TabButton label="Upload" active={activeTab === 'upload'} onClick={() => setActiveTab('upload')} />}
           <TabButton label="Entries" active={activeTab === 'entries'} onClick={() => setActiveTab('entries')} />
           <TabButton label="Analytics" active={activeTab === 'analytics'} onClick={() => setActiveTab('analytics')} />
           <TabButton label="Performance" active={activeTab === 'performance'} onClick={() => setActiveTab('performance')} />
