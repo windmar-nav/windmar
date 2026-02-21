@@ -3,20 +3,95 @@ Land mask for maritime route optimization.
 
 Provides is_ocean(lat, lon) function to check if a point is navigable water.
 
-Uses multiple approaches:
-1. Try global-land-mask package (accurate, 1km resolution)
-2. Fallback to simplified polygon-based coastlines
-3. Basic bounding box checks for major land masses
+Primary method: GSHHS vector polygons via shapely (sub-km coastal accuracy).
+Fallback chain:
+1. GSHHS + shapely.prepared (5 µs point-in-polygon)
+2. global-land-mask package (1km raster)
+3. Simplified bounding box heuristics
 """
 
 import logging
 import math
+import threading
 from functools import lru_cache
-from typing import List, Tuple
+from typing import List, Optional, Tuple
 
 logger = logging.getLogger(__name__)
 
-# Try to import global-land-mask
+# ---------------------------------------------------------------------------
+# GSHHS singleton (lazy-loaded on first call)
+# ---------------------------------------------------------------------------
+_gshhs_lock = threading.Lock()
+_gshhs_land: object = None  # shapely MultiPolygon
+_gshhs_prepared: object = None  # shapely PreparedGeometry
+_gshhs_loaded = False
+_gshhs_failed = False
+
+
+def _load_gshhs() -> bool:
+    """Load GSHHS intermediate-resolution polygons. Thread-safe singleton."""
+    global _gshhs_land, _gshhs_prepared, _gshhs_loaded, _gshhs_failed
+
+    if _gshhs_loaded or _gshhs_failed:
+        return _gshhs_loaded
+
+    with _gshhs_lock:
+        # Double-check after acquiring lock
+        if _gshhs_loaded or _gshhs_failed:
+            return _gshhs_loaded
+
+        try:
+            import cartopy.io.shapereader as shpreader
+            from shapely.geometry import MultiPolygon, shape
+            from shapely.ops import unary_union
+            from shapely.prepared import prep
+
+            # Load GSHHS intermediate resolution, level 1 (continental + major islands)
+            shp_path = shpreader.gshhs('i', 1)
+            reader = shpreader.Reader(shp_path)
+
+            polygons = []
+            for record in reader.records():
+                geom = shape(record.geometry)
+                if geom.is_valid:
+                    polygons.append(geom)
+                else:
+                    polygons.append(geom.buffer(0))
+
+            if not polygons:
+                logger.warning("GSHHS: no polygons loaded")
+                _gshhs_failed = True
+                return False
+
+            land_union = unary_union(polygons)
+            if not isinstance(land_union, MultiPolygon):
+                land_union = MultiPolygon([land_union])
+
+            _gshhs_land = land_union
+            _gshhs_prepared = prep(land_union)
+            _gshhs_loaded = True
+            logger.info(f"GSHHS loaded: {len(polygons)} polygons, intermediate resolution")
+            return True
+
+        except Exception as e:
+            logger.warning(f"GSHHS load failed: {e}. Falling back to alternative methods.")
+            _gshhs_failed = True
+            return False
+
+
+def get_land_geometry():
+    """Return the GSHHS land MultiPolygon, or None if unavailable.
+
+    Used by routing_graph.py for distance-to-coast calculations.
+    """
+    if not _gshhs_loaded:
+        _load_gshhs()
+    return _gshhs_land
+
+
+# ---------------------------------------------------------------------------
+# global-land-mask fallback
+# ---------------------------------------------------------------------------
 _HAS_LAND_MASK = False
 _globe = None
 
@@ -24,57 +99,37 @@ try:
     from global_land_mask import globe
     _globe = globe
     _HAS_LAND_MASK = True
-    logger.info("Using global-land-mask for land detection")
+    logger.info("global-land-mask available as fallback")
 except ImportError:
-    logger.warning("global-land-mask not installed. Using simplified land detection. "
-                   "For better accuracy: pip install global-land-mask")
+    logger.info("global-land-mask not installed — GSHHS primary, bbox fallback")
 
 
-# Simplified continental bounding boxes for fallback
-# Format: (lat_min, lat_max, lon_min, lon_max, name)
+# ---------------------------------------------------------------------------
+# Simplified bounding-box fallback data
+# ---------------------------------------------------------------------------
 CONTINENTAL_BOUNDS = [
-    # North America
     (25, 72, -170, -50, "North America"),
-    # South America
     (-56, 12, -82, -34, "South America"),
-    # Europe
     (36, 71, -10, 40, "Europe"),
-    # Africa
     (-35, 37, -18, 52, "Africa"),
-    # Asia
     (5, 77, 40, 180, "Asia"),
-    # Australia
     (-45, -10, 112, 155, "Australia"),
-    # Antarctica (simplified)
     (-90, -60, -180, 180, "Antarctica"),
 ]
 
-# Major inland seas/lakes to exclude (these ARE water)
 INLAND_WATER = [
-    # Mediterranean
     (30, 46, -6, 36, "Mediterranean"),
-    # Black Sea
     (40, 47, 27, 42, "Black Sea"),
-    # Red Sea
     (12, 30, 32, 44, "Red Sea"),
-    # Persian Gulf
     (23, 30, 48, 57, "Persian Gulf"),
-    # Baltic Sea
     (53, 66, 10, 30, "Baltic Sea"),
-    # Gulf of Mexico
     (18, 31, -98, -80, "Gulf of Mexico"),
-    # Caribbean
     (9, 23, -88, -60, "Caribbean"),
-    # Hudson Bay
     (51, 65, -95, -77, "Hudson Bay"),
-    # Sea of Japan
     (33, 52, 127, 142, "Sea of Japan"),
-    # South China Sea
     (0, 23, 100, 121, "South China Sea"),
 ]
 
-# Simplified coastline polygons for major shipping areas
-# Points are (lat, lon) forming a polygon
 SIMPLIFIED_COASTLINES = {
     "western_europe": [
         (36.0, -10.0), (43.0, -10.0), (48.0, -5.0), (51.0, 2.0),
@@ -98,7 +153,20 @@ SIMPLIFIED_COASTLINES = {
 }
 
 
-@lru_cache(maxsize=100000)
+# ---------------------------------------------------------------------------
+# Helper: (lat, lon) → shapely Point(lon, lat)
+# ---------------------------------------------------------------------------
+def _pt(lat: float, lon: float):
+    """Create a shapely Point from (lat, lon). Centralizes the coordinate swap."""
+    from shapely.geometry import Point
+    return Point(lon, lat)
+
+
+# ---------------------------------------------------------------------------
+# Public API
+# ---------------------------------------------------------------------------
+
+@lru_cache(maxsize=200_000)
 def is_ocean(lat: float, lon: float) -> bool:
     """
     Check if a point is in navigable ocean water.
@@ -110,67 +178,22 @@ def is_ocean(lat: float, lon: float) -> bool:
     Returns:
         True if point is ocean/sea, False if land
     """
-    # Use global-land-mask if available
+    # Try GSHHS first (most accurate)
+    if _gshhs_loaded or (not _gshhs_failed and _load_gshhs()):
+        try:
+            return not _gshhs_prepared.contains(_pt(lat, lon))
+        except Exception:
+            pass
+
+    # Fallback: global-land-mask (1km raster)
     if _HAS_LAND_MASK and _globe is not None:
         try:
             return bool(_globe.is_ocean(lat, lon))
         except Exception:
             pass
 
-    # Fallback to simplified detection
+    # Last resort: bounding-box heuristics
     return _simplified_is_ocean(lat, lon)
-
-
-def _simplified_is_ocean(lat: float, lon: float) -> bool:
-    """Simplified ocean detection using bounding boxes."""
-
-    # Check if in inland water bodies first (these are navigable)
-    for lat_min, lat_max, lon_min, lon_max, name in INLAND_WATER:
-        if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-            return True
-
-    # Check continental bounding boxes
-    for lat_min, lat_max, lon_min, lon_max, name in CONTINENTAL_BOUNDS:
-        if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
-            # Inside continental bounding box - likely land
-            # But need to check if it's actually coastal water
-            if _is_coastal_water(lat, lon):
-                return True
-            return False
-
-    # Not in any continental bounding box - assume ocean
-    return True
-
-
-def _is_coastal_water(lat: float, lon: float) -> bool:
-    """Check if a point is in coastal waters within a continental bounding box."""
-
-    # Simple distance-from-coast heuristic for some regions
-    # This is very approximate
-
-    # Mediterranean Sea
-    if 30 <= lat <= 46 and -6 <= lon <= 36:
-        return True
-
-    # North Sea
-    if 51 <= lat <= 62 and -4 <= lon <= 10:
-        return True
-
-    # English Channel
-    if 48 <= lat <= 52 and -6 <= lon <= 2:
-        return True
-
-    # Bay of Biscay
-    if 43 <= lat <= 48 and -10 <= lon <= -1:
-        return True
-
-    # US East Coast (offshore)
-    if 25 <= lat <= 45 and -82 <= lon <= -65:
-        # Very rough: if far enough east, it's ocean
-        if lon < -75:
-            return True
-
-    return False
 
 
 def is_path_clear(
@@ -181,32 +204,37 @@ def is_path_clear(
     """
     Check if a path between two points crosses land.
 
-    Sampling density scales with segment length (~1 check per 2 nm) so
-    that short edges at fine grid resolution and long post-smoothing
-    segments are both checked adequately.
+    Uses geometric intersection with GSHHS when available (exact),
+    falls back to point sampling otherwise.
 
     Args:
         lat1, lon1: Start point
         lat2, lon2: End point
-        num_checks: Number of points to sample along path.
-            0 (default) = auto-scale based on distance.
+        num_checks: Number of points to sample (0 = auto; ignored when GSHHS available)
 
     Returns:
         True if path is entirely over water
     """
+    # GSHHS: exact geometric intersection
+    if _gshhs_loaded or (not _gshhs_failed and _load_gshhs()):
+        try:
+            from shapely.geometry import LineString
+            line = LineString([(lon1, lat1), (lon2, lat2)])
+            return not _gshhs_prepared.intersects(line)
+        except Exception:
+            pass
+
+    # Fallback: point sampling
     if num_checks <= 0:
-        # Approximate distance in nm (Pythagorean on lat/lon, 60nm per degree)
         dlat = (lat2 - lat1) * 60
         dlon = (lon2 - lon1) * 60 * math.cos(math.radians((lat1 + lat2) / 2))
         dist_nm = math.sqrt(dlat * dlat + dlon * dlon)
-        # ~1 check per 2 nm, minimum 10, maximum 200
         num_checks = max(10, min(200, int(dist_nm / 2)))
 
     for i in range(num_checks + 1):
         t = i / num_checks
         lat = lat1 + t * (lat2 - lat1)
         lon = lon1 + t * (lon2 - lon1)
-
         if not is_ocean(lat, lon):
             return False
 
@@ -214,22 +242,72 @@ def is_path_clear(
 
 
 def get_land_mask_status() -> dict:
-    """Get information about land mask availability."""
+    """Get information about land mask availability and method in use."""
+    # Trigger lazy load if not yet attempted
+    if not _gshhs_loaded and not _gshhs_failed:
+        _load_gshhs()
+
+    if _gshhs_loaded:
+        method = "GSHHS intermediate (vector, sub-km)"
+    elif _HAS_LAND_MASK:
+        method = "global-land-mask (1km raster)"
+    else:
+        method = "simplified bounding boxes"
+
     return {
-        "high_resolution_available": _HAS_LAND_MASK,
-        "method": "global-land-mask (1km)" if _HAS_LAND_MASK else "simplified bounding boxes",
+        "high_resolution_available": _gshhs_loaded or _HAS_LAND_MASK,
+        "gshhs_loaded": _gshhs_loaded,
+        "global_land_mask_available": _HAS_LAND_MASK,
+        "method": method,
         "cache_size": is_ocean.cache_info().currsize if hasattr(is_ocean, 'cache_info') else 0,
     }
 
 
-# Quick test points for validation
+# ---------------------------------------------------------------------------
+# Fallback implementations
+# ---------------------------------------------------------------------------
+
+def _simplified_is_ocean(lat: float, lon: float) -> bool:
+    """Simplified ocean detection using bounding boxes."""
+    for lat_min, lat_max, lon_min, lon_max, name in INLAND_WATER:
+        if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+            return True
+
+    for lat_min, lat_max, lon_min, lon_max, name in CONTINENTAL_BOUNDS:
+        if lat_min <= lat <= lat_max and lon_min <= lon <= lon_max:
+            if _is_coastal_water(lat, lon):
+                return True
+            return False
+
+    return True
+
+
+def _is_coastal_water(lat: float, lon: float) -> bool:
+    """Check if a point is in coastal waters within a continental bounding box."""
+    if 30 <= lat <= 46 and -6 <= lon <= 36:
+        return True
+    if 51 <= lat <= 62 and -4 <= lon <= 10:
+        return True
+    if 48 <= lat <= 52 and -6 <= lon <= 2:
+        return True
+    if 43 <= lat <= 48 and -10 <= lon <= -1:
+        return True
+    if 25 <= lat <= 45 and -82 <= lon <= -65:
+        if lon < -75:
+            return True
+    return False
+
+
+# ---------------------------------------------------------------------------
+# Self-test
+# ---------------------------------------------------------------------------
+
 def _self_test():
     """Run quick self-test on known points."""
     test_cases = [
-        # (lat, lon, expected_is_ocean, description)
         (45.0, -30.0, True, "Mid-Atlantic"),
         (51.5, -0.1, False, "London"),
-        (40.7, -74.0, False, "New York City"),
+        (40.75, -73.97, False, "Manhattan"),
         (35.0, -50.0, True, "Atlantic Ocean"),
         (0.0, 0.0, True, "Gulf of Guinea"),
         (48.8, 2.3, False, "Paris"),

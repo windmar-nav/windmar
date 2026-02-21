@@ -17,6 +17,9 @@ Pillow==12.1.1
 # Land mask for ocean detection (1km resolution)
 global-land-mask==1.0.0
 
+# GSHHS coastline vector polygons (sub-km accuracy)
+shapely==2.1.2
+
 # HTTP requests for data download
 requests==2.32.5
 
