@@ -126,7 +126,24 @@ def _run_engine_with_fallback(
     try:
         return _call_engine()
     except ValueError as e:
-        if "no route found" not in str(e).lower():
+        msg = str(e).lower()
+        if "no route found" not in msg:
+            raise
+        # Only retry with relaxed limits when the failure looks weather-related
+        # (few nodes explored).  Topology failures (timeout, pq exhausted after
+        # many nodes) won't benefit from relaxed safety limits — re-raise fast.
+        explored = 0
+        import re
+        m = re.search(r"exploring (\d+) nodes", str(e))
+        if m:
+            explored = int(m.group(1))
+        # Heuristic: >10 000 nodes explored means the grid is reachable but the
+        # destination isn't — retrying with relaxed limits won't help.
+        if explored > 10_000:
+            logger.warning(
+                f"{engine_name}: routing failed after {explored} nodes "
+                "(topology / timeout), skipping safety retry"
+            )
             raise
         logger.warning(
             f"{engine_name}: normal routing failed ({e}), retrying with relaxed safety limits"

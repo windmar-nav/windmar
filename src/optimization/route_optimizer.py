@@ -686,16 +686,17 @@ class RouteOptimizer(BaseOptimizer):
         lon_min = min(lons) - margin_deg
         lon_max = max(lons) + margin_deg
 
-        # Expand bbox to include strait waypoints that lie within the
-        # lat/lon band of the route.  Without this, routes requiring detours
-        # around large landmasses (e.g. Rotterdam→Augusta via Gibraltar at
-        # -5.8°W) fail because the 5° margin doesn't reach far enough west.
+        # Expand bbox to include nearby strait waypoints so detour paths
+        # (e.g. Rotterdam→Augusta via Gibraltar) are reachable.  Only include
+        # straits whose waypoints are close to the original bbox in BOTH
+        # dimensions — otherwise far-away straits (Bosporus, Messina) bloat
+        # the grid for routes that don't need them.
         from src.data.strait_waypoints import STRAITS
+        expand_margin = margin_deg  # how far outside the bbox a strait can be
         for strait in STRAITS:
             for wlat, wlon in strait.waypoints:
-                # Include strait waypoint if its latitude falls within the
-                # route's latitude band (with margin already applied)
-                if lat_min <= wlat <= lat_max:
+                if (lat_min - expand_margin <= wlat <= lat_max + expand_margin
+                        and lon_min - expand_margin <= wlon <= lon_max + expand_margin):
                     lon_min = min(lon_min, wlon - 1.0)
                     lon_max = max(lon_max, wlon + 1.0)
                     lat_min = min(lat_min, wlat - 1.0)

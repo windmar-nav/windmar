@@ -43,6 +43,8 @@ interface AnalysisPanelProps {
   // Phase 3: Variable resolution + Pareto
   variableResolution: boolean;
   onVariableResolutionChange: (v: boolean) => void;
+  enableVisir: boolean;
+  onEnableVisirChange: (v: boolean) => void;
   paretoFront: ParetoSolution[] | null;
   isRunningPareto: boolean;
   onRunPareto: () => void;
@@ -74,6 +76,8 @@ export default function AnalysisPanel({
   displayedAnalysis,
   variableResolution,
   onVariableResolutionChange,
+  enableVisir,
+  onEnableVisirChange,
   paretoFront,
   isRunningPareto,
   onRunPareto,
@@ -326,6 +330,18 @@ export default function AnalysisPanel({
               <span>Variable resolution grid</span>
               <span className="ml-auto text-[9px] text-gray-600" title="Fine 0.1° nearshore, coarse 0.5° ocean">
                 0.1°/0.5°
+              </span>
+            </label>
+            <label className="flex items-center gap-2 px-2 py-1.5 rounded bg-white/5 text-xs text-gray-400 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={enableVisir}
+                onChange={(e) => onEnableVisirChange(e.target.checked)}
+                className="accent-ocean-500"
+              />
+              <span>VISIR engine</span>
+              <span className="ml-auto text-[9px] text-gray-600" title="Dijkstra time-expanded graph — slower, may timeout on long routes">
+                optional
               </span>
             </label>
 

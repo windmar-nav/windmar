@@ -317,12 +317,15 @@ class VisirOptimizer(BaseOptimizer):
         lon_min = min(origin[1], destination[1]) - margin_deg
         lon_max = max(origin[1], destination[1]) + margin_deg
 
-        # Expand bbox to include strait waypoints within the route's lat band
-        # so the grid covers detour paths (e.g. around Iberia via Gibraltar).
+        # Expand bbox to include nearby strait waypoints so detour paths
+        # (e.g. around Iberia via Gibraltar) are reachable.  Only include
+        # straits close to the original bbox in BOTH dimensions.
         from src.data.strait_waypoints import STRAITS
+        expand_margin = margin_deg
         for strait in STRAITS:
             for wlat, wlon in strait.waypoints:
-                if lat_min <= wlat <= lat_max:
+                if (lat_min - expand_margin <= wlat <= lat_max + expand_margin
+                        and lon_min - expand_margin <= wlon <= lon_max + expand_margin):
                     lon_min = min(lon_min, wlon - 1.0)
                     lon_max = max(lon_max, wlon + 1.0)
                     lat_min = min(lat_min, wlat - 1.0)
@@ -473,6 +476,8 @@ class VisirOptimizer(BaseOptimizer):
         h0 = heuristic(start_rc)
         pq: List[_QueueEntry] = [_QueueEntry(cost=h0, node=start_node)]
         explored = 0
+        wall_start = _time.time()
+        wall_timeout = 60.0  # seconds — fail fast instead of grinding for minutes
 
         # Cache zone penalties per spatial edge (row,col)->(row,col) to avoid
         # redundant polygon intersection tests across time steps
@@ -490,6 +495,10 @@ class VisirOptimizer(BaseOptimizer):
                 continue
 
             explored += 1
+
+            # Wall-clock timeout to avoid blocking the API for minutes
+            if explored % 5000 == 0 and (_time.time() - wall_start) > wall_timeout:
+                break
 
             # Reached destination?
             if cur.row == end_rc[0] and cur.col == end_rc[1]:
@@ -578,7 +587,13 @@ class VisirOptimizer(BaseOptimizer):
                     f_score = tentative_g + heuristic(nb_rc)
                     heapq.heappush(pq, _QueueEntry(cost=f_score, node=nb_node, speed_kts=chosen_speed))
 
-        reason = "max_nodes" if explored >= max_nodes else "pq_empty"
+        elapsed = _time.time() - wall_start
+        if elapsed > wall_timeout:
+            reason = "timeout"
+        elif explored >= max_nodes:
+            reason = "max_nodes"
+        else:
+            reason = "pq_empty"
         logger.warning(f"VISIR search failed: reason={reason}, explored={explored}, "
                        f"pq_size={len(pq)}, cost_so_far_size={len(cost_so_far)}, "
                        f"max_time_steps={max_time_steps}")

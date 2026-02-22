@@ -37,6 +37,7 @@ export default function HomePage() {
   const [isOptimizing, setIsOptimizing] = useState(false);
   const [optimizationAttempted, setOptimizationAttempted] = useState(false);
   const [variableResolution, setVariableResolution] = useState(false);
+  const [enableVisir, setEnableVisir] = useState(false);
   const [paretoFront, setParetoFront] = useState<ParetoSolution[] | null>(null);
   const [isRunningPareto, setIsRunningPareto] = useState(false);
 
@@ -626,9 +627,11 @@ export default function HomePage() {
       { engine: 'astar', weight: 0.0, key: 'astar_fuel' },
       { engine: 'astar', weight: 0.5, key: 'astar_balanced' },
       { engine: 'astar', weight: 1.0, key: 'astar_safety' },
-      { engine: 'visir', weight: 0.0, key: 'visir_fuel' },
-      { engine: 'visir', weight: 0.5, key: 'visir_balanced' },
-      { engine: 'visir', weight: 1.0, key: 'visir_safety' },
+      ...(enableVisir ? [
+        { engine: 'visir' as const, weight: 0.0, key: 'visir_fuel' as OptimizedRouteKey },
+        { engine: 'visir' as const, weight: 0.5, key: 'visir_balanced' as OptimizedRouteKey },
+        { engine: 'visir' as const, weight: 1.0, key: 'visir_safety' as OptimizedRouteKey },
+      ] : []),
     ];
 
     try {
@@ -933,6 +936,8 @@ export default function HomePage() {
                 displayedAnalysis={displayedAnalysis}
                 variableResolution={variableResolution}
                 onVariableResolutionChange={setVariableResolution}
+                enableVisir={enableVisir}
+                onEnableVisirChange={setEnableVisir}
                 paretoFront={paretoFront}
                 isRunningPareto={isRunningPareto}
                 onRunPareto={handlePareto}
