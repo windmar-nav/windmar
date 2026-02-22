@@ -72,6 +72,7 @@ export default function ParetoChart({ solutions }: ParetoChartProps) {
               domain={timeDomain}
               name="Time"
               tick={{ fontSize: 9, fill: '#94a3b8' }}
+              tickFormatter={(v: number) => v.toFixed(1)}
               label={{ value: 'Time (h)', position: 'insideBottom', offset: -15, style: { fontSize: 10, fill: '#94a3b8' } }}
               stroke="rgba(255,255,255,0.1)"
             />
@@ -81,6 +82,7 @@ export default function ParetoChart({ solutions }: ParetoChartProps) {
               domain={fuelDomain}
               name="Fuel"
               tick={{ fontSize: 9, fill: '#94a3b8' }}
+              tickFormatter={(v: number) => v.toFixed(1)}
               label={{ value: 'Fuel (MT)', angle: -90, position: 'insideLeft', offset: 10, style: { fontSize: 10, fill: '#94a3b8' } }}
               stroke="rgba(255,255,255,0.1)"
             />

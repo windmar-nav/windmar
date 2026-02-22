@@ -413,7 +413,11 @@ class RouteOptimizer(BaseOptimizer):
         start_time = time.time()
 
         if lambda_values is None:
-            lambda_values = [0.0, 0.1, 0.2, 0.3, 0.5, 0.7, 1.0]
+            # Fuel scales ~speed³, so low lambdas always favour slow speeds.
+            # Dense mid-range (1–5) fills the gap between slow-steaming and
+            # service speed; high values (10–20) ensure at least one solution
+            # near the user's calm_speed_kts.
+            lambda_values = [0.0, 0.3, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0, 20.0]
 
         self.weather_provider = weather_provider
 
@@ -481,9 +485,26 @@ class RouteOptimizer(BaseOptimizer):
         # Filter to Pareto front
         pareto = self._pareto_filter(raw_solutions)
 
-        # Mark default selection (lambda closest to 0.3)
+        # Mark default selection: closest to baseline voyage in normalised fuel-time space.
+        # Falls back to highest-lambda solution (nearest service speed) if no baseline.
         if pareto:
-            default_idx = min(range(len(pareto)), key=lambda i: abs(pareto[i].lambda_value - 0.3))
+            ref_fuel = baseline_fuel_mt
+            ref_time = baseline_time_hours
+            if ref_fuel and ref_time:
+                fuel_vals = [p.fuel_mt for p in pareto]
+                time_vals = [p.time_hours for p in pareto]
+                fuel_range = max(fuel_vals) - min(fuel_vals) or 1.0
+                time_range = max(time_vals) - min(time_vals) or 1.0
+                default_idx = min(
+                    range(len(pareto)),
+                    key=lambda i: (
+                        ((pareto[i].fuel_mt - ref_fuel) / fuel_range) ** 2
+                        + ((pareto[i].time_hours - ref_time) / time_range) ** 2
+                    ),
+                )
+            else:
+                # No baseline — pick highest lambda (closest to service speed)
+                default_idx = max(range(len(pareto)), key=lambda i: pareto[i].lambda_value)
             pareto[default_idx].is_selected = True
 
         # Use selected solution for top-level fields
