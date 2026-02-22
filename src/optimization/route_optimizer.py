@@ -514,8 +514,8 @@ class RouteOptimizer(BaseOptimizer):
         if selected is None:
             raise ValueError("No valid Pareto solutions found")
 
-        # Restore lambda for stats calculation
-        self._lambda_time = base_fuel_rate * self.TIME_PENALTY_WEIGHT
+        # Use selected point's lambda so reported fuel matches Pareto chart
+        self._lambda_time = base_fuel_rate * selected.lambda_value
 
         # Calculate direct route for comparison
         direct_wps = list(route_waypoints) if route_waypoints and len(route_waypoints) > 2 else [origin, destination]
