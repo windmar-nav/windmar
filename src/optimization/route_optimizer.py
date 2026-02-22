@@ -160,6 +160,7 @@ class RouteOptimizer(BaseOptimizer):
         self.variable_speed = variable_speed
         self.variable_resolution = variable_resolution
         self.safety_weight: float = 0.0  # 0=pure fuel, 1=full safety penalties
+        self.skip_hard_limits: bool = False  # When True, relax wave/wind hard limits
 
         # Safety constraints (seakeeping model)
         self.safety_constraints = safety_constraints or create_default_safety_constraints(
@@ -685,6 +686,21 @@ class RouteOptimizer(BaseOptimizer):
         lon_min = min(lons) - margin_deg
         lon_max = max(lons) + margin_deg
 
+        # Expand bbox to include strait waypoints that lie within the
+        # lat/lon band of the route.  Without this, routes requiring detours
+        # around large landmasses (e.g. Rotterdam→Augusta via Gibraltar at
+        # -5.8°W) fail because the 5° margin doesn't reach far enough west.
+        from src.data.strait_waypoints import STRAITS
+        for strait in STRAITS:
+            for wlat, wlon in strait.waypoints:
+                # Include strait waypoint if its latitude falls within the
+                # route's latitude band (with margin already applied)
+                if lat_min <= wlat <= lat_max:
+                    lon_min = min(lon_min, wlon - 1.0)
+                    lon_max = max(lon_max, wlon + 1.0)
+                    lat_min = min(lat_min, wlat - 1.0)
+                    lat_max = max(lat_max, wlat + 1.0)
+
         # Clamp to valid ranges
         lat_min = max(lat_min, -85)
         lat_max = min(lat_max, 85)
@@ -917,6 +933,14 @@ class RouteOptimizer(BaseOptimizer):
                         if to_k not in neighbor_set:
                             neighbor_keys.append(to_k)
 
+            # Compute previous bearing once per expansion (incoming heading to current node)
+            prev_bearing = None
+            if current.parent is not None:
+                prev_bearing = self.bearing(
+                    current.parent.cell.lat, current.parent.cell.lon,
+                    current.cell.lat, current.cell.lon,
+                )
+
             for neighbor_key in neighbor_keys:
                 if neighbor_key not in grid:
                     continue
@@ -939,6 +963,7 @@ class RouteOptimizer(BaseOptimizer):
                     departure_time=current.arrival_time,
                     calm_speed_kts=calm_speed_kts,
                     is_laden=is_laden,
+                    prev_bearing=prev_bearing,
                 )
 
                 if move_cost == float('inf'):
@@ -992,6 +1017,28 @@ class RouteOptimizer(BaseOptimizer):
             time_heuristic = distance_nm / (service_speed + 2.0)
             return fuel_heuristic + self._lambda_time * time_heuristic
 
+    # Course-change penalty: penalises heading changes between consecutive
+    # edges to produce smoother, more realistic tracks.  The penalty is
+    # additive (fuel-equivalent cost in MT) scaled by the turn angle.
+    #   0-15°  → 0        (straight or near-straight — no penalty)
+    #  15-45°  → linear ramp 0 → 0.02 MT
+    #  45-90°  → linear ramp 0.02 → 0.08 MT
+    #  90-180° → linear ramp 0.08 → 0.20 MT
+    # Values calibrated so a 90° turn ≈ 5% of a typical cell transit cost.
+    COURSE_CHANGE_PENALTY_MT = 0.20   # Max penalty at 180° reversal
+
+    @staticmethod
+    def _course_change_penalty(prev_bearing: float, cur_bearing: float) -> float:
+        """Return additive fuel-equivalent penalty (MT) for a heading change."""
+        turn = abs(((cur_bearing - prev_bearing) + 180) % 360 - 180)
+        if turn <= 15.0:
+            return 0.0
+        if turn <= 45.0:
+            return 0.02 * (turn - 15.0) / 30.0
+        if turn <= 90.0:
+            return 0.02 + 0.06 * (turn - 45.0) / 45.0
+        return 0.08 + 0.12 * (turn - 90.0) / 90.0
+
     def _calculate_move_cost(
         self,
         from_cell: GridCell,
@@ -999,9 +1046,14 @@ class RouteOptimizer(BaseOptimizer):
         departure_time: datetime,
         calm_speed_kts: float,
         is_laden: bool,
+        prev_bearing: Optional[float] = None,
     ) -> Tuple[float, float]:
         """
         Calculate cost to move from one cell to another.
+
+        Args:
+            prev_bearing: Heading of the previous edge (degrees). If provided,
+                          a course-change penalty is added for sharp turns.
 
         Returns:
             Tuple of (cost, travel_time_hours)
@@ -1094,6 +1146,7 @@ class RouteOptimizer(BaseOptimizer):
                 speed_kts=calm_speed_kts,
                 is_laden=is_laden,
                 wind_speed_kts=weather.wind_speed_ms * 1.9438,
+                skip_hard_limits=self.skip_hard_limits,
             )
             if safety_factor == float('inf'):
                 return float('inf'), float('inf')  # Dangerous - forbidden
@@ -1119,15 +1172,20 @@ class RouteOptimizer(BaseOptimizer):
         # Combined cost factor (includes ice caution zone penalty)
         total_factor = dampened_sf * zone_factor * ice_cost_factor
 
+        # Course-change penalty (additive, fuel-equivalent MT)
+        turn_penalty = 0.0
+        if prev_bearing is not None:
+            turn_penalty = self._course_change_penalty(prev_bearing, bearing)
+
         # Return cost based on optimization target
         if self.optimization_target == "time":
-            return travel_time_hours * total_factor, travel_time_hours
+            return travel_time_hours * total_factor + turn_penalty, travel_time_hours
         else:
             # Time-constrained fuel minimization:
             # fuel cost + time penalty prevents detours that save marginal fuel
             fuel_cost = result['fuel_mt'] * total_factor
             time_penalty = self._lambda_time * travel_time_hours
-            return fuel_cost + time_penalty, travel_time_hours
+            return fuel_cost + time_penalty + turn_penalty, travel_time_hours
 
     def _find_optimal_speed(
         self,
@@ -1228,6 +1286,7 @@ class RouteOptimizer(BaseOptimizer):
                     speed_kts=speed_kts,
                     is_laden=is_laden,
                     wind_speed_kts=weather.wind_speed_ms * 1.9438,
+                    skip_hard_limits=self.skip_hard_limits,
                 )
                 if safety_factor == float('inf'):
                     continue  # Skip dangerous speeds

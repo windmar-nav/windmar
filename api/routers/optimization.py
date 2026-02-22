@@ -63,6 +63,86 @@ async def optimize_route(request: OptimizationRequest):
     return await asyncio.to_thread(_optimize_route_sync, request)
 
 
+def _run_engine_with_fallback(
+    optimizer,
+    engine_name: str,
+    request: "OptimizationRequest",
+    departure: "datetime",
+    wx_provider,
+    route_wps,
+) -> "OptimizedRoute":
+    """
+    Run the optimization engine, retrying with relaxed safety limits on failure.
+
+    First attempt uses normal hard limits.  If a ValueError containing
+    "no route found" is raised (weather blocks departure), retry with
+    ``skip_hard_limits=True``.  A successful retry sets
+    ``result.safety_degraded = True`` so the frontend can warn the user.
+    """
+    from src.optimization.base_optimizer import OptimizedRoute  # noqa: F811
+
+    def _call_engine():
+        if engine_name == "visir":
+            return optimizer.optimize_route(
+                origin=(request.origin.lat, request.origin.lon),
+                destination=(request.destination.lat, request.destination.lon),
+                departure_time=departure,
+                calm_speed_kts=request.calm_speed_kts,
+                is_laden=request.is_laden,
+                weather_provider=wx_provider,
+                max_time_factor=request.max_time_factor,
+            )
+        elif request.pareto:
+            return optimizer.optimize_route_pareto(
+                origin=(request.origin.lat, request.origin.lon),
+                destination=(request.destination.lat, request.destination.lon),
+                departure_time=departure,
+                calm_speed_kts=request.calm_speed_kts,
+                is_laden=request.is_laden,
+                weather_provider=wx_provider,
+                max_time_factor=request.max_time_factor,
+                baseline_time_hours=request.baseline_time_hours,
+                baseline_fuel_mt=request.baseline_fuel_mt,
+                baseline_distance_nm=request.baseline_distance_nm,
+                route_waypoints=route_wps,
+            )
+        else:
+            return optimizer.optimize_route(
+                origin=(request.origin.lat, request.origin.lon),
+                destination=(request.destination.lat, request.destination.lon),
+                departure_time=departure,
+                calm_speed_kts=request.calm_speed_kts,
+                is_laden=request.is_laden,
+                weather_provider=wx_provider,
+                max_time_factor=request.max_time_factor,
+                baseline_time_hours=request.baseline_time_hours,
+                baseline_fuel_mt=request.baseline_fuel_mt,
+                baseline_distance_nm=request.baseline_distance_nm,
+                route_waypoints=route_wps,
+            )
+
+    # First attempt: normal safety limits
+    optimizer.skip_hard_limits = False
+    try:
+        return _call_engine()
+    except ValueError as e:
+        if "no route found" not in str(e).lower():
+            raise
+        logger.warning(
+            f"{engine_name}: normal routing failed ({e}), retrying with relaxed safety limits"
+        )
+
+    # Retry: relax wave/wind hard limits
+    optimizer.skip_hard_limits = True
+    try:
+        result = _call_engine()
+        result.safety_degraded = True
+        logger.info(f"{engine_name}: fallback route found with relaxed safety limits")
+        return result
+    finally:
+        optimizer.skip_hard_limits = False
+
+
 def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationResponse":
     """Synchronous route optimization logic (runs in a thread pool)."""
     _vs = get_vessel_state()
@@ -181,45 +261,11 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
         if request.route_waypoints and len(request.route_waypoints) > 2:
             route_wps = [(wp.lat, wp.lon) for wp in request.route_waypoints]
 
-        # A* engine accepts extra dev params; VISIR uses base interface
-        if engine_name == "visir":
-            result = active_optimizer.optimize_route(
-                origin=(request.origin.lat, request.origin.lon),
-                destination=(request.destination.lat, request.destination.lon),
-                departure_time=departure,
-                calm_speed_kts=request.calm_speed_kts,
-                is_laden=request.is_laden,
-                weather_provider=wx_provider,
-                max_time_factor=request.max_time_factor,
-            )
-        elif request.pareto:
-            result = active_optimizer.optimize_route_pareto(
-                origin=(request.origin.lat, request.origin.lon),
-                destination=(request.destination.lat, request.destination.lon),
-                departure_time=departure,
-                calm_speed_kts=request.calm_speed_kts,
-                is_laden=request.is_laden,
-                weather_provider=wx_provider,
-                max_time_factor=request.max_time_factor,
-                baseline_time_hours=request.baseline_time_hours,
-                baseline_fuel_mt=request.baseline_fuel_mt,
-                baseline_distance_nm=request.baseline_distance_nm,
-                route_waypoints=route_wps,
-            )
-        else:
-            result = active_optimizer.optimize_route(
-                origin=(request.origin.lat, request.origin.lon),
-                destination=(request.destination.lat, request.destination.lon),
-                departure_time=departure,
-                calm_speed_kts=request.calm_speed_kts,
-                is_laden=request.is_laden,
-                weather_provider=wx_provider,
-                max_time_factor=request.max_time_factor,
-                baseline_time_hours=request.baseline_time_hours,
-                baseline_fuel_mt=request.baseline_fuel_mt,
-                baseline_distance_nm=request.baseline_distance_nm,
-                route_waypoints=route_wps,
-            )
+        # ── Run engine with safety-fallback retry ──────────────────
+        result = _run_engine_with_fallback(
+            active_optimizer, engine_name, request, departure,
+            wx_provider, route_wps,
+        )
 
         # Format response
         waypoints = [Position(lat=wp[0], lon=wp[1]) for wp in result.waypoints]
@@ -347,6 +393,7 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
             baseline_fuel_mt=round(result.baseline_fuel_mt, 2) if result.baseline_fuel_mt else None,
             baseline_time_hours=round(result.baseline_time_hours, 2) if result.baseline_time_hours else None,
             baseline_distance_nm=round(result.baseline_distance_nm, 1) if result.baseline_distance_nm else None,
+            safety_degraded=result.safety_degraded,
             weather_provenance=provenance_models,
             temporal_weather=used_temporal,
             optimization_target=request.optimization_target,
@@ -356,7 +403,14 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
         )
 
     except ValueError as e:
-        raise HTTPException(status_code=400, detail=str(e))
+        raise HTTPException(status_code=422, detail={
+            "error": "routing_failed",
+            "message": str(e),
+            "diagnostics": {
+                "engine": engine_name,
+                "reason": "weather_blocked" if "no route found" in str(e).lower() else "grid_error",
+            },
+        })
     except Exception as e:
         logger.error(f"Route optimization failed: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Optimization failed: {str(e)}")

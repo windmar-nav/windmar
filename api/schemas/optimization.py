@@ -142,6 +142,9 @@ class OptimizationResponse(BaseModel):
     # Pareto front (populated when pareto=True)
     pareto_front: Optional[List[ParetoSolutionModel]] = None
 
+    # Safety fallback: True when hard limits were relaxed to find a route
+    safety_degraded: bool = False
+
     # Weather provenance
     weather_provenance: Optional[List[WeatherProvenanceModel]] = None
     temporal_weather: bool = False  # True if time-varying weather was used

@@ -920,6 +920,7 @@ class SafetyConstraints:
         speed_kts: float,
         is_laden: bool,
         wind_speed_kts: float = 0.0,
+        skip_hard_limits: bool = False,
     ) -> float:
         """
         Get cost factor for route optimization.
@@ -929,12 +930,17 @@ class SafetyConstraints:
         Hard avoidance limits are checked first (wave height, wind speed)
         before computing motion-based penalties. This prevents the optimizer
         from routing through extreme conditions regardless of vessel heading.
+
+        When *skip_hard_limits* is True, wave/wind hard limits return 10.0
+        (heavy penalty) instead of inf, allowing the optimizer to route
+        through extreme weather as a last resort.  Motion exceedance >1.5x
+        remains inf (structural vessel limit, never skipped).
         """
-        # ── Hard avoidance: instant rejection ──
+        # ── Hard avoidance: instant rejection (or heavy penalty) ──
         if wave_height_m >= self.limits.max_wave_height_m:
-            return float('inf')
+            return 10.0 if skip_hard_limits else float('inf')
         if wind_speed_kts >= self.limits.max_wind_speed_kts:
-            return float('inf')
+            return 10.0 if skip_hard_limits else float('inf')
 
         # ── Motion-based graduated penalties ──
         assessment = self.assess_safety(

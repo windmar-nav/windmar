@@ -88,6 +88,9 @@ class OptimizedRoute:
     baseline_time_hours: float = 0.0
     baseline_distance_nm: float = 0.0
 
+    # Safety fallback: True when hard limits were relaxed to find a route
+    safety_degraded: bool = False
+
 
 # -------------------------------------------------------------------
 # Abstract optimizer

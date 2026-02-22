@@ -704,6 +704,8 @@ export interface OptimizationResponse {
   optimization_time_ms: number;
   // Engine identifier
   engine?: string;
+  // Safety fallback: true when hard limits were relaxed to find route
+  safety_degraded?: boolean;
 }
 
 // Dual-engine types

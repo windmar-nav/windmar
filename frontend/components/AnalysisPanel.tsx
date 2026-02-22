@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from 'react';
 import {
-  Navigation, Clock, Fuel, Ship, Loader2, Trash2,
+  Navigation, Clock, Fuel, Ship, Loader2, Trash2, AlertTriangle,
   Upload, Play, Zap, Dice5, ExternalLink, Eye, EyeOff,
   PenLine, MapPin, Download, FolderOpen, Check, X, CheckCircle, Grid3X3, TrendingUp,
 } from 'lucide-react';
@@ -32,6 +32,7 @@ interface AnalysisPanelProps {
   isOptimizing: boolean;
   onOptimize: () => void;
   allResults: AllOptimizationResults;
+  optimizationAttempted?: boolean;
   onApplyRoute: (key: OptimizedRouteKey) => void;
   onDismissRoutes: () => void;
   routeVisibility: RouteVisibility;
@@ -63,6 +64,7 @@ export default function AnalysisPanel({
   isOptimizing,
   onOptimize,
   allResults,
+  optimizationAttempted,
   onApplyRoute,
   onDismissRoutes,
   routeVisibility,
@@ -408,6 +410,11 @@ export default function AnalysisPanel({
                                   {fuelDeltaPct > 0 ? '+' : ''}{fuelDeltaPct.toFixed(1)}%
                                 </span>
                               )}
+                              {r.safety_degraded && (
+                                <span className="text-[10px] text-amber-400 flex items-center gap-0.5" title="Safety limits relaxed — verify conditions before sailing">
+                                  <AlertTriangle className="w-3 h-3" />
+                                </span>
+                              )}
                               <button
                                 onClick={() => onApplyRoute(key)}
                                 className="text-primary-400 hover:text-primary-300"
@@ -438,6 +445,14 @@ export default function AnalysisPanel({
                 </div>
               );
             })()}
+
+            {/* ── All engines failed message ── */}
+            {!hasOptimized && !isOptimizing && optimizationAttempted && (
+              <div className="px-3 py-2 rounded bg-amber-900/20 border border-amber-700/30 text-xs text-amber-300 flex items-start gap-2">
+                <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
+                <span>No routes found — severe weather may be blocking departure. Try a different departure time or date.</span>
+              </div>
+            )}
 
             {/* ── Pareto Analysis ── */}
             {hasRoute && (

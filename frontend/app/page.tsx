@@ -35,6 +35,7 @@ export default function HomePage() {
   const [isEditing, setIsEditing] = useState(true);
   const [isCalculating, setIsCalculating] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
+  const [optimizationAttempted, setOptimizationAttempted] = useState(false);
   const [variableResolution, setVariableResolution] = useState(false);
   const [paretoFront, setParetoFront] = useState<ParetoSolution[] | null>(null);
   const [isRunningPareto, setIsRunningPareto] = useState(false);
@@ -543,6 +544,7 @@ export default function HomePage() {
     setRouteName('Custom Route');
     setDisplayedAnalysisId(null);
     setAllResults(EMPTY_ALL_RESULTS);
+    setOptimizationAttempted(false);
   };
 
   // Get displayed analysis for route indicator and optimization baseline
@@ -597,6 +599,7 @@ export default function HomePage() {
     }
 
     setIsOptimizing(true);
+    setOptimizationAttempted(true);
     setAllResults(EMPTY_ALL_RESULTS);
 
     const t0 = performance.now();
@@ -640,8 +643,12 @@ export default function HomePage() {
         try {
           const r = await apiClient.optimizeRoute({ ...baseRequest, engine, safety_weight: weight });
           results[key] = r as OptimizationResponse | null;
-        } catch {
+        } catch (err: unknown) {
           results[key] = null;
+          // Extract structured error diagnostics for debugging
+          const detail = (err as { response?: { data?: { detail?: { message?: string } } } })?.response?.data?.detail;
+          const msg = typeof detail === 'object' && detail?.message ? detail.message : String(err);
+          debugLog('warn', 'ROUTE', `${key} failed: ${msg}`);
         }
         // Progressive update — show each result as it arrives
         setAllResults({ ...results });
@@ -914,6 +921,7 @@ export default function HomePage() {
                 isOptimizing={isOptimizing}
                 onOptimize={handleOptimize}
                 allResults={allResults}
+                optimizationAttempted={optimizationAttempted}
                 onApplyRoute={applyOptimizedRoute}
                 onDismissRoutes={dismissOptimizedRoute}
                 routeVisibility={routeVisibility}
