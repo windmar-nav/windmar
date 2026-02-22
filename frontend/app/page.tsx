@@ -616,6 +616,7 @@ export default function HomePage() {
       baseline_time_hours: displayedAnalysis?.result.total_time_hours,
       baseline_distance_nm: displayedAnalysis?.result.total_distance_nm,
       variable_resolution: variableResolution,
+      enforced_zone_types: visibleZoneTypes.length > 0 ? visibleZoneTypes : [],
     };
 
     const combos: { engine: 'astar' | 'visir'; weight: number; key: OptimizedRouteKey }[] = [
@@ -683,6 +684,7 @@ export default function HomePage() {
         baseline_time_hours: displayedAnalysis?.result.total_time_hours,
         baseline_distance_nm: displayedAnalysis?.result.total_distance_nm,
         variable_resolution: variableResolution,
+        enforced_zone_types: visibleZoneTypes.length > 0 ? visibleZoneTypes : [],
         engine: 'astar',
         pareto: true,
       });

@@ -34,8 +34,8 @@ needs_gshhs = pytest.mark.skipif(
 class TestStraitDataIntegrity:
     """Verify strait definitions are well-formed."""
 
-    def test_eight_straits_defined(self):
-        assert len(STRAITS) == 8
+    def test_nine_straits_defined(self):
+        assert len(STRAITS) == 9  # Gibraltar split into EB/WB
 
     def test_unique_codes(self):
         codes = [s.code for s in STRAITS]
@@ -48,8 +48,10 @@ class TestStraitDataIntegrity:
             )
 
     def test_strait_by_code_lookup(self):
-        assert "GIBR" in STRAIT_BY_CODE
-        assert STRAIT_BY_CODE["GIBR"].name == "Strait of Gibraltar"
+        assert "GIBR_EB" in STRAIT_BY_CODE
+        assert "GIBR_WB" in STRAIT_BY_CODE
+        assert "Eastbound" in STRAIT_BY_CODE["GIBR_EB"].name
+        assert "Westbound" in STRAIT_BY_CODE["GIBR_WB"].name
 
     def test_all_codes_in_lookup(self):
         for strait in STRAITS:
@@ -117,10 +119,11 @@ class TestConsecutivePathClear:
 class TestNearbyStraits:
 
     def test_gibraltar_nearby(self):
-        """Gibraltar should be found near (36, -5)."""
+        """Gibraltar EB/WB should be found near (36, -5)."""
         nearby = get_nearby_straits(36.0, -5.0, threshold_deg=2.0)
         codes = [s.code for s in nearby]
-        assert "GIBR" in codes
+        assert "GIBR_EB" in codes
+        assert "GIBR_WB" in codes
 
     def test_no_straits_mid_pacific(self):
         """No straits near mid-Pacific."""

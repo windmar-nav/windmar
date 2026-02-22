@@ -162,7 +162,12 @@ class ZoneChecker:
 
     def __init__(self):
         self.zones: Dict[str, Zone] = {}
+        self._enforced_types: Optional[set] = None  # None = enforce all
         self._load_builtin_zones()
+
+    def set_enforced_types(self, types: Optional[List[str]]) -> None:
+        """Set which zone types to enforce. None = all, [] = none."""
+        self._enforced_types = set(types) if types is not None else None
 
     def _load_builtin_zones(self):
         """Load hardcoded regulatory zones."""
@@ -408,9 +413,11 @@ class ZoneChecker:
         return True
 
     def get_zones_at_point(self, lat: float, lon: float) -> List[Zone]:
-        """Get all zones containing a point."""
+        """Get all zones containing a point (filtered by enforced types)."""
         result = []
         for zone in self.zones.values():
+            if self._enforced_types is not None and zone.properties.zone_type.value not in self._enforced_types:
+                continue
             if self.point_in_zone(lat, lon, zone):
                 result.append(zone)
         return result
@@ -483,9 +490,9 @@ class ZoneChecker:
             penalty *= zone.properties.penalty_factor
             warnings.append(f"Transiting {zone.properties.name} (+{(zone.properties.penalty_factor-1)*100:.0f}% cost)")
 
-        # Mandatory zones (TSS) — incentivize routing through them
+        # Mandatory zones (TSS) — strongly incentivize routing through them
         for zone in zones['mandatory']:
-            penalty *= 0.7  # 30% cost reduction for transiting mandatory zones
+            penalty *= 0.4  # 60% cost reduction for transiting mandatory zones
             warnings.append(f"Transiting mandatory zone: {zone.properties.name}")
 
         # Add advisory info

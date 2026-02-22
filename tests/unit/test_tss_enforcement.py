@@ -23,6 +23,7 @@ def zone_checker():
     """Create a clean ZoneChecker with only test zones (no builtins)."""
     checker = ZoneChecker.__new__(ZoneChecker)
     checker.zones = {}
+    checker._enforced_types = None  # enforce all types
 
     # Test mandatory zone (isolated area in South Pacific to avoid builtin overlap)
     checker.add_zone(Zone(
@@ -111,8 +112,8 @@ class TestMandatoryZoneIncentive:
         assert any("exclusion" in w.lower() for w in warnings)
 
     def test_mandatory_incentive_value(self, zone_checker):
-        """Mandatory zone cost reduction should be 0.7 (30% incentive)."""
+        """Mandatory zone cost reduction should be 0.4 (60% incentive)."""
         penalty, _ = zone_checker.get_path_penalty(
             -20.5, 170.2, -20.5, 170.8
         )
-        assert abs(penalty - 0.7) < 0.01, f"Expected ~0.7, got {penalty}"
+        assert abs(penalty - 0.4) < 0.01, f"Expected ~0.4, got {penalty}"

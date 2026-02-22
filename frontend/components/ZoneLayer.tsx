@@ -69,6 +69,29 @@ export default function ZoneLayer({ visible = true, visibleTypes, onZoneClick }:
     const interaction = props.interaction as ZoneInteraction;
     const zoneType = props.zone_type as ZoneType;
 
+    // TSS zones: magenta styling per IMO convention
+    if (zoneType === 'tss') {
+      const MAGENTA = '#d946ef';
+      if (interaction === 'exclusion') {
+        // Separation zone: solid magenta fill
+        return {
+          fillColor: MAGENTA,
+          fillOpacity: 0.35,
+          color: MAGENTA,
+          weight: 2,
+          dashArray: undefined,
+        };
+      }
+      // Traffic lanes: dotted magenta limits, transparent fill
+      return {
+        fillColor: MAGENTA,
+        fillOpacity: 0.06,
+        color: MAGENTA,
+        weight: 2,
+        dashArray: '3, 8',
+      };
+    }
+
     // Use interaction color for stroke, type color for fill
     const strokeColor = ZONE_COLORS[interaction] || '#6b7280';
     const fillColor = ZONE_TYPE_COLORS[zoneType] || ZONE_COLORS[interaction] || '#6b7280';
@@ -94,7 +117,7 @@ export default function ZoneLayer({ visible = true, visibleTypes, onZoneClick }:
         break;
       case 'advisory':
         fillOpacity = 0.1;
-        weight: 1;
+        weight = 1;
         dashArray = '2, 4';
         break;
     }

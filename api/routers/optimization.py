@@ -86,6 +86,13 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
     # Variable resolution: two-tier grid (A* only, ignored by VISIR)
     if engine_name != "visir":
         active_optimizer.variable_resolution = request.variable_resolution
+    # Zone enforcement: filter by visible zone types (None = all, [] = none)
+    if request.enforced_zone_types is not None:
+        active_optimizer.enforce_zones = len(request.enforced_zone_types) > 0
+        active_optimizer.zone_checker.set_enforced_types(request.enforced_zone_types)
+    else:
+        active_optimizer.enforce_zones = True
+        active_optimizer.zone_checker.set_enforced_types(None)
 
     try:
         # ── Temporal weather provisioning (DB-first) ──────────────────

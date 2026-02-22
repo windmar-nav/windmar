@@ -609,6 +609,8 @@ export interface OptimizationRequest {
   pareto?: boolean;
   // Variable resolution: two-tier grid (0.5° ocean + 0.1° nearshore)
   variable_resolution?: boolean;
+  // Zone types to enforce during routing (mirrors map visibility)
+  enforced_zone_types?: string[];
 }
 
 export interface WeatherProvenance {

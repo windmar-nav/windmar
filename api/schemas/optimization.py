@@ -39,6 +39,8 @@ class OptimizationRequest(BaseModel):
     pareto: bool = Field(False, description="Return Pareto front of fuel/time trade-offs")
     # Variable resolution: when True, use two-tier grid (0.5° ocean + 0.1° nearshore)
     variable_resolution: bool = Field(False, description="Enable variable resolution grid (fine nearshore, coarse ocean)")
+    # Zone types to enforce during routing (empty list = no enforcement)
+    enforced_zone_types: Optional[List[str]] = Field(None, description="Zone types to enforce (e.g. ['tss','eca']). None = enforce all.")
 
 
 class OptimizationLegModel(BaseModel):

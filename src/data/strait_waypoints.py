@@ -30,22 +30,46 @@ class StraitDefinition:
 
 
 # ---------------------------------------------------------------------------
-# Strait definitions — 8 major commercial straits
+# Strait definitions — 9 entries (Gibraltar split into EB/WB for TSS compliance)
 # Waypoints verified against GSHHS intermediate resolution.
 # For narrow straits (Bosporus, Suez), approach waypoints in open water only.
 # ---------------------------------------------------------------------------
 STRAITS: List[StraitDefinition] = [
+    # Gibraltar TSS: two one-way straits aligned with IMO COLREG.2/Circ.66 lanes.
+    # Eastbound traffic uses south lane, westbound traffic uses north lane.
+    # Waypoints placed at lane centerlines (midway between sep zone edge and
+    # outer boundary) so every edge stays inside the mandatory zone.
     StraitDefinition(
-        name="Strait of Gibraltar",
-        code="GIBR",
+        name="Strait of Gibraltar — Eastbound",
+        code="GIBR_EB",
         waypoints=[
-            (35.90, -5.80),   # Western approach (Atlantic)
-            (35.95, -5.50),   # Mid-strait west
-            (36.00, -5.30),   # Narrowest point
-            (36.05, -5.10),   # Mid-strait east
-            (36.10, -4.80),   # Eastern approach (Mediterranean)
+            (35.90, -5.80),     # Western approach (Atlantic, open water)
+            (35.917, -5.700),   # Enter EB lane (center at west end)
+            (35.917, -5.608),   # EB lane mid-west
+            (35.931, -5.551),   # EB lane mid
+            (35.953, -5.470),   # EB lane mid-east
+            (35.963, -5.428),   # Exit EB lane (center at east end)
+            (36.00, -5.20),     # East of TSS, open water
+            (36.10, -4.80),     # Eastern approach (Mediterranean)
         ],
         max_draft_m=300.0,
+        bidirectional=False,   # Eastbound only
+    ),
+    StraitDefinition(
+        name="Strait of Gibraltar — Westbound",
+        code="GIBR_WB",
+        waypoints=[
+            (36.10, -4.80),     # Eastern approach (Mediterranean)
+            (36.00, -5.20),     # Approaching TSS from east
+            (36.004, -5.428),   # Enter WB lane (center at east end)
+            (35.992, -5.483),   # WB lane mid-east
+            (35.972, -5.551),   # WB lane mid
+            (35.958, -5.608),   # WB lane mid-west
+            (35.958, -5.750),   # WB lane west end (still inside lane)
+            (35.96, -5.85),     # Western approach (Atlantic, stays above sep zone)
+        ],
+        max_draft_m=300.0,
+        bidirectional=False,   # Westbound only
     ),
     StraitDefinition(
         name="Strait of Dover",
