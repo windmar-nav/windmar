@@ -1,6 +1,6 @@
 [project]
 name = "windmar"
-version = "0.0.9"
+version = "0.1.0"
 description = "Maritime route optimization for MR Product Tankers with weather-aware fuel consumption modeling"
 readme = "README.md"
 license = "Apache-2.0"

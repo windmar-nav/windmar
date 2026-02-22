@@ -9,7 +9,7 @@ Provides REST API endpoints for:
 - Engine log analytics
 - Regulatory compliance (CII, ECA, TSS)
 
-Version: 0.0.9
+Version: 0.1.0
 License: Apache 2.0 - See LICENSE file
 """
 

@@ -443,6 +443,31 @@ The system ships with a default MR Product Tanker configuration (all values conf
 
 ## Changelog
 
+### v0.1.0 — Commercial Compliance & Production Optimizer
+
+Phase 2 (commercial credibility) and Phase 3 (optimizer upgrade), plus security hardening and dark theme.
+
+**Phase 2 — Regulatory & Commercial Features**
+
+- **2a: Voyage Reporting** — noon, departure, and arrival reports in IMO format; PDF export with branding placeholder; voyage history with search and filters
+- **2b: CII Simulator** — what-if CII projection with speed/fuel/route adjustments; fleet-level dashboard; A-E band threshold visualization with tightening schedule
+- **2c: FuelEU Maritime** — GHG intensity calculation (Well-to-Wake), compliance balance tracking, pooling scenario modeling, penalty exposure estimator (4-tab page, 7 endpoints, 35 tests)
+- **2d: Charter Party Weather Clause Tools** — good weather day counter (Beaufort thresholds), warranted speed/consumption verification, off-hire event detection from engine logs
+
+**Phase 3 — Optimizer Upgrade (ALGO-OPT-001)**
+
+- **GSHHS coastline polygons** — sub-km vector land boundaries replacing 1km `global-land-mask` grid; full GSHHS integration with cached shapefile loading
+- **Variable resolution corridor grid** — 0.1 deg nearshore, 0.5 deg open ocean, auto-refined around obstacles; UI toggle for variable/uniform resolution
+- **Strait visibility graph** — 8 pre-validated shipping straits (Gibraltar, English Channel, Dover, Malacca, Singapore, Suez approach, Bab el-Mandeb, Hormuz) with vertex-to-vertex edges
+- **Multi-objective Pareto front** — fuel vs. time tradeoff curve with widened lambda sweep and smart default selection; interactive Pareto chart in analysis panel
+- **Speed optimization** — optimizer selects speed from discrete set (10-16 kts in 0.5 kt steps) per leg
+
+**Infrastructure & Security**
+
+- **Security hardening** — fail-fast secrets validation, pinned dependency versions, container image scanning
+- **Tiered demo auth** — bcrypt license keys with frame-limited demo mode
+- **Dark navy theme** — unified dark palette across all pages
+
 ### v0.0.9 — Modular Architecture & Calibration Improvements
 
 Complete structural refactoring of the API layer plus calibration accuracy improvements. Zero endpoint changes, zero test regressions (426 tests passing).

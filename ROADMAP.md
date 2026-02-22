@@ -1,19 +1,19 @@
 # WINDMAR Roadmap
 
-> Last updated: 2026-02-21
+> Last updated: 2026-02-22
 
 ## Phase 1 — Stabilize & Refactor (COMPLETE)
 
-Delivered in v0.0.8 and v0.0.9:
+Delivered in v0.0.8 and v0.0.9 (consolidated into v0.1.0):
 
 - **TN002 Physics Audit** — 69 stress tests covering Holtrop-Mennen, SFOC, Kwon, seakeeping, and performance predictor. All passing.
 - **Demo Alignment** — Unified codebase behind `DEMO_MODE` env flag. 344-entry engine log seed, CI/CD pipeline, bcrypt demo auth.
 - **Modular Refactoring** — `main.py` reduced from 6,922 to 281 lines. 9 domain routers, 37 Pydantic schemas, thread-safe VesselState singleton.
 - **Calibration Fixes** — ME-specific fuel, laden/ballast detection from load %, widened bounds, engine log deduplication.
 
-## Phase 2 — Commercial Credibility
+## Phase 2 — Commercial Credibility (COMPLETE)
 
-Build the reporting and compliance features that ship operators evaluate when shortlisting routing tools. No physics changes — purely data presentation and regulatory calculations.
+Delivered in v0.1.0. Reporting and compliance features that ship operators evaluate when shortlisting routing tools.
 
 ### 2a. Voyage Reporting Module
 - Noon report generation (IMO format) from completed route calculations
@@ -37,9 +37,9 @@ Build the reporting and compliance features that ship operators evaluate when sh
 - Warranted speed / consumption verification against model predictions
 - Off-hire event detection from engine log data
 
-## Phase 3 — Optimizer Upgrade (ALGO-OPT-001)
+## Phase 3 — Optimizer Upgrade (COMPLETE)
 
-Replace the uniform-grid A* and Dijkstra engines with a production-grade routing graph.
+Delivered in v0.1.0. Production-grade routing graph replacing uniform-grid engines.
 
 - **GSHHS coastline polygons** — high-resolution land boundaries replacing `global-land-mask` (1km grid)
 - **Corridor grid with variable resolution** — 0.1 deg nearshore, 0.5 deg open ocean, auto-refined around obstacles

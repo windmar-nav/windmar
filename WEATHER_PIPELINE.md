@@ -2,7 +2,7 @@
 
 Technical reference for the WindMar weather ingestion, storage, caching, visualization, and downsampling pipeline.
 
-Last updated: 2026-02-21 (v0.0.9 — modular router architecture, viewport-aware resync, overlay subsampling)
+Last updated: 2026-02-22 (v0.1.0 — modular router architecture, viewport-aware resync, overlay subsampling)
 
 ---
 

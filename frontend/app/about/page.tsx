@@ -166,7 +166,7 @@ export default function AboutPage() {
 
         {/* Version */}
         <div className="text-center text-xs text-gray-600 pt-4">
-          v0.0.9 &middot; windmar-nav/windmar
+          v0.1.0 &middot; windmar-nav/windmar
         </div>
       </div>
     </div>
