@@ -4,7 +4,7 @@
 
 A weather routing and performance analytics platform for merchant ships. Optimizes fuel consumption through weather-aware A\* routing, physics-based vessel modeling, engine log analytics, and real-time sensor fusion. Ships with a default MR Product Tanker configuration; all vessel parameters are fully configurable.
 
-**Documentation**: [windmar-nav.github.io](https://windmar-nav.github.io)
+**Live demo**: [demo-windmar.slmar.co](https://demo-windmar.slmar.co) | **Documentation**: [windmar-nav.github.io](https://windmar-nav.github.io)
 
 ## Features
 
@@ -25,18 +25,20 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 - **Batch management** — upload, browse, filter, and delete engine log batches
 
 ### Route Optimization
-- **Dual-engine optimization**: A\* grid search + Dijkstra with time-expanded graph
-- Both engines converge on ocean-crossing routes (tested: 901nm Portugal-Casquets, A\* -2.6% fuel, Dijkstra -0.7% fuel)
-- All 6 route variants computed per request (2 engines x 3 safety weights: fuel / balanced / safety)
-- Sequential execution with progressive UI updates as each route completes
-- A\* grid at 0.2 deg (~12nm) resolution; Dijkstra at 0.25 deg (~15nm) — aligned with professional routing software
+- **A\* grid search** (primary engine) with weather-aware cost function and 9 pre-validated strait shortcuts
+- **VISIR Dijkstra** (optional, off by default) — time-expanded graph with voluntary speed reduction
+- 3 safety-weight variants per engine (fuel-optimal / balanced / safety-first) with progressive UI updates
+- A\* grid at 0.2 deg (~12nm) resolution; VISIR at 0.25 deg (~15nm) — aligned with professional routing software
+- **GSHHS coastline polygons** — sub-km vector land boundaries with cached shapefile loading
+- **Strait visibility graph** — 9 pre-validated commercial straits (Gibraltar EB/WB, Dover, Malacca, Hormuz, Bab el-Mandeb, Bosporus, Suez approach, Messina) with direct vertex-to-vertex edges
+- **Multi-objective Pareto front** — fuel vs. time tradeoff curve with interactive chart and smart default selection
+- **Course-change penalty** — graduated heading penalty (0-20% per edge) discourages zigzag paths from grid artifacts
+- **Safety fallback** — when severe weather blocks departure, automatic retry with relaxed hard limits (10x cost penalty instead of rejection); structured error diagnostics on complete failure
 - **Hard avoidance limits** — Hs >= 6m and wind >= 70 kts are instant rejection (no motion calculation)
 - **Seakeeping safety constraints** — graduated roll, pitch, acceleration limits with motion-based cost multipliers
-- Distance-adaptive land mask sampling (~1 check per 2nm, auto-scaled per segment length)
-- Per-edge land crossing checks on both engines using `global-land-mask` (1km resolution)
-- Voluntary speed reduction (VSR) in heavy weather (Dijkstra engine)
-- Variable speed optimization (10-18 knots per leg)
+- Variable speed optimization (10-16 knots per leg, 0.5 kt steps)
 - Turn-angle path smoothing to eliminate grid staircase artifacts
+- SOG profile analysis — estimated speed-over-ground per waypoint accounting for weather and current
 - RTZ file import/export (IEC 61174 ECDIS standard)
 
 ### Weather Integration
@@ -63,8 +65,10 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 
 ### Regulatory Compliance
 - IMO CII (Carbon Intensity Indicator) calculations with annual tightening
+- **FuelEU Maritime** — GHG intensity (Well-to-Wake), compliance balance, pooling scenarios, penalty estimator
 - Emission Control Areas (ECA/SECA) with fuel switching requirements
 - High Risk Areas (HRA), Traffic Separation Schemes (TSS)
+- **Charter Party weather clause tools** — good weather day counter, warranted speed/consumption verification, off-hire detection
 - Custom zone creation with penalty/exclusion/mandatory interactions
 - GeoJSON export for frontend visualization
 
@@ -76,11 +80,12 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 
 ### Web Interface
 - ECDIS-style map-centric layout with full-width chart and header dropdowns
-- Interactive Leaflet maps with weather overlays and route visualization
+- Interactive Leaflet maps with weather overlays, coastline rendering, and route visualization
 - Wind particle animation layer (leaflet-velocity)
 - Windy-style wave crest rendering with click-to-inspect polar diagram popup
 - Forecast timeline with play/pause, speed control, and 5-day scrubbing
-- All 6 optimized routes displayed simultaneously with per-route color coding and toggleable visibility
+- Optimized routes displayed simultaneously with per-route color coding and toggleable visibility
+- Interactive Pareto front chart (fuel vs. time tradeoff) in analysis panel
 - Unified comparison table with fuel, distance, time, and waypoint counts for every route variant
 - Sequential optimization with progressive map updates (routes appear one by one)
 - Navigation persistence — waypoints, route name, and optimization results survive page navigation via React Context
@@ -88,6 +93,8 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 - Consolidated vessel configuration, calibration, fuel analysis, and performance prediction page
 - Engine log upload, entries browser, and analytics dashboard
 - CII compliance tracking and projections
+- FuelEU Maritime compliance page (4 tabs)
+- Charter party weather clause analysis
 - Dark maritime theme, responsive design
 
 ## Screenshots
@@ -98,7 +105,7 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
     <td align="center"><img src="docs/screenshots/weather-ice.png" width="400"><br><strong>Sea Ice</strong><br>Arctic ice concentration overlay from CMEMS</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/route-portugal-casquets.png" width="400"><br><strong>Route Optimization</strong><br>Portugal to Casquets — 6 route variants (A* + Dijkstra)</td>
+    <td align="center"><img src="docs/screenshots/route-portugal-casquets.png" width="400"><br><strong>Route Optimization</strong><br>Weather-optimal routing with Pareto front and strait shortcuts</td>
     <td align="center"><img src="docs/screenshots/vessel-model.png" width="400"><br><strong>Vessel Model</strong><br>Resistance, power, SFOC, and fuel curves with calibration</td>
   </tr>
   <tr>
@@ -116,86 +123,83 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 ```
 windmar/
 ├── api/                           # FastAPI backend
-│   ├── main.py                    # Application factory + startup (281 lines)
-│   ├── routers/                   # Domain routers (9 modules)
+│   ├── main.py                    # Application factory + startup
+│   ├── routers/                   # Domain routers (12 modules)
 │   │   ├── weather.py             # 31 weather endpoints, forecast layers, cache mgmt
 │   │   ├── vessel.py              # Vessel specs, calibration, noon reports, prediction
 │   │   ├── voyage.py              # Voyage calculation, Monte Carlo, weather-along-route
-│   │   ├── optimization.py        # A* / Dijkstra route optimization, optimizer status
+│   │   ├── voyage_history.py      # Voyage history and reporting
+│   │   ├── optimization.py        # A* / VISIR route optimization with safety fallback
 │   │   ├── engine_log.py          # Engine log upload, entries, summary, calibration
 │   │   ├── zones.py               # Regulatory zone CRUD and spatial queries
 │   │   ├── cii.py                 # CII compliance calculations and projections
+│   │   ├── fueleu.py              # FuelEU Maritime GHG intensity and compliance
+│   │   ├── charter_party.py       # Weather clause tools (good weather days, warranted speed)
 │   │   ├── routes.py              # RTZ parsing, waypoint route creation
 │   │   └── system.py              # Health, metrics, status, data sources
-│   ├── schemas/                   # Pydantic request/response models (37 schemas)
-│   │   ├── common.py              # Position, shared base models
-│   │   ├── weather.py             # Weather grid, forecast frame schemas
-│   │   ├── vessel.py              # VesselConfig, CalibrationFactors, NoonReport
-│   │   ├── voyage.py              # VoyageRequest/Response, MonteCarloRequest
-│   │   ├── optimization.py        # OptimizationRequest/Response, SafetySummary
-│   │   ├── engine_log.py          # EngineLogUpload/Entry/Summary responses
-│   │   ├── zones.py               # CreateZoneRequest, ZoneResponse
-│   │   └── cii.py                 # CII calculation/projection schemas
+│   ├── schemas/                   # Pydantic request/response models (11 modules)
+│   │   ├── common.py, weather.py, vessel.py, voyage.py, optimization.py
+│   │   ├── engine_log.py, zones.py, cii.py, fueleu.py, charter_party.py
+│   │   └── ...
+│   ├── reports/                   # PDF report generation (noon, departure, arrival)
 │   ├── state.py                   # Thread-safe application state (singleton)
 │   ├── weather_service.py         # Weather field accessors (wind, wave, current, SST, ice)
 │   ├── forecast_layer_manager.py  # Forecast dedup, progress tracking, frame serving
-│   ├── auth.py                    # API key authentication (bcrypt)
+│   ├── auth.py                    # API key authentication (bcrypt, demo licensing)
 │   ├── config.py                  # API configuration (pydantic-settings)
 │   ├── middleware.py              # Security headers, structured logging, metrics
 │   ├── rate_limit.py              # Token bucket rate limiter (Redis-backed)
 │   ├── database.py                # SQLAlchemy ORM setup
 │   ├── models.py                  # Database models (weather, engine log, vessel specs)
-│   ├── health.py                  # Health check logic
-│   ├── cache.py                   # Weather data caching (Redis shared cache)
-│   ├── resilience.py              # Circuit breakers
-│   ├── demo.py                    # Demo mode guards
-│   ├── cli.py                     # CLI utilities
-│   └── live.py                    # Live sensor data API router
+│   ├── health.py, cache.py, resilience.py, demo.py, cli.py, live.py
+│   └── ...
 ├── src/
 │   ├── optimization/
 │   │   ├── vessel_model.py        # Holtrop-Mennen + Kwon resistance, SFOC, performance predictor
 │   │   ├── base_optimizer.py      # Abstract base class for route optimizers
-│   │   ├── route_optimizer.py     # A* grid search with weather costs (0.2 deg)
-│   │   ├── visir_optimizer.py     # Dijkstra time-expanded graph optimizer (0.25 deg)
-│   │   ├── router.py              # Engine dispatcher (A*/Dijkstra selection)
+│   │   ├── route_optimizer.py     # A* grid search with strait shortcuts + course-change penalty
+│   │   ├── visir_optimizer.py     # VISIR Dijkstra time-expanded graph (optional, 60s timeout)
+│   │   ├── routing_graph.py       # Shared routing graph utilities
+│   │   ├── router.py              # Engine dispatcher (A*/VISIR selection)
 │   │   ├── voyage.py              # Per-leg voyage calculator (LegWeather, VoyageResult)
 │   │   ├── monte_carlo.py         # Temporal MC simulation with Cholesky correlation
+│   │   ├── seakeeping.py          # Ship motion safety assessment + safety fallback
 │   │   ├── grid_weather_provider.py     # Bilinear interpolation from pre-fetched grids
 │   │   ├── temporal_weather_provider.py # Trilinear interpolation (lat, lon, time)
 │   │   ├── weather_assessment.py  # Route weather assessment + DB provisioning
-│   │   ├── vessel_calibration.py  # Noon report + engine log calibration (scipy)
-│   │   └── seakeeping.py          # Ship motion safety assessment
+│   │   └── vessel_calibration.py  # Noon report + engine log calibration (scipy)
 │   ├── data/
 │   │   ├── copernicus.py          # GFS, ERA5, CMEMS providers + forecast prefetch
+│   │   ├── copernicus_client.py   # CMEMS client wrapper
 │   │   ├── db_weather_provider.py # DB-backed weather (compressed grids from PostgreSQL)
 │   │   ├── weather_ingestion.py   # Scheduled weather grid ingestion service
-│   │   ├── regulatory_zones.py    # Zone management and point-in-polygon
+│   │   ├── strait_waypoints.py    # 9 commercial strait definitions with waypoint coordinates
+│   │   ├── tss_zones.py           # Traffic Separation Scheme zone definitions
+│   │   ├── regulatory_zones.py    # Zone management and point-in-polygon (Shapely)
 │   │   ├── eca_zones.py           # ECA zone definitions
-│   │   └── land_mask.py           # Ocean/land detection
-│   ├── sensors/
-│   │   ├── sbg_nmea.py            # SBG IMU NMEA parsing
-│   │   ├── sbg_ellipse.py         # SBG Ellipse sensor driver
-│   │   └── wave_estimator.py      # FFT wave spectrum from heave data
-│   ├── fusion/
-│   │   └── fusion_engine.py       # Multi-source data fusion
+│   │   └── land_mask.py           # GSHHS coastline + ocean/land detection
 │   ├── compliance/
-│   │   └── cii.py                 # IMO CII rating calculations
-│   ├── routes/
-│   │   └── rtz_parser.py          # RTZ XML route file parser
-│   ├── validation.py              # Input validation
-│   ├── config.py                  # Application configuration
-│   └── metrics.py                 # Performance metrics collection
+│   │   ├── cii.py                 # IMO CII rating calculations
+│   │   ├── fueleu.py              # FuelEU Maritime GHG intensity
+│   │   └── charter_party.py       # Weather clause analysis
+│   ├── calibration/               # Calibration loop and utilities
+│   ├── database/                  # Engine log parser, Excel parser
+│   ├── sensors/                   # SBG IMU, wave estimator, timeseries
+│   ├── fusion/                    # Multi-source data fusion
+│   ├── routes/                    # RTZ XML route file parser
+│   ├── visualization/             # Plotting utilities
+│   ├── validation.py, config.py, metrics.py
+│   └── ...
 ├── frontend/                      # Next.js 15 + TypeScript
-│   ├── app/                       # Pages (route planner, vessel config, CII, live dashboard)
-│   ├── components/                # React components (maps, charts, weather layers, forecast timeline)
+│   ├── app/                       # Pages (route planner, vessel, CII, FuelEU, charter party, live)
+│   ├── components/                # 42 React components (maps, charts, weather, Pareto, analysis)
 │   └── lib/                       # API client, utilities
-├── tests/
-│   ├── unit/                      # Vessel model, router, validation, ECA zones, Excel parser, CII, calibration, SBG NMEA, metrics
+├── tests/                         # 713 tests (531 unit + 182 integration)
+│   ├── unit/                      # Vessel model, routing, safety, straits, zones, CII, FuelEU...
 │   ├── integration/               # API endpoints, optimization flow
 │   └── test_e2e_*.py              # End-to-end sensor integration
 ├── examples/                      # Demo scripts (simple, ARA-MED, calibration)
-├── docker/                        # init-db.sql, migrations/ (weather tables)
-├── data/                          # Runtime data (GRIB cache, calibration, climatology)
+├── docker/                        # init-db.sql, migrations/
 ├── docker-compose.yml             # Full stack (API + frontend + PostgreSQL + Redis)
 ├── Dockerfile                     # Multi-stage production build
 └── pyproject.toml                 # Poetry project definition
@@ -349,7 +353,8 @@ See `WEATHER_PIPELINE.md` for full technical details on data acquisition, GRIB p
 - `POST /api/voyage/monte-carlo` - Parametric MC simulation (P10/P50/P90)
 
 ### Optimization
-- `POST /api/optimize/route` - Weather-optimal route finding (A\* or Dijkstra engine)
+- `POST /api/optimize/route` - Weather-optimal route finding (A\* or VISIR engine)
+- `POST /api/optimize/pareto` - Multi-objective Pareto front (fuel vs. time)
 - `GET /api/optimize/status` - Optimizer configuration and available targets
 
 ### Vessel
@@ -415,6 +420,8 @@ Full interactive documentation at `/api/docs` when the server is running.
 
 ## Testing
 
+713 tests (531 unit, 182 integration).
+
 ```bash
 pytest tests/ -v                             # All tests
 pytest tests/unit/ -v                        # Unit tests only
@@ -456,11 +463,17 @@ Phase 2 (commercial credibility) and Phase 3 (optimizer upgrade), plus security 
 
 **Phase 3 — Optimizer Upgrade (ALGO-OPT-001)**
 
-- **GSHHS coastline polygons** — sub-km vector land boundaries replacing 1km `global-land-mask` grid; full GSHHS integration with cached shapefile loading
+- **GSHHS coastline polygons** — sub-km vector land boundaries with cached shapefile loading
 - **Variable resolution corridor grid** — 0.1 deg nearshore, 0.5 deg open ocean, auto-refined around obstacles; UI toggle for variable/uniform resolution
-- **Strait visibility graph** — 8 pre-validated shipping straits (Gibraltar, English Channel, Dover, Malacca, Singapore, Suez approach, Bab el-Mandeb, Hormuz) with vertex-to-vertex edges
+- **Strait visibility graph** — 9 pre-validated commercial straits (Gibraltar EB/WB, Dover, Malacca, Hormuz, Bab el-Mandeb, Bosporus, Suez approach, Messina) with direct vertex-to-vertex edges injected into the A\* search graph
 - **Multi-objective Pareto front** — fuel vs. time tradeoff curve with widened lambda sweep and smart default selection; interactive Pareto chart in analysis panel
+- **Course-change penalty** — graduated heading change cost (0-20% per edge) prevents zigzag paths from grid discretization artifacts
+- **Safety fallback routing** — automatic retry with relaxed hard limits when severe weather blocks departure; structured error diagnostics (422 with explored-node count and failure reason)
 - **Speed optimization** — optimizer selects speed from discrete set (10-16 kts in 0.5 kt steps) per leg
+- **SOG profile analysis** — estimated speed-over-ground per waypoint with weather and current effects
+- **VISIR made optional** — A\* is the primary engine; VISIR Dijkstra available via UI toggle (off by default) with 60-second wall-clock timeout
+- **Smart grid bbox** — strait waypoint expansion checks both lat AND lon proximity to avoid pulling in distant straits
+- **Smart retry logic** — skip safety-fallback retry when >10K nodes explored (topology issue, not weather)
 
 **Infrastructure & Security**
 
@@ -591,9 +604,13 @@ Live connectivity to Copernicus and NOAA weather services.
 - **ERA5 wind fallback** — Climate Data Store reanalysis as secondary wind source (~5-day lag)
 - **Data sources documentation** — credential setup guide, provider chain documentation
 
+## Codebase
+
+~67,000 lines of code across 197 files: 36K Python backend, 22K TypeScript frontend, 9K tests.
+
 ## Branch Strategy
 
-- `main` - Stable release branch (also triggers demo deployment)
+- `main` - Stable release branch (pushes trigger demo deployment via CI/CD)
 
 ## Documentation
 
