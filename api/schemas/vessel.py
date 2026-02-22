@@ -14,15 +14,15 @@ class VesselConfig(BaseModel):
     Defaults sourced from VesselSpecs (MR tanker defaults, fully configurable).
     At runtime, values are overridden by DB-persisted specs on startup.
     """
-    dwt: float = VesselSpecs.dwt
-    loa: float = VesselSpecs.loa
-    beam: float = VesselSpecs.beam
-    draft_laden: float = VesselSpecs.draft_laden
-    draft_ballast: float = VesselSpecs.draft_ballast
-    mcr_kw: float = VesselSpecs.mcr_kw
-    sfoc_at_mcr: float = VesselSpecs.sfoc_at_mcr
-    service_speed_laden: float = VesselSpecs.service_speed_laden
-    service_speed_ballast: float = VesselSpecs.service_speed_ballast
+    dwt: float = Field(VesselSpecs.dwt, gt=0, le=600000)
+    loa: float = Field(VesselSpecs.loa, gt=0, le=500)
+    beam: float = Field(VesselSpecs.beam, gt=0, le=100)
+    draft_laden: float = Field(VesselSpecs.draft_laden, gt=0, le=30)
+    draft_ballast: float = Field(VesselSpecs.draft_ballast, gt=0, le=30)
+    mcr_kw: float = Field(VesselSpecs.mcr_kw, gt=0, le=100000)
+    sfoc_at_mcr: float = Field(VesselSpecs.sfoc_at_mcr, gt=0, le=500)
+    service_speed_laden: float = Field(VesselSpecs.service_speed_laden, gt=0, le=30)
+    service_speed_ballast: float = Field(VesselSpecs.service_speed_ballast, gt=0, le=30)
 
 
 class NoonReportModel(BaseModel):

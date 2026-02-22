@@ -111,6 +111,6 @@ CMD ["gunicorn", "api.main:app", \
      "--worker-class", "uvicorn.workers.UvicornWorker", \
      "--timeout", "600", \
      "--graceful-timeout", "60", \
-     "--forwarded-allow-ips", "*", \
+     "--forwarded-allow-ips", "172.16.0.0/12,10.0.0.0/8,127.0.0.1", \
      "--access-logfile", "-", \
      "--log-level", "info"]

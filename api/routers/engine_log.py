@@ -50,15 +50,19 @@ async def upload_engine_log(
     db=Depends(get_db),
 ):
     """Upload and parse an engine log Excel workbook."""
+    # Validate file extension
+    _ALLOWED_EXTS = {".xlsx", ".xls", ".csv"}
+    suffix = ".xlsx"
+    if file.filename:
+        suffix = Path(file.filename).suffix.lower() or ".xlsx"
+        if suffix not in _ALLOWED_EXTS:
+            raise HTTPException(status_code=400, detail="Only .xlsx/.xls/.csv files accepted")
+
     content = await file.read()
     if len(content) > MAX_EXCEL_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail=f"File too large. Maximum: {MAX_EXCEL_UPLOAD_BYTES // (1024 * 1024)} MB")
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
-
-    suffix = ".xlsx"
-    if file.filename:
-        suffix = Path(file.filename).suffix or ".xlsx"
 
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
         tmp.write(content)

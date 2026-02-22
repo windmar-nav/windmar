@@ -93,8 +93,12 @@ async def check_rate_limit(request: Request, redis_key: str, limit: int, window:
     Returns:
         bool: True if within limit, False otherwise
     """
-    if not redis_client or not settings.rate_limit_enabled:
+    if not settings.rate_limit_enabled:
         return True
+
+    if not redis_client:
+        logger.warning("Rate limit check denied: Redis unavailable")
+        return False
 
     try:
         # Get current count
@@ -114,8 +118,8 @@ async def check_rate_limit(request: Request, redis_key: str, limit: int, window:
 
     except Exception as e:
         logger.error(f"Rate limit check error: {e}")
-        # On error, allow request (fail open)
-        return True
+        # Fail closed: deny request when rate limiter is broken
+        return False
 
 
 async def get_rate_limit_status(identifier: str) -> dict:

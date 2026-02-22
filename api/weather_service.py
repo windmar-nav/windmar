@@ -7,11 +7,13 @@ via ``get_app_state().weather_providers`` so they stay decoupled from the
 main FastAPI module.
 """
 
+import base64
+import json
 import logging
 import os
-import pickle
+import zlib
 from datetime import datetime, timedelta
-from typing import Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
 
@@ -25,6 +27,64 @@ except ImportError:
     redis_lib = None
 
 logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Safe serialization (replaces pickle for Redis cache)
+# ---------------------------------------------------------------------------
+_WEATHER_DATA_ARRAY_FIELDS = [
+    "lats", "lons", "values", "u_component", "v_component",
+    "wave_period", "wave_direction",
+    "windwave_height", "windwave_period", "windwave_direction",
+    "swell_height", "swell_period", "swell_direction",
+    "sst", "visibility", "ice_concentration",
+]
+
+
+def _serialize_ndarray(arr: np.ndarray) -> Dict[str, Any]:
+    """Serialize numpy array to JSON-safe dict with zlib compression."""
+    raw = arr.astype(np.float64).tobytes()
+    compressed = zlib.compress(raw, level=1)
+    return {
+        "d": base64.b64encode(compressed).decode("ascii"),
+        "s": list(arr.shape),
+    }
+
+
+def _deserialize_ndarray(obj: Dict[str, Any]) -> np.ndarray:
+    """Deserialize numpy array from JSON-safe dict."""
+    raw = zlib.decompress(base64.b64decode(obj["d"]))
+    return np.frombuffer(raw, dtype=np.float64).reshape(obj["s"])
+
+
+def _serialize_weather_data(wd: WeatherData) -> bytes:
+    """Serialize WeatherData to compressed JSON bytes (safe, no pickle)."""
+    doc: Dict[str, Any] = {
+        "parameter": wd.parameter,
+        "time": wd.time.isoformat(),
+        "unit": wd.unit,
+    }
+    for field in _WEATHER_DATA_ARRAY_FIELDS:
+        val = getattr(wd, field, None)
+        if val is not None:
+            doc[field] = _serialize_ndarray(val)
+    return zlib.compress(json.dumps(doc).encode(), level=1)
+
+
+def _deserialize_weather_data(data: bytes) -> WeatherData:
+    """Deserialize WeatherData from compressed JSON bytes (safe, no pickle)."""
+    doc = json.loads(zlib.decompress(data))
+    kwargs: Dict[str, Any] = {
+        "parameter": doc["parameter"],
+        "time": datetime.fromisoformat(doc["time"]),
+        "unit": doc["unit"],
+    }
+    for field in _WEATHER_DATA_ARRAY_FIELDS:
+        if field in doc:
+            kwargs[field] = _deserialize_ndarray(doc[field])
+        elif field in ("lats", "lons", "values"):
+            raise ValueError(f"Missing required field '{field}' in cached weather data")
+    return WeatherData(**kwargs)
+
 
 # ---------------------------------------------------------------------------
 # Redis / in-memory cache layer
@@ -62,9 +122,9 @@ def _redis_cache_get(key: str) -> Optional[WeatherData]:
         try:
             data = r.get(f"wx:{key}")
             if data:
-                return pickle.loads(data)
+                return _deserialize_weather_data(data)
         except Exception:
-            pass
+            logger.debug("Redis cache get failed for key %s", key, exc_info=True)
     # Fallback to in-memory
     if key in _weather_cache and key in _cache_expiry and datetime.utcnow() < _cache_expiry[key]:
         return _weather_cache[key]
@@ -76,10 +136,10 @@ def _redis_cache_put(key: str, data: WeatherData, ttl_seconds: int = 900):
     r = _get_redis()
     if r is not None:
         try:
-            r.setex(f"wx:{key}", ttl_seconds, pickle.dumps(data))
+            r.setex(f"wx:{key}", ttl_seconds, _serialize_weather_data(data))
             return
         except Exception:
-            pass
+            logger.debug("Redis cache put failed for key %s", key, exc_info=True)
     # Fallback to in-memory
     _weather_cache[key] = data
     _cache_expiry[key] = datetime.utcnow() + timedelta(seconds=ttl_seconds)

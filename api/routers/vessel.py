@@ -317,6 +317,10 @@ async def upload_noon_reports_csv(
     """
     _vs = get_vessel_state()
     try:
+        # Validate file extension
+        if file.filename and not file.filename.lower().endswith(".csv"):
+            raise HTTPException(status_code=400, detail="Only .csv files accepted")
+
         # Read and validate file size
         content = await file.read()
         if len(content) > MAX_CSV_SIZE_BYTES:
@@ -365,16 +369,20 @@ async def upload_noon_reports_excel(
     """
     _vs = get_vessel_state()
     try:
+        # Validate file extension
+        _EXCEL_EXTS = {".xlsx", ".xls"}
+        suffix = ".xlsx"
+        if file.filename:
+            suffix = Path(file.filename).suffix.lower() or ".xlsx"
+            if suffix not in _EXCEL_EXTS:
+                raise HTTPException(status_code=400, detail="Only .xlsx/.xls files accepted")
+
         content = await file.read()
         if len(content) > MAX_CSV_SIZE_BYTES:
             raise HTTPException(
                 status_code=413,
                 detail=f"File too large. Maximum size: {MAX_CSV_SIZE_BYTES // (1024*1024)} MB"
             )
-
-        suffix = ".xlsx"
-        if file.filename:
-            suffix = Path(file.filename).suffix or ".xlsx"
 
         with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
             tmp.write(content)
@@ -472,7 +480,9 @@ async def calibrate_vessel(
 
 
 @router.post("/calibration/estimate-fouling", dependencies=[Depends(require_not_demo("Vessel calibration"))])
+@limiter.limit(get_rate_limit_string())
 async def estimate_hull_fouling(
+    request: Request,
     days_since_drydock: int = Query(..., ge=0),
     operating_regions: List[str] = Query(default=[], description="Operating regions: tropical, warm_temperate, cold, polar"),
 ):
@@ -750,7 +760,8 @@ async def get_fuel_scenarios():
 # ============================================================================
 
 @router.post("/predict")
-async def predict_vessel_performance(req: PerformancePredictionRequest):
+@limiter.limit("30/minute")
+async def predict_vessel_performance(request: Request, req: PerformancePredictionRequest):
     """
     Predict vessel speed and fuel consumption under given conditions.
 

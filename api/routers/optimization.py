@@ -7,11 +7,14 @@ and optimizer status queries.
 
 import asyncio
 import logging
+import math
 import time as _time
 from datetime import datetime, timedelta
 from typing import Optional
 
-from fastapi import APIRouter, HTTPException
+from fastapi import APIRouter, HTTPException, Request
+
+from api.rate_limit import limiter
 
 from api.schemas import (
     OptimizationLegModel,
@@ -42,8 +45,16 @@ logger = logging.getLogger(__name__)
 router = APIRouter(tags=["Optimization"])
 
 
+def _safe_round(value: float, ndigits: int = 2, fallback: float = 0.0) -> float:
+    """Round value, replacing NaN/Inf with fallback to prevent JSON serialization errors."""
+    if math.isnan(value) or math.isinf(value):
+        return fallback
+    return round(value, ndigits)
+
+
 @router.post("/api/optimize/route", response_model=OptimizationResponse)
-async def optimize_route(request: OptimizationRequest):
+@limiter.limit("10/minute")
+async def optimize_route(request: Request, request_body: OptimizationRequest = None):
     """
     Find optimal route through weather.
 
@@ -60,7 +71,7 @@ async def optimize_route(request: OptimizationRequest):
     """
     # Run the entire optimization in a thread so the event loop stays
     # responsive (weather provisioning + VISIR can take 30s+).
-    return await asyncio.to_thread(_optimize_route_sync, request)
+    return await asyncio.to_thread(_optimize_route_sync, request_body)
 
 
 def _run_engine_with_fallback(
@@ -233,7 +244,7 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
                         WeatherProvenanceModel(
                             source_type=p.source_type,
                             model_name=p.model_name,
-                            forecast_lead_hours=round(p.forecast_lead_hours, 1),
+                            forecast_lead_hours=_safe_round(p.forecast_lead_hours, 1),
                             confidence=p.confidence,
                         )
                         for p in temporal_wx.provenance.values()
@@ -304,33 +315,33 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
                 from_lon=leg['from'][1],
                 to_lat=leg['to'][0],
                 to_lon=leg['to'][1],
-                distance_nm=round(leg['distance_nm'], 2),
-                bearing_deg=round(leg['bearing_deg'], 1),
-                fuel_mt=round(leg['fuel_mt'], 3),
-                time_hours=round(leg['time_hours'], 2),
-                sog_kts=round(leg['sog_kts'], 1),
-                stw_kts=round(leg.get('stw_kts', leg['sog_kts']), 1),
-                wind_speed_ms=round(leg['wind_speed_ms'], 1),
-                wave_height_m=round(leg['wave_height_m'], 1),
+                distance_nm=_safe_round(leg['distance_nm'], 2),
+                bearing_deg=_safe_round(leg['bearing_deg'], 1),
+                fuel_mt=_safe_round(leg['fuel_mt'], 3),
+                time_hours=_safe_round(leg['time_hours'], 2),
+                sog_kts=_safe_round(leg['sog_kts'], 1),
+                stw_kts=_safe_round(leg.get('stw_kts', leg['sog_kts']), 1),
+                wind_speed_ms=_safe_round(leg['wind_speed_ms'], 1),
+                wave_height_m=_safe_round(leg['wave_height_m'], 1),
                 safety_status=leg.get('safety_status'),
-                roll_deg=round(leg['roll_deg'], 1) if leg.get('roll_deg') else None,
-                pitch_deg=round(leg['pitch_deg'], 1) if leg.get('pitch_deg') else None,
+                roll_deg=_safe_round(leg['roll_deg'], 1) if leg.get('roll_deg') else None,
+                pitch_deg=_safe_round(leg['pitch_deg'], 1) if leg.get('pitch_deg') else None,
                 data_source=data_source_label,
-                swell_hs_m=round(leg['swell_hs_m'], 2) if leg.get('swell_hs_m') is not None else None,
-                windsea_hs_m=round(leg['windsea_hs_m'], 2) if leg.get('windsea_hs_m') is not None else None,
-                current_effect_kts=round(leg['current_effect_kts'], 2) if leg.get('current_effect_kts') is not None else None,
-                visibility_m=round(leg['visibility_m'], 0) if leg.get('visibility_m') is not None else None,
-                sst_celsius=round(leg['sst_celsius'], 1) if leg.get('sst_celsius') is not None else None,
-                ice_concentration=round(leg['ice_concentration'], 3) if leg.get('ice_concentration') is not None else None,
+                swell_hs_m=_safe_round(leg['swell_hs_m'], 2) if leg.get('swell_hs_m') is not None else None,
+                windsea_hs_m=_safe_round(leg['windsea_hs_m'], 2) if leg.get('windsea_hs_m') is not None else None,
+                current_effect_kts=_safe_round(leg['current_effect_kts'], 2) if leg.get('current_effect_kts') is not None else None,
+                visibility_m=_safe_round(leg['visibility_m'], 0) if leg.get('visibility_m') is not None else None,
+                sst_celsius=_safe_round(leg['sst_celsius'], 1) if leg.get('sst_celsius') is not None else None,
+                ice_concentration=_safe_round(leg['ice_concentration'], 3) if leg.get('ice_concentration') is not None else None,
             ))
 
         # Build safety summary
         safety_summary = SafetySummary(
             status=result.safety_status,
             warnings=result.safety_warnings,
-            max_roll_deg=round(result.max_roll_deg, 1),
-            max_pitch_deg=round(result.max_pitch_deg, 1),
-            max_accel_ms2=round(result.max_accel_ms2, 2),
+            max_roll_deg=_safe_round(result.max_roll_deg, 1),
+            max_pitch_deg=_safe_round(result.max_pitch_deg, 1),
+            max_accel_ms2=_safe_round(result.max_accel_ms2, 2),
         )
 
         # Build speed strategy scenarios
@@ -343,35 +354,35 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
                     from_lon=leg['from'][1],
                     to_lat=leg['to'][0],
                     to_lon=leg['to'][1],
-                    distance_nm=round(leg['distance_nm'], 2),
-                    bearing_deg=round(leg['bearing_deg'], 1),
-                    fuel_mt=round(leg['fuel_mt'], 3),
-                    time_hours=round(leg['time_hours'], 2),
-                    sog_kts=round(leg['sog_kts'], 1),
-                    stw_kts=round(leg.get('stw_kts', leg['sog_kts']), 1),
-                    wind_speed_ms=round(leg['wind_speed_ms'], 1),
-                    wave_height_m=round(leg['wave_height_m'], 1),
+                    distance_nm=_safe_round(leg['distance_nm'], 2),
+                    bearing_deg=_safe_round(leg['bearing_deg'], 1),
+                    fuel_mt=_safe_round(leg['fuel_mt'], 3),
+                    time_hours=_safe_round(leg['time_hours'], 2),
+                    sog_kts=_safe_round(leg['sog_kts'], 1),
+                    stw_kts=_safe_round(leg.get('stw_kts', leg['sog_kts']), 1),
+                    wind_speed_ms=_safe_round(leg['wind_speed_ms'], 1),
+                    wave_height_m=_safe_round(leg['wave_height_m'], 1),
                     safety_status=leg.get('safety_status'),
-                    roll_deg=round(leg['roll_deg'], 1) if leg.get('roll_deg') else None,
-                    pitch_deg=round(leg['pitch_deg'], 1) if leg.get('pitch_deg') else None,
-                    swell_hs_m=round(leg['swell_hs_m'], 2) if leg.get('swell_hs_m') is not None else None,
-                    windsea_hs_m=round(leg['windsea_hs_m'], 2) if leg.get('windsea_hs_m') is not None else None,
-                    current_effect_kts=round(leg['current_effect_kts'], 2) if leg.get('current_effect_kts') is not None else None,
-                    visibility_m=round(leg['visibility_m'], 0) if leg.get('visibility_m') is not None else None,
-                    sst_celsius=round(leg['sst_celsius'], 1) if leg.get('sst_celsius') is not None else None,
-                    ice_concentration=round(leg['ice_concentration'], 3) if leg.get('ice_concentration') is not None else None,
+                    roll_deg=_safe_round(leg['roll_deg'], 1) if leg.get('roll_deg') else None,
+                    pitch_deg=_safe_round(leg['pitch_deg'], 1) if leg.get('pitch_deg') else None,
+                    swell_hs_m=_safe_round(leg['swell_hs_m'], 2) if leg.get('swell_hs_m') is not None else None,
+                    windsea_hs_m=_safe_round(leg['windsea_hs_m'], 2) if leg.get('windsea_hs_m') is not None else None,
+                    current_effect_kts=_safe_round(leg['current_effect_kts'], 2) if leg.get('current_effect_kts') is not None else None,
+                    visibility_m=_safe_round(leg['visibility_m'], 0) if leg.get('visibility_m') is not None else None,
+                    sst_celsius=_safe_round(leg['sst_celsius'], 1) if leg.get('sst_celsius') is not None else None,
+                    ice_concentration=_safe_round(leg['ice_concentration'], 3) if leg.get('ice_concentration') is not None else None,
                 ))
             scenario_models.append(SpeedScenarioModel(
                 strategy=sc.strategy,
                 label=sc.label,
-                total_fuel_mt=round(sc.total_fuel_mt, 2),
-                total_time_hours=round(sc.total_time_hours, 2),
-                total_distance_nm=round(sc.total_distance_nm, 1),
-                avg_speed_kts=round(sc.avg_speed_kts, 1),
-                speed_profile=[round(s, 1) for s in sc.speed_profile],
+                total_fuel_mt=_safe_round(sc.total_fuel_mt, 2),
+                total_time_hours=_safe_round(sc.total_time_hours, 2),
+                total_distance_nm=_safe_round(sc.total_distance_nm, 1),
+                avg_speed_kts=_safe_round(sc.avg_speed_kts, 1),
+                speed_profile=[_safe_round(s, 1) for s in sc.speed_profile],
                 legs=sc_legs,
-                fuel_savings_pct=round(sc.fuel_savings_pct, 1),
-                time_savings_pct=round(sc.time_savings_pct, 1),
+                fuel_savings_pct=_safe_round(sc.fuel_savings_pct, 1),
+                time_savings_pct=_safe_round(sc.time_savings_pct, 1),
             ))
 
         # Build Pareto front models (if available)
@@ -379,11 +390,11 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
         if result.pareto_front:
             pareto_models = [
                 ParetoSolutionModel(
-                    lambda_value=round(p.lambda_value, 3),
-                    fuel_mt=round(p.fuel_mt, 2),
-                    time_hours=round(p.time_hours, 2),
-                    distance_nm=round(p.distance_nm, 1),
-                    speed_profile=[round(s, 1) for s in p.speed_profile],
+                    lambda_value=_safe_round(p.lambda_value, 3),
+                    fuel_mt=_safe_round(p.fuel_mt, 2),
+                    time_hours=_safe_round(p.time_hours, 2),
+                    distance_nm=_safe_round(p.distance_nm, 1),
+                    speed_profile=[_safe_round(s, 1) for s in p.speed_profile],
                     is_selected=p.is_selected,
                 )
                 for p in result.pareto_front
@@ -391,32 +402,32 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
 
         return OptimizationResponse(
             waypoints=waypoints,
-            total_fuel_mt=round(result.total_fuel_mt, 2),
-            total_time_hours=round(result.total_time_hours, 2),
-            total_distance_nm=round(result.total_distance_nm, 1),
-            direct_fuel_mt=round(result.direct_fuel_mt, 2),
-            direct_time_hours=round(result.direct_time_hours, 2),
-            fuel_savings_pct=round(result.fuel_savings_pct, 1),
-            time_savings_pct=round(result.time_savings_pct, 1),
+            total_fuel_mt=_safe_round(result.total_fuel_mt, 2),
+            total_time_hours=_safe_round(result.total_time_hours, 2),
+            total_distance_nm=_safe_round(result.total_distance_nm, 1),
+            direct_fuel_mt=_safe_round(result.direct_fuel_mt, 2),
+            direct_time_hours=_safe_round(result.direct_time_hours, 2),
+            fuel_savings_pct=_safe_round(result.fuel_savings_pct, 1),
+            time_savings_pct=_safe_round(result.time_savings_pct, 1),
             legs=legs,
-            speed_profile=[round(s, 1) for s in result.speed_profile],
-            avg_speed_kts=round(result.avg_speed_kts, 1),
+            speed_profile=[_safe_round(s, 1) for s in result.speed_profile],
+            avg_speed_kts=_safe_round(result.avg_speed_kts, 1),
             variable_speed_enabled=result.variable_speed_enabled,
             engine=engine_name,
             variable_resolution_enabled=request.variable_resolution and engine_name != "visir",
             safety=safety_summary,
             scenarios=scenario_models,
             pareto_front=pareto_models,
-            baseline_fuel_mt=round(result.baseline_fuel_mt, 2) if result.baseline_fuel_mt else None,
-            baseline_time_hours=round(result.baseline_time_hours, 2) if result.baseline_time_hours else None,
-            baseline_distance_nm=round(result.baseline_distance_nm, 1) if result.baseline_distance_nm else None,
+            baseline_fuel_mt=_safe_round(result.baseline_fuel_mt, 2) if result.baseline_fuel_mt else None,
+            baseline_time_hours=_safe_round(result.baseline_time_hours, 2) if result.baseline_time_hours else None,
+            baseline_distance_nm=_safe_round(result.baseline_distance_nm, 1) if result.baseline_distance_nm else None,
             safety_degraded=result.safety_degraded,
             weather_provenance=provenance_models,
             temporal_weather=used_temporal,
             optimization_target=request.optimization_target,
             grid_resolution_deg=active_optimizer.resolution_deg,
             cells_explored=result.cells_explored,
-            optimization_time_ms=round(result.optimization_time_ms, 1),
+            optimization_time_ms=_safe_round(result.optimization_time_ms, 1),
         )
 
     except ValueError as e:

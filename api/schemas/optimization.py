@@ -1,18 +1,20 @@
 """Route optimization API schemas."""
 
-from typing import Dict, List, Optional
+from typing import Dict, List, Literal, Optional
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 from .common import Position
+
+_VALID_ZONE_TYPES = {"tss", "eca", "piracy", "ice", "war_risk"}
 
 
 class WeatherProvenanceModel(BaseModel):
     """Weather data source provenance metadata."""
-    source_type: str  # "forecast", "hindcast", "climatology", "blended"
-    model_name: str  # "GFS", "CMEMS_wave", etc.
+    source_type: str = Field(..., max_length=50)
+    model_name: str = Field(..., max_length=100)
     forecast_lead_hours: float
-    confidence: str  # "high", "medium", "low"
+    confidence: Literal["high", "medium", "low"]
 
 
 class OptimizationRequest(BaseModel):
@@ -22,13 +24,13 @@ class OptimizationRequest(BaseModel):
     calm_speed_kts: float = Field(..., gt=0, lt=30, description="Calm water speed in knots")
     is_laden: bool = True
     departure_time: Optional["datetime"] = None
-    optimization_target: str = Field("fuel", description="Minimize 'fuel' or 'time'")
+    optimization_target: Literal["fuel", "time"] = Field("fuel", description="Minimize 'fuel' or 'time'")
     grid_resolution_deg: float = Field(0.2, ge=0.05, le=2.0, description="Grid resolution in degrees")
     max_time_factor: float = Field(1.15, ge=1.0, le=2.0,
         description="Max voyage time as multiple of direct time (1.15 = 15% longer allowed)")
-    engine: str = Field("astar", description="Optimization engine: 'astar' (A* pathfinding) or 'visir' (VISIR graph-based Dijkstra)")
+    engine: Literal["astar", "visir"] = Field("astar", description="Optimization engine: 'astar' or 'visir'")
     # All user waypoints for multi-segment optimization (respects intermediate via-points)
-    route_waypoints: Optional[List[Position]] = None
+    route_waypoints: Optional[List[Position]] = Field(None, max_length=50)
     # Baseline from voyage calculation (enables dual-strategy comparison)
     baseline_fuel_mt: Optional[float] = None
     baseline_time_hours: Optional[float] = None
@@ -40,7 +42,16 @@ class OptimizationRequest(BaseModel):
     # Variable resolution: when True, use two-tier grid (0.5° ocean + 0.1° nearshore)
     variable_resolution: bool = Field(False, description="Enable variable resolution grid (fine nearshore, coarse ocean)")
     # Zone types to enforce during routing (empty list = no enforcement)
-    enforced_zone_types: Optional[List[str]] = Field(None, description="Zone types to enforce (e.g. ['tss','eca']). None = enforce all.")
+    enforced_zone_types: Optional[List[str]] = Field(None, max_length=10, description="Zone types to enforce (e.g. ['tss','eca']). None = enforce all.")
+
+    @field_validator("enforced_zone_types")
+    @classmethod
+    def validate_zone_types(cls, v: Optional[List[str]]) -> Optional[List[str]]:
+        if v is not None:
+            for zt in v:
+                if zt not in _VALID_ZONE_TYPES:
+                    raise ValueError(f"Invalid zone type '{zt}'. Must be one of: {sorted(_VALID_ZONE_TYPES)}")
+        return v
 
 
 class OptimizationLegModel(BaseModel):
@@ -74,8 +85,8 @@ class OptimizationLegModel(BaseModel):
 
 class SafetySummary(BaseModel):
     """Safety assessment summary for optimized route."""
-    status: str  # "safe", "marginal", "dangerous"
-    warnings: List[str]
+    status: Literal["safe", "marginal", "dangerous"]
+    warnings: List[str] = Field(default_factory=list, max_length=50)
     max_roll_deg: float
     max_pitch_deg: float
     max_accel_ms2: float
@@ -127,7 +138,7 @@ class OptimizationResponse(BaseModel):
     variable_speed_enabled: bool
 
     # Engine used
-    engine: str = "astar"  # "astar" or "visir"
+    engine: Literal["astar", "visir"] = "astar"
     variable_resolution_enabled: bool = False
 
     # Safety assessment
@@ -150,7 +161,7 @@ class OptimizationResponse(BaseModel):
     temporal_weather: bool = False  # True if time-varying weather was used
 
     # Metadata
-    optimization_target: str
+    optimization_target: Literal["fuel", "time"]
     grid_resolution_deg: float
     cells_explored: int
     optimization_time_ms: float

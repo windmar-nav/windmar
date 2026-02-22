@@ -110,7 +110,7 @@ Contact: contact@slmar.co
         allow_origins=settings.cors_origins_list,
         allow_credentials=True,
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
-        allow_headers=["*"],
+        allow_headers=["Content-Type", "X-API-Key", "Authorization", "Accept"],
     )
 
     # Add rate limiter to app state

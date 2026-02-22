@@ -34,6 +34,10 @@ async def parse_rtz(
     Returns waypoints in standard format.
     """
     try:
+        # Validate file extension
+        if file.filename and not file.filename.lower().endswith(".rtz"):
+            raise HTTPException(status_code=400, detail="Only .rtz files accepted")
+
         content = await file.read()
 
         # Validate file size
