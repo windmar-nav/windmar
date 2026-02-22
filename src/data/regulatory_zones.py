@@ -480,6 +480,11 @@ class ZoneChecker:
             penalty *= zone.properties.penalty_factor
             warnings.append(f"Transiting {zone.properties.name} (+{(zone.properties.penalty_factor-1)*100:.0f}% cost)")
 
+        # Mandatory zones (TSS) — incentivize routing through them
+        for zone in zones['mandatory']:
+            penalty *= 0.7  # 30% cost reduction for transiting mandatory zones
+            warnings.append(f"Transiting mandatory zone: {zone.properties.name}")
+
         # Add advisory info
         for zone in zones['advisory']:
             warnings.append(f"Advisory: {zone.properties.name}")

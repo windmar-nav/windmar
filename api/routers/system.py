@@ -262,6 +262,75 @@ async def get_data_sources():
 
 
 # =============================================================================
+# Coastline GeoJSON (GSHHS vector overlay for crisp land boundaries)
+# =============================================================================
+
+_coastline_cache: dict = {}
+
+
+@router.get("/api/coastline")
+async def get_coastline(
+    lat_min: float = -90,
+    lat_max: float = 90,
+    lon_min: float = -180,
+    lon_max: float = 180,
+    simplify: float = 0.005,
+):
+    """
+    Return simplified GSHHS land polygons as GeoJSON, clipped to the viewport.
+
+    Used by the frontend to render a crisp vector coastline overlay above
+    weather grid layers, replacing the blocky raster mask.
+    """
+    cache_key = f"{lat_min:.1f},{lat_max:.1f},{lon_min:.1f},{lon_max:.1f},{simplify}"
+    if cache_key in _coastline_cache:
+        return _coastline_cache[cache_key]
+
+    try:
+        from src.data.land_mask import get_land_geometry
+        from shapely.geometry import box, mapping
+
+        land = get_land_geometry()
+        if land is None:
+            return JSONResponse(
+                status_code=404,
+                content={"detail": "GSHHS coastline data not available"},
+            )
+
+        viewport = box(lon_min, lat_min, lon_max, lat_max)
+        clipped = land.intersection(viewport)
+
+        if clipped.is_empty:
+            result = {"type": "FeatureCollection", "features": []}
+        else:
+            simplified = clipped.simplify(simplify, preserve_topology=True)
+            result = {
+                "type": "FeatureCollection",
+                "features": [
+                    {
+                        "type": "Feature",
+                        "properties": {"type": "land"},
+                        "geometry": mapping(simplified),
+                    }
+                ],
+            }
+
+        # Cache (bounded size — evict oldest when > 20 entries)
+        if len(_coastline_cache) > 20:
+            oldest = next(iter(_coastline_cache))
+            del _coastline_cache[oldest]
+        _coastline_cache[cache_key] = result
+        return result
+
+    except Exception as e:
+        logger.warning(f"Coastline endpoint error: {e}")
+        return JSONResponse(
+            status_code=500,
+            content={"detail": f"Failed to generate coastline: {str(e)}"},
+        )
+
+
+# =============================================================================
 # Demo Authentication
 # =============================================================================
 

@@ -38,6 +38,10 @@ const ZoneLayer = dynamic(
   () => import('@/components/ZoneLayer'),
   { ssr: false }
 );
+const CoastlineOverlay = dynamic(
+  () => import('@/components/CoastlineOverlay'),
+  { ssr: false }
+);
 const ZoneEditor = dynamic(
   () => import('@/components/ZoneEditor'),
   { ssr: false }
@@ -224,6 +228,9 @@ export default function MapComponent({
             opacity={0.6}
           />
         )}
+
+        {/* GSHHS coastline overlay — crisp vector land boundaries above weather grids */}
+        {weatherLayer !== 'none' && <CoastlineOverlay />}
 
         {/* Hover tooltip for wind, waves, swell, currents, visibility layers */}
         {(weatherLayer === 'wind' || weatherLayer === 'waves' || weatherLayer === 'swell' || weatherLayer === 'currents' || weatherLayer === 'visibility') && (
