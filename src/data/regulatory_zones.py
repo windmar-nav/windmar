@@ -279,15 +279,18 @@ class ZoneChecker:
             is_builtin=True,
         ))
 
-        # Load all TSS zones from tss_zones.py (20 zones worldwide)
+        # Load all TSS zones from tss_zones.py (22 zones worldwide)
         for key, coords in TSS_ZONES.items():
             meta = TSS_METADATA.get(key, {})
+            # Allow metadata to override default MANDATORY interaction
+            interaction_str = meta.get("interaction", "mandatory")
+            interaction = ZoneInteraction(interaction_str)
             self.add_zone(Zone(
                 id=f"tss_{key}",
                 properties=ZoneProperties(
                     name=meta.get("name", key.replace("_", " ").title()),
                     zone_type=ZoneType.TSS,
-                    interaction=ZoneInteraction.MANDATORY,
+                    interaction=interaction,
                     authority=meta.get("authority", "IMO"),
                     notes=meta.get("notes"),
                 ),

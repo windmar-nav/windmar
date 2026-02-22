@@ -20,27 +20,73 @@ Usage: Feed into ZoneChecker as Zone(coordinates=TSS_ZONES["key"], ...)
 TSS_ZONES: dict[str, list[tuple[float, float]]] = {
 
     # =========================================================================
-    # 1. STRAIT OF GIBRALTAR
+    # 1. STRAIT OF GIBRALTAR — IMO COLREG.2/Circ.66 (2014), Circ.58 (2006)
     # =========================================================================
-    # IMO COLREG.2/Circ.58 (2006), MSC.300(87) (2010)
-    # Separation zone centerline: 35d59.01'N 005d25.68'W to 35d56.21'N 005d44.98'W
-    # Eastbound lane (south), Westbound lane (north), ~2 nm each, 0.5 nm sep zone
-    # Reporting: 005d15'W (east) to 005d58'W (west)
     # Reference chart: Spanish Navy Hydrographic Institute No.445, WGS-84
-    "strait_of_gibraltar": [
-        (36.047, -5.328),   # NE corner (north of westbound lane, east end)
-        (36.020, -5.483),   # N mid
-        (35.990, -5.600),   # N, approaching Tarifa
-        (35.960, -5.750),   # NW, west of separation
-        (35.940, -5.967),   # NW corner (reporting line 005d58'W)
-        (35.900, -5.967),   # SW corner
-        (35.870, -5.750),   # S, south of eastbound lane
-        (35.890, -5.600),   # S mid
-        (35.910, -5.483),   # S mid
-        (35.940, -5.328),   # SE corner (east of eastbound lane)
-        (35.948, -5.260),   # SE approach (reporting line 005d15'W area)
-        (36.047, -5.260),   # NE approach
-        (36.047, -5.328),   # close polygon
+    # Separation zone centerline (5 points, IMO numbered positions):
+    #   (1) 35d59.01'N 005d25.68'W  (2) 35d58.36'N 005d28.19'W
+    #   (3) 35d57.08'N 005d33.08'W  (4) 35d56.21'N 005d36.48'W
+    #   (5) 35d56.21'N 005d44.98'W
+    # Separation zone width: 0.5 nm (half-width = 0.25 nm ≈ 0.0042° lat)
+    # Westbound lane north boundary (IMO positions 7-8):
+    #   (7) 36d01.21'N 005d25.68'W  (8) 36d00.35'N 005d28.98'W
+    # Eastbound lane south boundary (IMO positions 15-16):
+    #   (15) 35d56.35'N 005d27.40'W (16) 35d56.84'N 005d25.68'W
+    # Reporting: 005d15'W (east) to 005d58'W (west)
+    #
+    # Split into 3 sub-zones: westbound lane, separation zone, eastbound lane.
+    # Offsets computed from IMO centerline at 0.25 nm (sep edge) and ~2.2 nm
+    # (lane outer edge, calibrated against IMO positions 7 and 16).
+
+    # 1a. WESTBOUND TRAFFIC LANE (north of separation zone)
+    "gibraltar_westbound_lane": [
+        # North boundary (outer, ~2.2 nm north of sep centerline)
+        (35.974, -5.750),   # NW corner
+        (35.974, -5.608),   # W mid
+        (35.988, -5.551),   # Mid (abeam pt3)
+        (36.006, -5.483),   # IMO pt8 approx (36d00.35'N 005d28.98'W)
+        (36.020, -5.428),   # IMO pt7 (36d01.21'N 005d25.68'W)
+        # South boundary (sep zone north edge, reversed east to west)
+        (35.988, -5.428),   # Sep zone north edge at pt1
+        (35.977, -5.470),   # Sep zone north edge at pt2
+        (35.956, -5.551),   # Sep zone north edge at pt3
+        (35.941, -5.608),   # Sep zone north edge at pt4
+        (35.941, -5.750),   # Sep zone north edge at pt5
+        (35.974, -5.750),   # close polygon
+    ],
+
+    # 1b. SEPARATION ZONE (0.5 nm wide, centered on IMO positions 1-5)
+    "gibraltar_separation_zone": [
+        # North edge (west to east)
+        (35.941, -5.750),   # pt5 + 0.0042
+        (35.941, -5.608),   # pt4 + 0.0042
+        (35.956, -5.551),   # pt3 + 0.0042
+        (35.977, -5.470),   # pt2 + 0.0042
+        (35.988, -5.428),   # pt1 + 0.0042
+        # South edge (east to west)
+        (35.979, -5.428),   # pt1 - 0.0042
+        (35.969, -5.470),   # pt2 - 0.0042
+        (35.947, -5.551),   # pt3 - 0.0042
+        (35.933, -5.608),   # pt4 - 0.0042
+        (35.933, -5.750),   # pt5 - 0.0042
+        (35.941, -5.750),   # close polygon
+    ],
+
+    # 1c. EASTBOUND TRAFFIC LANE (south of separation zone)
+    "gibraltar_eastbound_lane": [
+        # North boundary (sep zone south edge, west to east)
+        (35.933, -5.750),   # Sep zone south edge at pt5
+        (35.933, -5.608),   # Sep zone south edge at pt4
+        (35.947, -5.551),   # Sep zone south edge at pt3
+        (35.969, -5.470),   # Sep zone south edge at pt2
+        (35.979, -5.428),   # Sep zone south edge at pt1
+        # South boundary (outer, ~2.2 nm south of sep centerline, reversed)
+        (35.947, -5.428),   # IMO pt16 (35d56.84'N 005d25.68'W)
+        (35.936, -5.470),   # Offset from pt2
+        (35.914, -5.551),   # Offset from pt3
+        (35.900, -5.608),   # Offset from pt4
+        (35.900, -5.750),   # SW corner
+        (35.933, -5.750),   # close polygon
     ],
 
     # =========================================================================
@@ -475,10 +521,21 @@ TSS_ZONES: dict[str, list[tuple[float, float]]] = {
 # ============================================================================
 
 TSS_METADATA: dict[str, dict] = {
-    "strait_of_gibraltar": {
-        "name": "Strait of Gibraltar TSS",
+    "gibraltar_westbound_lane": {
+        "name": "Gibraltar TSS — Westbound Lane",
         "authority": "IMO",
-        "notes": "COLREG.2/Circ.58 (2006). E-W traffic, 2nm lanes, 0.5nm sep zone. GIBREP reporting.",
+        "notes": "COLREG.2/Circ.66 (2014). Westbound traffic (Atlantic-bound). ~2 nm wide.",
+    },
+    "gibraltar_separation_zone": {
+        "name": "Gibraltar TSS — Separation Zone",
+        "authority": "IMO",
+        "notes": "COLREG.2/Circ.66 (2014). 0.5 nm wide. Rule 10(d): vessels shall not use separation zones.",
+        "interaction": "exclusion",
+    },
+    "gibraltar_eastbound_lane": {
+        "name": "Gibraltar TSS — Eastbound Lane",
+        "authority": "IMO",
+        "notes": "COLREG.2/Circ.66 (2014). Eastbound traffic (Mediterranean-bound). ~2 nm wide.",
     },
     "dover_strait": {
         "name": "Dover Strait TSS",
