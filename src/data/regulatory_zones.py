@@ -25,6 +25,9 @@ from pathlib import Path
 from typing import Dict, List, Optional, Tuple, Union
 import uuid
 
+from shapely.geometry import LineString, Polygon as ShapelyPolygon
+from shapely.prepared import prep as shapely_prep
+
 from .tss_zones import TSS_METADATA, TSS_ZONES
 
 logger = logging.getLogger(__name__)
@@ -341,7 +344,13 @@ class ZoneChecker:
         logger.info(f"Loaded {len(self.zones)} built-in regulatory zones")
 
     def add_zone(self, zone: Zone):
-        """Add a zone to the checker."""
+        """Add a zone to the checker (pre-computes Shapely geometry)."""
+        # Pre-compute Shapely polygon for exact intersection tests
+        # Shapely uses (x, y) = (lon, lat)
+        exterior = [(lon, lat) for lat, lon in zone.coordinates]
+        holes = [[(lon, lat) for lat, lon in hole] for hole in zone.holes]
+        zone._shapely_poly = ShapelyPolygon(exterior, holes)
+        zone._prepared_poly = shapely_prep(zone._shapely_poly)
         self.zones[zone.id] = zone
 
     def remove_zone(self, zone_id: str) -> bool:
@@ -433,32 +442,32 @@ class ZoneChecker:
         """
         Check which zones a path segment passes through.
 
+        Uses Shapely prepared-geometry intersection for exact detection
+        of even very narrow zones (e.g., 0.5 nm TSS separation zones).
+
         Returns dict with:
         - 'mandatory': Zones that must be transited
         - 'exclusion': Zones that must be avoided
         - 'penalty': Zones with cost penalties
         - 'advisory': Information-only zones
         """
-        result = {
+        result: Dict[str, List[Zone]] = {
             'mandatory': [],
             'exclusion': [],
             'penalty': [],
             'advisory': [],
         }
 
-        seen_zones = set()
+        # Shapely uses (x, y) = (lon, lat)
+        segment = LineString([(lon1, lat1), (lon2, lat2)])
 
-        for i in range(num_checks + 1):
-            t = i / num_checks
-            lat = lat1 + t * (lat2 - lat1)
-            lon = lon1 + t * (lon2 - lon1)
-
-            for zone in self.get_zones_at_point(lat, lon):
-                if zone.id not in seen_zones:
-                    seen_zones.add(zone.id)
-                    interaction = zone.properties.interaction.value
-                    if interaction in result:
-                        result[interaction].append(zone)
+        for zone in self.zones.values():
+            if self._enforced_types is not None and zone.properties.zone_type.value not in self._enforced_types:
+                continue
+            if hasattr(zone, '_prepared_poly') and zone._prepared_poly.intersects(segment):
+                interaction = zone.properties.interaction.value
+                if interaction in result:
+                    result[interaction].append(zone)
 
         return result
 

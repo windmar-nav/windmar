@@ -86,6 +86,8 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
   const [zoneVisibility, setZoneVisibility] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const t of ZONE_TYPES) init[t] = false;
+    // TSS on by default — routes must comply with traffic separation schemes
+    init['tss'] = true;
     return init;
   });
 
