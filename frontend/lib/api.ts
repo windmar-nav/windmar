@@ -1890,6 +1890,35 @@ export const apiClient = {
     return response.data;
   },
 
+  async benchmarkEngines(request: {
+    origin: Position;
+    destination: Position;
+    calm_speed_kts: number;
+    is_laden: boolean;
+    grid_resolution_deg: number;
+    safety_weight: number;
+    variable_resolution: boolean;
+    engines: string[];
+  }): Promise<{
+    results: Array<{
+      engine: string;
+      total_fuel_mt: number;
+      total_time_hours: number;
+      total_distance_nm: number;
+      cells_explored: number;
+      optimization_time_ms: number;
+      waypoint_count: number;
+      error?: string | null;
+    }>;
+    grid_resolution_deg: number;
+    optimization_target: string;
+  }> {
+    const response = await api.post('/api/optimize/benchmark', request, {
+      timeout: 300000, // 5 min for both engines
+    });
+    return response.data;
+  },
+
   // -------------------------------------------------------------------------
   // Vessel API
   // -------------------------------------------------------------------------

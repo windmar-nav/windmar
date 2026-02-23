@@ -143,7 +143,7 @@ class TestECAManager:
     def test_manager_initialization(self):
         """Test ECA manager initialization."""
         manager = ECAManager()
-        assert len(manager.zones) == 5  # All default zones
+        assert len(manager.zones) == 6  # All default zones (incl. Mediterranean)
 
     def test_manager_custom_zones(self):
         """Test manager with custom zones."""
@@ -223,7 +223,7 @@ class TestECAManager:
         geojson = manager.to_geojson_collection()
 
         assert geojson["type"] == "FeatureCollection"
-        assert len(geojson["features"]) == 5
+        assert len(geojson["features"]) == 6
 
         # Check all features are valid
         for feature in geojson["features"]:
@@ -274,4 +274,4 @@ class TestGlobalECAManager:
 
     def test_singleton_has_all_zones(self):
         """Test global manager has all zones."""
-        assert len(eca_manager.zones) == 5
+        assert len(eca_manager.zones) == 6

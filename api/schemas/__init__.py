@@ -44,6 +44,9 @@ from .optimization import (  # noqa: F401
     SpeedScenarioModel,
     ParetoSolutionModel,
     OptimizationResponse,
+    BenchmarkRequest,
+    BenchmarkEngineResult,
+    BenchmarkResponse,
 )
 
 # Vessel

@@ -14,6 +14,9 @@ from typing import Optional
 from fastapi import APIRouter, HTTPException
 
 from api.schemas import (
+    BenchmarkEngineResult,
+    BenchmarkRequest,
+    BenchmarkResponse,
     OptimizationLegModel,
     OptimizationRequest,
     OptimizationResponse,
@@ -35,6 +38,7 @@ from api.weather_service import (
 )
 from src.optimization.grid_weather_provider import GridWeatherProvider
 from src.optimization.route_optimizer import RouteOptimizer
+from src.optimization.visir_optimizer import VisirOptimizer
 from src.optimization.weather_assessment import RouteWeatherAssessment
 
 logger = logging.getLogger(__name__)
@@ -70,22 +74,29 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
 
     departure = request.departure_time or datetime.utcnow()
 
-    # Select optimization engine
+    # Create fresh optimizer per request (avoids race conditions with concurrent requests)
     engine_name = request.engine.lower()
-    if engine_name == "visir":
-        active_optimizer = _vs.visir_optimizer
-    else:
-        active_optimizer = _vs.route_optimizer
-    # VISIR uses coarser resolution than A* (0.25° vs 0.1°) for performance
-    active_optimizer.resolution_deg = (
+    vessel_model = _vs.model
+    resolution = (
         max(request.grid_resolution_deg, 0.25) if engine_name == "visir"
         else request.grid_resolution_deg
     )
-    active_optimizer.optimization_target = request.optimization_target
-    active_optimizer.safety_weight = request.safety_weight
-    # Variable resolution: two-tier grid (A* only, ignored by VISIR)
-    if engine_name != "visir":
-        active_optimizer.variable_resolution = request.variable_resolution
+
+    if engine_name == "visir":
+        active_optimizer = VisirOptimizer(
+            vessel_model=vessel_model,
+            resolution_deg=resolution,
+            optimization_target=request.optimization_target,
+        )
+        active_optimizer.safety_weight = request.safety_weight
+    else:
+        active_optimizer = RouteOptimizer(
+            vessel_model=vessel_model,
+            resolution_deg=resolution,
+            optimization_target=request.optimization_target,
+            variable_resolution=request.variable_resolution,
+        )
+        active_optimizer.safety_weight = request.safety_weight
 
     try:
         # ── Temporal weather provisioning (DB-first) ──────────────────
@@ -369,3 +380,105 @@ async def get_optimization_status():
             "service_speed_laden": _vs.specs.service_speed_laden,
         }
     }
+
+
+@router.post("/api/optimize/benchmark", response_model=BenchmarkResponse)
+async def benchmark_engines(request: BenchmarkRequest):
+    """
+    Run the same optimization on multiple engines and compare results.
+
+    Returns wall-clock time, fuel, distance, and cells explored per engine.
+    Useful for comparing A* vs VISIR performance on the same route.
+    """
+    return await asyncio.to_thread(_benchmark_sync, request)
+
+
+def _benchmark_sync(request: "BenchmarkRequest") -> "BenchmarkResponse":
+    """Synchronous benchmark logic (runs in a thread pool)."""
+    _vs = get_vessel_state()
+    db_weather = get_app_state().weather_providers.get('db_weather')
+    departure = request.departure_time or datetime.utcnow()
+    vessel_model = _vs.model
+
+    allowed_engines = {"astar", "visir"}
+    engines = [e.lower() for e in request.engines if e.lower() in allowed_engines]
+    if not engines:
+        engines = ["astar", "visir"]
+
+    # Build shared weather provider once (snapshot fallback only for benchmark)
+    margin = 5.0
+    lat_min = min(request.origin.lat, request.destination.lat) - margin
+    lat_max = max(request.origin.lat, request.destination.lat) + margin
+    lon_min = min(request.origin.lon, request.destination.lon) - margin
+    lon_max = max(request.origin.lon, request.destination.lon) + margin
+    lat_min, lat_max = max(lat_min, -85), min(lat_max, 85)
+
+    wind = get_wind_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
+    waves = get_wave_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, wind)
+    currents = get_current_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg)
+    sst = get_sst_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
+    vis = get_visibility_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
+    ice = get_ice_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
+    grid_wx = GridWeatherProvider(wind, waves, currents, sst, vis, ice)
+    wx_provider = grid_wx.get_weather
+
+    results = []
+    for engine_name in engines:
+        try:
+            resolution = (
+                max(request.grid_resolution_deg, 0.25) if engine_name == "visir"
+                else request.grid_resolution_deg
+            )
+
+            if engine_name == "visir":
+                optimizer = VisirOptimizer(
+                    vessel_model=vessel_model,
+                    resolution_deg=resolution,
+                    optimization_target=request.optimization_target,
+                )
+            else:
+                optimizer = RouteOptimizer(
+                    vessel_model=vessel_model,
+                    resolution_deg=resolution,
+                    optimization_target=request.optimization_target,
+                    variable_resolution=request.variable_resolution,
+                )
+            optimizer.safety_weight = request.safety_weight
+
+            result = optimizer.optimize_route(
+                origin=(request.origin.lat, request.origin.lon),
+                destination=(request.destination.lat, request.destination.lon),
+                departure_time=departure,
+                calm_speed_kts=request.calm_speed_kts,
+                is_laden=request.is_laden,
+                weather_provider=wx_provider,
+                max_time_factor=request.max_time_factor,
+            )
+
+            results.append(BenchmarkEngineResult(
+                engine=engine_name,
+                total_fuel_mt=round(result.total_fuel_mt, 2),
+                total_time_hours=round(result.total_time_hours, 2),
+                total_distance_nm=round(result.total_distance_nm, 1),
+                cells_explored=result.cells_explored,
+                optimization_time_ms=round(result.optimization_time_ms, 1),
+                waypoint_count=len(result.waypoints),
+            ))
+        except Exception as e:
+            logger.error(f"Benchmark engine {engine_name} failed: {e}", exc_info=True)
+            results.append(BenchmarkEngineResult(
+                engine=engine_name,
+                total_fuel_mt=0,
+                total_time_hours=0,
+                total_distance_nm=0,
+                cells_explored=0,
+                optimization_time_ms=0,
+                waypoint_count=0,
+                error=str(e),
+            ))
+
+    return BenchmarkResponse(
+        results=results,
+        grid_resolution_deg=request.grid_resolution_deg,
+        optimization_target=request.optimization_target,
+    )

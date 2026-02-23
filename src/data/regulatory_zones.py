@@ -166,12 +166,12 @@ class ZoneChecker:
 
     def _load_builtin_zones(self):
         """Load hardcoded regulatory zones."""
-        # Baltic Sea ECA
+        # Baltic Sea SECA (SOx-only)
         self.add_zone(Zone(
-            id="eca_baltic",
+            id="seca_baltic",
             properties=ZoneProperties(
-                name="Baltic Sea ECA",
-                zone_type=ZoneType.ECA,
+                name="Baltic Sea SECA",
+                zone_type=ZoneType.SECA,
                 interaction=ZoneInteraction.PENALTY,
                 penalty_factor=1.15,  # ~15% fuel cost increase for low-sulfur
                 authority="IMO MEPC",
@@ -185,12 +185,12 @@ class ZoneChecker:
             is_builtin=True,
         ))
 
-        # North Sea ECA
+        # North Sea SECA (SOx-only)
         self.add_zone(Zone(
-            id="eca_north_sea",
+            id="seca_north_sea",
             properties=ZoneProperties(
-                name="North Sea ECA",
-                zone_type=ZoneType.ECA,
+                name="North Sea SECA",
+                zone_type=ZoneType.SECA,
                 interaction=ZoneInteraction.PENALTY,
                 penalty_factor=1.15,
                 authority="IMO MEPC",
@@ -204,12 +204,12 @@ class ZoneChecker:
             is_builtin=True,
         ))
 
-        # English Channel ECA (part of North Sea)
+        # English Channel SECA (part of North Sea SECA)
         self.add_zone(Zone(
-            id="eca_english_channel",
+            id="seca_english_channel",
             properties=ZoneProperties(
-                name="English Channel ECA",
-                zone_type=ZoneType.ECA,
+                name="English Channel SECA",
+                zone_type=ZoneType.SECA,
                 interaction=ZoneInteraction.PENALTY,
                 penalty_factor=1.15,
                 authority="IMO MEPC",
@@ -259,22 +259,57 @@ class ZoneChecker:
             is_builtin=True,
         ))
 
-        # Indian Ocean High Risk Area (Piracy)
+        # Indian Ocean High Risk Area (BMP5 — current ITF/IMO boundaries)
+        # Updated polygon per BMP5 2024 guidance
         self.add_zone(Zone(
             id="hra_indian_ocean",
             properties=ZoneProperties(
-                name="Indian Ocean High Risk Area",
+                name="Indian Ocean HRA (BMP5)",
                 zone_type=ZoneType.HRA,
                 interaction=ZoneInteraction.PENALTY,
-                penalty_factor=1.5,  # Significant penalty for piracy risk
-                authority="MSCHOA/UKMTO",
+                penalty_factor=1.5,
+                authority="IMO/UKMTO/MSCHOA",
                 security_level=3,
-                notes="Armed guards and BMP5 recommended",
+                notes="Armed guards and BMP5 recommended. Covers Gulf of Aden, Arabian Sea, Somali Basin.",
             ),
             coordinates=[
-                (23.0, 60.0), (23.0, 78.0), (10.0, 78.0), (10.0, 65.0),
-                (-5.0, 50.0), (-5.0, 40.0), (5.0, 40.0), (12.0, 45.0),
-                (15.0, 52.0), (23.0, 60.0)
+                # BMP5 HRA boundary (approximate)
+                (26.0, 57.0),   # Oman/Strait of Hormuz approach
+                (26.0, 78.0),   # India west coast offshore
+                (10.0, 78.0),   # Sri Lanka approach
+                (5.0, 78.0),    # South of India
+                (-5.0, 55.0),   # Seychelles area
+                (-5.0, 40.0),   # East Africa offshore
+                (2.0, 40.0),    # Kenya/Somalia coast
+                (12.0, 44.0),   # Gulf of Aden west
+                (12.0, 49.0),   # Gulf of Aden east / Socotra
+                (15.5, 52.0),   # Oman south coast
+                (22.0, 60.0),   # Arabian Sea
+                (26.0, 57.0),   # Back to start
+            ],
+            is_builtin=True,
+        ))
+
+        # Gulf of Guinea HRA (BMP West Africa / IMO)
+        self.add_zone(Zone(
+            id="hra_gulf_of_guinea",
+            properties=ZoneProperties(
+                name="Gulf of Guinea HRA",
+                zone_type=ZoneType.HRA,
+                interaction=ZoneInteraction.PENALTY,
+                penalty_factor=1.3,
+                authority="IMO/MDAT-GoG",
+                security_level=2,
+                notes="Piracy and armed robbery risk. MDAT-GoG reporting zone.",
+            ),
+            coordinates=[
+                # Gulf of Guinea voluntary reporting area
+                (6.0, -5.0),     # Ivory Coast offshore
+                (6.0, 9.0),      # Nigeria/Cameroon offshore
+                (2.0, 9.0),      # Equatorial Guinea
+                (-2.0, 9.0),     # Gabon
+                (-2.0, -5.0),    # Open Atlantic
+                (6.0, -5.0),     # Back to start
             ],
             is_builtin=True,
         ))
@@ -312,16 +347,17 @@ class ZoneChecker:
             is_builtin=True,
         ))
 
-        # Mediterranean ECA (proposal - future)
+        # Mediterranean Sea SECA (MEPC 80 — entered force 2025-05-01)
         self.add_zone(Zone(
-            id="eca_mediterranean_proposed",
+            id="seca_mediterranean",
             properties=ZoneProperties(
-                name="Mediterranean ECA (Proposed)",
-                zone_type=ZoneType.ECA,
-                interaction=ZoneInteraction.ADVISORY,  # Not yet mandatory
-                penalty_factor=1.0,
-                authority="IMO (proposed)",
-                notes="Expected 2025+ implementation",
+                name="Mediterranean Sea SECA",
+                zone_type=ZoneType.SECA,
+                interaction=ZoneInteraction.PENALTY,
+                penalty_factor=1.15,
+                authority="IMO MEPC 80",
+                fuel_requirement="0.1% sulfur",
+                notes="MARPOL Annex VI designation, effective May 2025",
             ),
             coordinates=[
                 (46.0, -6.0), (46.0, 36.0), (30.0, 36.0), (30.0, -6.0),
@@ -452,6 +488,61 @@ class ZoneChecker:
 
         return result
 
+    @staticmethod
+    def _compute_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
+        """Compute initial bearing from (lat1,lon1) to (lat2,lon2) in degrees [0,360)."""
+        lat1_r = math.radians(lat1)
+        lat2_r = math.radians(lat2)
+        dlon = math.radians(lon2 - lon1)
+        x = math.sin(dlon) * math.cos(lat2_r)
+        y = math.cos(lat1_r) * math.sin(lat2_r) - math.sin(lat1_r) * math.cos(lat2_r) * math.cos(dlon)
+        brg = math.degrees(math.atan2(x, y))
+        return brg % 360.0
+
+    @staticmethod
+    def _angular_deviation(bearing: float, target: float) -> float:
+        """Minimum angular difference between two bearings in degrees [0, 180]."""
+        diff = abs(bearing - target) % 360
+        return min(diff, 360 - diff)
+
+    def _check_tss_heading(
+        self,
+        zone: Zone,
+        bearing_deg: float,
+    ) -> Tuple[float, Optional[str]]:
+        """
+        Check if a segment bearing aligns with a TSS zone's required direction.
+
+        For bidirectional zones, either the stated direction or its reciprocal
+        (±180°) is acceptable.
+
+        Returns:
+            (penalty_multiplier, warning_message_or_None)
+        """
+        zone_key = zone.id.removeprefix("tss_")
+        meta = TSS_METADATA.get(zone_key, {})
+        direction = meta.get("direction_deg")
+        if direction is None:
+            return 1.0, None  # No direction data — no penalty
+
+        tolerance = meta.get("tolerance_deg", 20)
+        bidirectional = meta.get("bidirectional", True)
+
+        # Check alignment with primary direction
+        dev = self._angular_deviation(bearing_deg, direction)
+        if dev <= tolerance:
+            # Aligned with primary direction — incentivize
+            return 0.4, None
+
+        # Check reciprocal for bidirectional zones
+        if bidirectional:
+            dev_recip = self._angular_deviation(bearing_deg, (direction + 180) % 360)
+            if dev_recip <= tolerance:
+                return 0.4, None
+
+        # Misaligned — heavy penalty (potential wrong-way transit or crossing)
+        return 10.0, f"TSS heading violation: {zone.properties.name} (bearing {bearing_deg:.0f}° vs required {direction:.0f}°±{tolerance}°)"
+
     def get_path_penalty(
         self,
         lat1: float,
@@ -479,6 +570,16 @@ class ZoneChecker:
         for zone in zones['penalty']:
             penalty *= zone.properties.penalty_factor
             warnings.append(f"Transiting {zone.properties.name} (+{(zone.properties.penalty_factor-1)*100:.0f}% cost)")
+
+        # TSS heading alignment check for mandatory zones
+        if zones['mandatory']:
+            bearing = self._compute_bearing(lat1, lon1, lat2, lon2)
+            for zone in zones['mandatory']:
+                if zone.properties.zone_type == ZoneType.TSS:
+                    tss_mult, tss_warn = self._check_tss_heading(zone, bearing)
+                    penalty *= tss_mult
+                    if tss_warn:
+                        warnings.append(tss_warn)
 
         # Add advisory info
         for zone in zones['advisory']:

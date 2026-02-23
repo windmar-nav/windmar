@@ -31,6 +31,7 @@ class ECAZone:
     nox_tier: Optional[int] = None  # NOx tier requirement (III for NAm/Caribbean)
     effective_date: str = "2015-01-01"
     color: str = "#ff6b6b"  # Display color for map
+    zone_type: str = "eca"  # "eca" (full) or "seca" (sulfur-only)
 
     def contains_point(self, lat: float, lon: float) -> bool:
         """
@@ -76,6 +77,7 @@ class ECAZone:
                 "nox_tier": self.nox_tier,
                 "effective_date": self.effective_date,
                 "color": self.color,
+                "zone_type": self.zone_type,
             },
             "geometry": {
                 "type": "Polygon",
@@ -89,9 +91,10 @@ class ECAZone:
 # and entrance to the Baltic up to Skagen
 # Simplified polygon covering the entire sea area
 BALTIC_SEA_ECA = ECAZone(
-    name="Baltic Sea ECA",
+    name="Baltic Sea SECA",
     code="BALTIC",
-    color="#4ecdc4",
+    color="#eab308",
+    zone_type="seca",
     polygon=[
         # Simplified boundary covering Baltic Sea
         (53.5, 9.5),    # SW - near Kiel
@@ -120,9 +123,10 @@ BALTIC_SEA_ECA = ECAZone(
 # Covers the North Sea, English Channel, and approaches
 # Simplified polygon covering the water area
 NORTH_SEA_ECA = ECAZone(
-    name="North Sea ECA",
+    name="North Sea SECA",
     code="NORTHSEA",
-    color="#45b7d1",
+    color="#eab308",
+    zone_type="seca",
     polygon=[
         # Simplified boundary covering North Sea and English Channel
         (48.0, -6.0),    # SW - Atlantic approach
@@ -244,6 +248,73 @@ US_CARIBBEAN_ECA = ECAZone(
 )
 
 
+# Mediterranean Sea ECA - SOx control (MEPC 80, entered force 2025-05-01)
+# Covers entire Mediterranean Sea including Black Sea approaches
+MEDITERRANEAN_ECA = ECAZone(
+    name="Mediterranean Sea ECA",
+    code="MEDSEA",
+    color="#22c55e",
+    zone_type="seca",
+    effective_date="2025-05-01",
+    polygon=[
+        # Western entrance (Strait of Gibraltar)
+        (35.8, -5.8),
+        (36.2, -5.3),
+        # Spanish coast
+        (37.0, -2.0),
+        (38.0, 0.0),
+        (39.5, 0.5),
+        (41.0, 2.0),
+        # Gulf of Lion
+        (43.5, 4.0),
+        (43.5, 6.0),
+        # Ligurian Sea / Italian Riviera
+        (44.0, 9.5),
+        # Tyrrhenian Sea
+        (42.0, 12.0),
+        # South Italy
+        (38.0, 16.0),
+        # Adriatic entrance
+        (40.0, 19.0),
+        # Adriatic north
+        (45.5, 14.0),
+        (45.0, 13.0),
+        # Back down Adriatic
+        (41.0, 17.0),
+        # Greece west
+        (38.0, 20.0),
+        # Crete
+        (35.0, 24.0),
+        # Eastern Med
+        (35.0, 28.0),
+        (36.5, 30.0),
+        # Turkish coast
+        (36.5, 32.0),
+        (36.0, 36.0),
+        # Syria/Lebanon
+        (35.0, 36.0),
+        (33.0, 35.5),
+        # Israel
+        (32.0, 34.5),
+        # Egypt
+        (31.0, 32.5),
+        # Libya coast
+        (32.0, 25.0),
+        (33.0, 20.0),
+        (34.0, 12.0),
+        # Tunisia
+        (37.0, 10.0),
+        # Algeria
+        (37.0, 6.0),
+        (36.5, 2.0),
+        (36.0, 0.0),
+        # Morocco
+        (35.5, -2.0),
+        (35.8, -5.8),  # Back to Gibraltar
+    ],
+)
+
+
 # All defined ECA zones
 ECA_ZONES = [
     BALTIC_SEA_ECA,
@@ -251,6 +322,7 @@ ECA_ZONES = [
     NORTH_AMERICAN_ECA,
     NORTH_AMERICAN_PACIFIC_ECA,
     US_CARIBBEAN_ECA,
+    MEDITERRANEAN_ECA,
 ]
 
 

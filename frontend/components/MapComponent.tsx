@@ -4,6 +4,7 @@ import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Loader2 } from 'lucide-react';
 import { Position, WindFieldData, WaveFieldData, VelocityData, CreateZoneRequest, WaveForecastFrames, IceForecastFrames, SstForecastFrames, VisForecastFrames, AllOptimizationResults, RouteVisibility, OptimizedRouteKey, ROUTE_STYLES } from '@/lib/api';
+import { sogToColor } from '@/lib/utils';
 import { DEMO_MODE, DEMO_BOUNDS } from '@/lib/demoMode';
 
 // Dynamic imports for map components (client-side only)
@@ -250,11 +251,37 @@ export default function MapComponent({
           routeColor={routeVisibility?.original === false ? 'transparent' : undefined}
         />
 
-        {/* Optimized route overlays — dynamic loop over all 6 route keys */}
+        {/* Optimized route overlays — per-leg SOG gradient coloring */}
         {allResults && routeVisibility && (Object.keys(ROUTE_STYLES) as OptimizedRouteKey[]).map(key => {
           const result = allResults[key];
           if (!routeVisibility[key] || !result?.waypoints?.length || result.waypoints.length < 2) return null;
           const style = ROUTE_STYLES[key];
+          const legs = result.legs;
+
+          // If legs with SOG data available, render per-leg colored segments
+          if (legs && legs.length > 0 && legs.some(l => l.sog_kts > 0)) {
+            const sogValues = legs.map(l => l.sog_kts);
+            const minSog = Math.min(...sogValues);
+            const maxSog = Math.max(...sogValues);
+            return legs.map((leg, i) => (
+              <Polyline
+                key={`${key}-leg-${i}`}
+                positions={[
+                  [leg.from_lat, leg.from_lon] as [number, number],
+                  [leg.to_lat, leg.to_lon] as [number, number],
+                ]}
+                pathOptions={{
+                  color: sogToColor(leg.sog_kts, minSog, maxSog),
+                  weight: 3,
+                  opacity: 0.9,
+                }}
+              >
+                <Tooltip sticky>{style.label}: {leg.sog_kts.toFixed(1)} kts</Tooltip>
+              </Polyline>
+            ));
+          }
+
+          // Fallback: single polyline with route style
           return (
             <Polyline
               key={key}

@@ -151,6 +151,41 @@ class OptimizationResponse(BaseModel):
     optimization_time_ms: float
 
 
+class BenchmarkRequest(BaseModel):
+    """Request for benchmark comparison between optimization engines."""
+    origin: Position
+    destination: Position
+    calm_speed_kts: float = Field(..., gt=0, lt=30)
+    is_laden: bool = True
+    departure_time: Optional["datetime"] = None
+    optimization_target: str = Field("fuel", description="Minimize 'fuel' or 'time'")
+    grid_resolution_deg: float = Field(0.2, ge=0.05, le=2.0)
+    max_time_factor: float = Field(1.15, ge=1.0, le=2.0)
+    safety_weight: float = Field(0.0, ge=0.0, le=1.0)
+    variable_resolution: bool = Field(True)
+    engines: List[str] = Field(default=["astar", "visir"], description="Engines to benchmark")
+
+
+class BenchmarkEngineResult(BaseModel):
+    """Result from a single engine in a benchmark run."""
+    engine: str
+    total_fuel_mt: float
+    total_time_hours: float
+    total_distance_nm: float
+    cells_explored: int
+    optimization_time_ms: float
+    waypoint_count: int
+    error: Optional[str] = None
+
+
+class BenchmarkResponse(BaseModel):
+    """Benchmark comparison result."""
+    results: List[BenchmarkEngineResult]
+    grid_resolution_deg: float
+    optimization_target: str
+
+
 # Fix forward reference for OptimizationRequest.departure_time
 from datetime import datetime  # noqa: E402
 OptimizationRequest.model_rebuild()
+BenchmarkRequest.model_rebuild()

@@ -202,11 +202,11 @@ class TestAStarIntegration:
         opt = RouteOptimizer(variable_resolution=True)
         assert opt.variable_resolution is True
 
-    def test_backward_compat_default_false(self):
-        """Default variable_resolution is False (backward compatible)."""
+    def test_default_variable_resolution_true(self):
+        """Default variable_resolution is True (v0.1.1: enabled by default)."""
         from src.optimization.route_optimizer import RouteOptimizer
         opt = RouteOptimizer()
-        assert opt.variable_resolution is False
+        assert opt.variable_resolution is True
 
 
 # ---------------------------------------------------------------------------

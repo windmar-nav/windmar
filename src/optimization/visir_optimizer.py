@@ -40,6 +40,7 @@ from src.optimization.seakeeping import (
 from src.data.land_mask import is_ocean, is_path_clear
 from src.data.regulatory_zones import get_zone_checker, ZoneChecker
 from src.optimization.route_optimizer import apply_visibility_cap
+from src.optimization.grid_builder import GridBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -293,39 +294,15 @@ class VisirOptimizer(BaseOptimizer):
         """
         Build a 2-D (row, col) -> (lat, lon) ocean grid.
 
-        Returns the grid dict and grid_bounds dict with lat_min, lon_min,
-        num_rows, num_cols for O(1) index calculation and time-step sizing.
+        Delegates to GridBuilder.build_spatial() for grid generation.
         """
-        lat_min = min(origin[0], destination[0]) - margin_deg
-        lat_max = max(origin[0], destination[0]) + margin_deg
-        lon_min = min(origin[1], destination[1]) - margin_deg
-        lon_max = max(origin[1], destination[1]) + margin_deg
-        lat_min, lat_max = max(lat_min, -85), min(lat_max, 85)
-
-        grid: Dict[Tuple[int, int], Tuple[float, float]] = {}
-        num_rows = 0
-        num_cols = 0
-        lat = lat_min
-        while lat <= lat_max:
-            col = 0
-            lon = lon_min
-            while lon <= lon_max:
-                if not filter_land or is_ocean(lat, lon):
-                    grid[(num_rows, col)] = (lat, lon)
-                lon += self.resolution_deg
-                col += 1
-            num_cols = max(num_cols, col)
-            lat += self.resolution_deg
-            num_rows += 1
-
-        grid_bounds = {
-            "lat_min": lat_min,
-            "lon_min": lon_min,
-            "num_rows": num_rows,
-            "num_cols": num_cols,
-        }
-        logger.info(f"VISIR grid: {len(grid)} ocean cells ({num_rows}x{num_cols})")
-        return grid, grid_bounds
+        return GridBuilder.build_spatial(
+            origin=origin,
+            destination=destination,
+            resolution_deg=self.resolution_deg,
+            margin_deg=margin_deg,
+            filter_land=filter_land,
+        )
 
     def _nearest_cell(
         self,

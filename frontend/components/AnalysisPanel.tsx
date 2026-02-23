@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import Link from 'next/link';
 import RouteImport, { SampleRTZButton } from '@/components/RouteImport';
+import SettingsPanel from '@/components/SettingsPanel';
 import { useVoyage } from '@/components/VoyageContext';
 import { DEMO_MODE } from '@/lib/demoMode';
 import {
@@ -312,20 +313,21 @@ export default function AnalysisPanel({
               </div>
             )}
 
-            {/* ── Optimization Options ── */}
-            <label className="flex items-center gap-2 px-2 py-1.5 rounded bg-white/5 text-xs text-gray-400 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={variableResolution}
-                onChange={(e) => onVariableResolutionChange(e.target.checked)}
-                className="accent-ocean-500"
-              />
-              <Grid3X3 className="w-3 h-3" />
-              <span>Variable resolution grid</span>
-              <span className="ml-auto text-[9px] text-gray-600" title="Fine 0.1° nearshore, coarse 0.5° ocean">
-                0.1°/0.5°
-              </span>
-            </label>
+            {/* ── Optimization Settings ── */}
+            <SettingsPanel
+              settings={{
+                gridResolution: 0.2,
+                safetyWeight: 0.0,
+                variableResolution,
+                pareto: false,
+              }}
+              onSettingsChange={(s) => {
+                onVariableResolutionChange(s.variableResolution);
+              }}
+              waypoints={waypoints}
+              calmSpeed={calmSpeed}
+              isLaden={isLaden}
+            />
 
             {/* ── Optimize Route ── */}
             <button

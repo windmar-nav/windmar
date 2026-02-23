@@ -35,7 +35,7 @@ export default function HomePage() {
   const [isEditing, setIsEditing] = useState(true);
   const [isCalculating, setIsCalculating] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [variableResolution, setVariableResolution] = useState(false);
+  const [variableResolution, setVariableResolution] = useState(true);
   const [paretoFront, setParetoFront] = useState<ParetoSolution[] | null>(null);
   const [isRunningPareto, setIsRunningPareto] = useState(false);
 
