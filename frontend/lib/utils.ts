@@ -36,14 +36,16 @@ export function formatSpeed(kts: number): string {
 }
 
 /**
- * Map SOG to a color gradient: green (service speed) → yellow → red (minimum SOG).
- * Uses HSL interpolation: H=120 (green) at maxSog, H=0 (red) at minSog.
+ * Map SOG to a color gradient: green (service speed) → orange (minimum SOG).
+ * Uses HSL interpolation: H=100 (green) at maxSog, H=30 (orange) at minSog.
+ * Returns null if SOG spread is < 1 kt (below model uncertainty — use neutral color).
  */
-export function sogToColor(sog: number, minSog: number, maxSog: number): string {
-  if (maxSog <= minSog) return 'hsl(120, 80%, 45%)';
-  const t = Math.max(0, Math.min(1, (sog - minSog) / (maxSog - minSog)));
-  const hue = Math.round(t * 120); // 0=red, 60=yellow, 120=green
-  return `hsl(${hue}, 80%, 45%)`;
+export function sogToColor(sog: number, minSog: number, maxSog: number): string | null {
+  const spread = maxSog - minSog;
+  if (spread < 1.0) return null;
+  const t = Math.max(0, Math.min(1, (sog - minSog) / spread));
+  const hue = Math.round(30 + t * 70);
+  return `hsl(${hue}, 55%, 55%)`;
 }
 
 export function formatDate(date: string | Date): string {

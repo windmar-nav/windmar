@@ -317,7 +317,6 @@ export default function AnalysisPanel({
             <SettingsPanel
               settings={{
                 gridResolution: 0.2,
-                safetyWeight: 0.0,
                 variableResolution,
                 pareto: false,
               }}
@@ -360,23 +359,14 @@ export default function AnalysisPanel({
                     const hasAny = keys.some(k => allResults[k]);
                     if (!hasAny) return null;
 
-                    // Filter routes: show fuel-saving routes always, show safety routes
-                    // with clear labeling even if they cost more
-                    const visibleKeys = keys.filter(key => {
-                      const r = allResults[key];
-                      if (!r || !baselineFuel) return !!r;
-                      const weight = key.split('_')[1];
-                      const isSafetyRoute = weight === 'balanced' || weight === 'safety';
-                      const savesFuel = r.total_fuel_mt < baselineFuel;
-                      return savesFuel || isSafetyRoute;
-                    });
+                    const visibleKeys = keys.filter(key => !!allResults[key]);
 
                     if (visibleKeys.length === 0) return null;
 
                     return (
                       <div key={engine} className="space-y-1">
                         <div className="text-[10px] text-gray-500 uppercase tracking-wider">
-                          {engine === 'astar' ? 'A*' : 'Dijkstra'}
+                          {engine === 'astar' ? 'A*' : 'VISIR'}
                         </div>
                         {visibleKeys.map(key => {
                           const r = allResults[key]!;

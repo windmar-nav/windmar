@@ -1160,10 +1160,7 @@ class CopernicusDataProvider:
             logger.warning("CMEMS credentials not configured for ice data")
             return None
 
-        # Only fetch if region includes high latitudes (>55° or <-55°)
-        if abs(lat_max) < 55 and abs(lat_min) < 55:
-            logger.info("Region below 55° latitude — skipping ice data fetch")
-            return None
+        logger.debug(f"Ice fetch for bbox lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
 
         import copernicusmarine
         import xarray as xr
@@ -1256,10 +1253,7 @@ class CopernicusDataProvider:
             logger.warning("CMEMS credentials not configured for ice forecast")
             return None
 
-        # Only fetch if region includes high latitudes (>55° or <-55°)
-        if abs(lat_max) < 55 and abs(lat_min) < 55:
-            logger.info("Region below 55° latitude — skipping ice forecast")
-            return None
+        logger.debug(f"Ice forecast fetch for bbox lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
 
         import copernicusmarine
         import xarray as xr

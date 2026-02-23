@@ -1,7 +1,6 @@
 'use client';
 
-import { PenTool, Gauge, Fuel, Scale } from 'lucide-react';
-import Link from 'next/link';
+import { PenTool } from 'lucide-react';
 import { useVoyage, ZONE_TYPES } from '@/components/VoyageContext';
 
 const ZONE_LABELS: Record<string, string> = {
@@ -40,27 +39,6 @@ export default function RegulationsDropdown() {
       </div>
 
       <div className="border-t border-white/10 pt-3 space-y-2">
-        <Link
-          href="/cii-compliance"
-          className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg text-sm bg-maritime-medium text-gray-400 hover:text-white transition-colors"
-        >
-          <Gauge className="w-4 h-4" />
-          <span>CII Compliance</span>
-        </Link>
-        <Link
-          href="/fueleu-compliance"
-          className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg text-sm bg-maritime-medium text-gray-400 hover:text-white transition-colors"
-        >
-          <Fuel className="w-4 h-4" />
-          <span>FuelEU Maritime</span>
-        </Link>
-        <Link
-          href="/charter-party"
-          className="w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg text-sm bg-maritime-medium text-gray-400 hover:text-white transition-colors"
-        >
-          <Scale className="w-4 h-4" />
-          <span>Charter Party</span>
-        </Link>
         <button
           onClick={() => setIsDrawingZone(!isDrawingZone)}
           className={`w-full flex items-center justify-center space-x-2 px-3 py-2 rounded-lg text-sm transition-colors ${

@@ -728,12 +728,12 @@ export interface RouteVisibility {
 }
 
 export const ROUTE_STYLES: Record<OptimizedRouteKey, { color: string; dashArray: string; label: string }> = {
-  astar_fuel:     { color: '#22c55e', dashArray: '8, 4',  label: 'A* Fuel' },
-  astar_balanced: { color: '#4ade80', dashArray: '12, 6', label: 'A* Balanced' },
-  astar_safety:   { color: '#86efac', dashArray: '4, 4',  label: 'A* Safety' },
-  visir_fuel:     { color: '#f97316', dashArray: '8, 4',  label: 'Dijkstra Fuel' },
-  visir_balanced: { color: '#fb923c', dashArray: '12, 6', label: 'Dijkstra Balanced' },
-  visir_safety:   { color: '#fdba74', dashArray: '4, 4',  label: 'Dijkstra Safety' },
+  astar_fuel:     { color: '#5ab87a', dashArray: '8, 4',  label: 'A* Fuel' },
+  astar_balanced: { color: '#7bc89a', dashArray: '12, 6', label: 'A* Balanced' },
+  astar_safety:   { color: '#a5d4b5', dashArray: '4, 4',  label: 'A* Safety' },
+  visir_fuel:     { color: '#d4885a', dashArray: '8, 4',  label: 'VISIR Fuel' },
+  visir_balanced: { color: '#dda07c', dashArray: '12, 6', label: 'VISIR Balanced' },
+  visir_safety:   { color: '#e6c0a0', dashArray: '4, 4',  label: 'VISIR Safety' },
 };
 
 export const DEFAULT_ROUTE_VISIBILITY: RouteVisibility = {

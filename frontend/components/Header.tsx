@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Ship, Gauge, Shield, Map, LogOut, Cloud, BarChart3, ScrollText, ExternalLink, Info, BookOpen } from 'lucide-react';
+import { Ship, Compass, Shield, Map, LogOut, Cloud, BarChart3, ScrollText, ExternalLink, Info, BookOpen } from 'lucide-react';
 import Link from 'next/link';
 import VoyageDropdown from '@/components/VoyageDropdown';
 import RegulationsDropdown from '@/components/RegulationsDropdown';
@@ -133,10 +133,10 @@ export default function Header({ onFitRoute }: HeaderProps) {
                     ? 'text-primary-400 bg-primary-500/10'
                     : 'text-gray-400 hover:text-white hover:bg-white/5'
                 }`}
-                title="Voyage Parameters"
+                title="Route Setup"
               >
-                <Gauge className="w-5 h-5" />
-                <span className="text-sm font-medium hidden sm:inline">Voyage</span>
+                <Compass className="w-5 h-5" />
+                <span className="text-sm font-medium hidden sm:inline">Route Setup</span>
               </button>
               {openDropdown === 'voyage' && (
                 <VoyageDropdown onFitRoute={onFitRoute} onClose={closeDropdown} />

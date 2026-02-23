@@ -1,12 +1,11 @@
 'use client';
 
 import { useState } from 'react';
-import { Settings, Grid3X3, Gauge, Shield, BarChart3, Loader2 } from 'lucide-react';
+import { Settings, Grid3X3, Gauge, BarChart3, Loader2 } from 'lucide-react';
 import { apiClient, Position } from '@/lib/api';
 
 export interface OptimizationSettings {
   gridResolution: number;
-  safetyWeight: number;
   variableResolution: boolean;
   pareto: boolean;
 }
@@ -54,7 +53,7 @@ export default function SettingsPanel({
         calm_speed_kts: calmSpeed,
         is_laden: isLaden,
         grid_resolution_deg: settings.gridResolution,
-        safety_weight: settings.safetyWeight,
+        safety_weight: 0.5,
         variable_resolution: settings.variableResolution,
         engines: ['astar', 'visir'],
       });
@@ -101,25 +100,9 @@ export default function SettingsPanel({
             </div>
           </div>
 
-          {/* Safety Weight */}
-          <div>
-            <label className="flex items-center gap-1.5 text-[10px] text-gray-500 mb-1">
-              <Shield className="w-3 h-3" />
-              Safety Weight: {settings.safetyWeight.toFixed(1)}
-            </label>
-            <input
-              type="range"
-              min="0"
-              max="1.0"
-              step="0.1"
-              value={settings.safetyWeight}
-              onChange={(e) => onSettingsChange({ ...settings, safetyWeight: parseFloat(e.target.value) })}
-              className="w-full h-1 accent-ocean-500 cursor-pointer"
-            />
-            <div className="flex justify-between text-[9px] text-gray-600">
-              <span>0.0 (fuel)</span>
-              <span>1.0 (safety)</span>
-            </div>
+          {/* Safety info */}
+          <div className="text-[10px] text-gray-500 leading-relaxed">
+            Routes compared at three safety levels: Fuel (0.0), Balanced (0.5), Safety (1.0)
           </div>
 
           {/* Toggles */}
@@ -132,7 +115,7 @@ export default function SettingsPanel({
                 className="accent-ocean-500"
               />
               <Grid3X3 className="w-3 h-3" />
-              Variable resolution grid
+              <span title="Two-tier grid: 0.05° nearshore + 0.5° open ocean. Improves coastal routing accuracy.">Variable resolution grid</span>
               <span className="ml-auto text-[9px] text-gray-600">0.05°/0.5°</span>
             </label>
 

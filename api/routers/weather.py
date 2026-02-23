@@ -354,8 +354,7 @@ def _rebuild_wave_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
 
     first_fh = min(grids["wave_hs"].keys())
     lats_full, lons_full, _ = grids["wave_hs"][first_fh]
-    max_dim = max(len(lats_full), len(lons_full))
-    STEP = max(1, round(max_dim / 250))
+    STEP = _overlay_step(lats_full, lons_full)
     shared_lats = lats_full[::STEP].tolist()
     shared_lons = lons_full[::STEP].tolist()
 
@@ -451,8 +450,7 @@ def _do_wave_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
     )
 
     first_wd = next(iter(result.values()))
-    max_dim = max(len(first_wd.lats), len(first_wd.lons))
-    STEP = max(1, round(max_dim / 250))
+    STEP = _overlay_step(first_wd.lats, first_wd.lons)
     logger.info(f"Wave forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
     shared_lats = first_wd.lats[::STEP].tolist()
     shared_lons = first_wd.lons[::STEP].tolist()
@@ -534,8 +532,7 @@ def _rebuild_current_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max
 
     first_fh = min(grids["current_u"].keys())
     lats_full, lons_full, _ = grids["current_u"][first_fh]
-    max_dim = max(len(lats_full), len(lons_full))
-    STEP = max(1, round(max_dim / 250))
+    STEP = _overlay_step(lats_full, lons_full)
     sub_lats = lats_full[::STEP]  # numpy, S->N order
     sub_lons = lons_full[::STEP]
 
@@ -605,8 +602,7 @@ def _do_current_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
         return
 
     first_wd = next(iter(result.values()))
-    max_dim = max(len(first_wd.lats), len(first_wd.lons))
-    STEP = max(1, round(max_dim / 250))
+    STEP = _overlay_step(first_wd.lats, first_wd.lons)
     logger.info(f"Current forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
     sub_lats = first_wd.lats[::STEP]
     sub_lons = first_wd.lons[::STEP]
@@ -670,8 +666,7 @@ def _rebuild_ice_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
 
     first_fh = min(grids["ice_siconc"].keys())
     lats_full, lons_full, _ = grids["ice_siconc"][first_fh]
-    max_dim = max(len(lats_full), len(lons_full))
-    STEP = max(1, round(max_dim / 250))
+    STEP = _overlay_step(lats_full, lons_full)
     shared_lats = lats_full[::STEP].tolist()
     shared_lons = lons_full[::STEP].tolist()
 
@@ -744,8 +739,7 @@ def _do_ice_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
         return
 
     first_wd = next(iter(result.values()))
-    max_dim = max(len(first_wd.lats), len(first_wd.lons))
-    STEP = max(1, round(max_dim / 250))
+    STEP = _overlay_step(first_wd.lats, first_wd.lons)
     logger.info(f"Ice forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
     sub_lats = first_wd.lats[::STEP]
     sub_lons = first_wd.lons[::STEP]
@@ -815,8 +809,7 @@ def _do_sst_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
         return
 
     first_wd = next(iter(result.values()))
-    max_dim = max(len(first_wd.lats), len(first_wd.lons))
-    STEP = max(1, round(max_dim / 250))
+    STEP = _overlay_step(first_wd.lats, first_wd.lons)
     logger.info(f"SST forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
     sub_lats = first_wd.lats[::STEP]
     sub_lons = first_wd.lons[::STEP]
@@ -882,8 +875,7 @@ def _rebuild_sst_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
 
     first_fh = min(grids["sst"].keys())
     lats_full, lons_full, _ = grids["sst"][first_fh]
-    max_dim = max(len(lats_full), len(lons_full))
-    STEP = max(1, round(max_dim / 250))
+    STEP = _overlay_step(lats_full, lons_full)
     shared_lats = lats_full[::STEP].tolist()
     shared_lons = lons_full[::STEP].tolist()
 
@@ -946,8 +938,7 @@ def _rebuild_vis_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
 
     first_fh = min(grids["visibility"].keys())
     lats_full, lons_full, _ = grids["visibility"][first_fh]
-    max_dim = max(len(lats_full), len(lons_full))
-    STEP = max(1, round(max_dim / 250))
+    STEP = _overlay_step(lats_full, lons_full)
     shared_lats = lats_full[::STEP].tolist()
     shared_lons = lons_full[::STEP].tolist()
 
@@ -1000,8 +991,7 @@ def _do_vis_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
         return
 
     first_wd = next(iter(result.values()))
-    max_dim = max(len(first_wd.lats), len(first_wd.lons))
-    STEP = max(1, round(max_dim / 250))
+    STEP = _overlay_step(first_wd.lats, first_wd.lons)
     logger.info(f"Visibility forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
     sub_lats = first_wd.lats[::STEP]
     sub_lons = first_wd.lons[::STEP]

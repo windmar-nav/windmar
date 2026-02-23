@@ -6,6 +6,13 @@ import { EMPTY_ALL_RESULTS, DEFAULT_ROUTE_VISIBILITY, apiClient } from '@/lib/ap
 
 const ZONE_TYPES = ['eca', 'seca', 'hra', 'tss', 'vts', 'ice', 'canal', 'environmental', 'exclusion'] as const;
 
+type WeatherLayerType = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
+
+interface ViewportState {
+  bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number };
+  zoom: number;
+}
+
 interface VoyageContextValue {
   // View mode
   viewMode: 'weather' | 'analysis';
@@ -39,6 +46,14 @@ interface VoyageContextValue {
   isDrawingZone: boolean;
   setIsDrawingZone: (v: boolean) => void;
 
+  // Weather layer persistence
+  weatherLayer: WeatherLayerType;
+  setWeatherLayer: (v: WeatherLayerType) => void;
+
+  // Viewport persistence
+  lastViewport: ViewportState | null;
+  setLastViewport: (v: ViewportState) => void;
+
   // Sync speed from backend vessel specs
   refreshSpecs: () => Promise<void>;
 }
@@ -54,6 +69,8 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
   const [isLaden, setIsLaden] = useState(true);
   const [useWeather, setUseWeather] = useState(true);
   const [isDrawingZone, setIsDrawingZone] = useState(false);
+  const [weatherLayer, setWeatherLayer] = useState<WeatherLayerType>('none');
+  const [lastViewport, setLastViewport] = useState<ViewportState | null>(null);
 
   // Route state (persisted)
   const [waypoints, setWaypoints] = useState<Position[]>([]);
@@ -109,6 +126,8 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
         routeVisibility, setRouteVisibility,
         zoneVisibility, setZoneTypeVisible,
         isDrawingZone, setIsDrawingZone,
+        weatherLayer, setWeatherLayer,
+        lastViewport, setLastViewport,
         refreshSpecs,
       }}
     >

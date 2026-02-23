@@ -142,6 +142,11 @@ export default function MapOverlayControls({
           <span>{resyncRunning ? 'Resyncing...' : 'Resync'}</span>
         </button>
       )}
+      {weatherLayer === 'sst' && !forecastEnabled && (
+        <div className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-[10px] bg-maritime-dark/90 backdrop-blur-sm border border-white/10 text-gray-500">
+          Enable Forecast for time-series SST
+        </div>
+      )}
       {freshnessLabel && (
         <div className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs bg-maritime-dark/90 backdrop-blur-sm border border-white/10 ${freshnessColor}`}>
           <Database className="w-3 h-3" />

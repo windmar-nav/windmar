@@ -26,6 +26,8 @@ export default function HomePage() {
     routeName, setRouteName,
     allResults, setAllResults,
     routeVisibility, setRouteVisibility,
+    weatherLayer, setWeatherLayer,
+    lastViewport, setLastViewport,
   } = useVoyage();
 
   // Toast notifications
@@ -44,8 +46,7 @@ export default function HomePage() {
   const [resyncRunning, setResyncRunning] = useState(false);
   const resyncRunningRef = useRef(false);
 
-  // Weather visualization
-  const [weatherLayer, setWeatherLayer] = useState<WeatherLayer>('none');
+  // Weather visualization (layer selection persisted in VoyageContext)
   const [windData, setWindData] = useState<WindFieldData | null>(null);
   const windDataBaseRef = useRef<WindFieldData | null>(null); // preserve ocean mask for forecast
   const windFieldCacheRef = useRef<Record<string, WindFieldData>>({}); // per-frame cache
@@ -56,11 +57,15 @@ export default function HomePage() {
   const [extendedWeatherData, setExtendedWeatherData] = useState<any>(null);
   const [isLoadingWeather, setIsLoadingWeather] = useState(false);
 
-  // Viewport state
-  const [viewport, setViewport] = useState<{
+  // Viewport state (init from context for cross-navigation persistence)
+  const [viewport, setViewportLocal] = useState<{
     bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number };
     zoom: number;
-  } | null>(null);
+  } | null>(lastViewport);
+  const setViewport = useCallback((vp: typeof viewport) => {
+    setViewportLocal(vp);
+    if (vp) setLastViewport(vp);
+  }, [setLastViewport]);
 
   // Forecast timeline state
   const [forecastEnabled, setForecastEnabled] = useState(false);
@@ -145,6 +150,10 @@ export default function HomePage() {
         if (wind) { setWindData(wind); windDataBaseRef.current = wind; }
         if (windVel) setWindVelocityData(windVel);
         if (wind?.ingested_at && !resyncRunningRef.current) setLayerIngestedAt(wind.ingested_at);
+        // Background prefetch waves for instant layer switching
+        apiClient.getWaveField(params).then(orNull).then(w => {
+          if (w) setWaveData(w);
+        }).catch(() => {});
       } else if (activeLayer === 'waves') {
         const waves = await apiClient.getWaveField(params).then(orNull);
         const dt = (performance.now() - t0).toFixed(0);
@@ -197,6 +206,13 @@ export default function HomePage() {
       setLayerIngestedAt(null);
     }
   }, [weatherLayer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Auto-load wind when route has 2+ waypoints and no layer is active
+  useEffect(() => {
+    if (waypoints.length >= 2 && weatherLayer === 'none') {
+      setWeatherLayer('wind');
+    }
+  }, [waypoints.length]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Handle wind forecast hour change from timeline
   const handleForecastHourChange = useCallback((hour: number, data: VelocityData[] | null) => {
@@ -692,9 +708,11 @@ export default function HomePage() {
         debugLog('info', 'ROUTE', `Pareto done in ${((performance.now() - t0) / 1000).toFixed(1)}s: ${resp.pareto_front.length} solutions`);
       } else {
         debugLog('warn', 'ROUTE', 'Pareto returned no solutions');
+        toast.warning('No Pareto solutions found', 'The fuel-time trade-off space may be too narrow for current conditions.');
       }
     } catch (error) {
       debugLog('error', 'ROUTE', `Pareto analysis failed: ${error}`);
+      toast.error('Pareto analysis failed', 'Check that the backend is running and try again.');
     } finally {
       setIsRunningPareto(false);
     }
