@@ -331,6 +331,17 @@ async def get_coastline(
 
 
 # =============================================================================
+# Ocean / land point check (waypoint validation)
+# =============================================================================
+
+@router.get("/api/check-ocean")
+async def check_ocean(lat: float, lon: float):
+    """Return whether a point is over ocean (True) or land (False)."""
+    from src.data.land_mask import is_ocean as _is_ocean
+    return {"ocean": _is_ocean(lat, lon)}
+
+
+# =============================================================================
 # Demo Authentication
 # =============================================================================
 

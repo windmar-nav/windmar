@@ -1924,6 +1924,17 @@ export const apiClient = {
   },
 
   // -------------------------------------------------------------------------
+  // Ocean / land check
+  // -------------------------------------------------------------------------
+
+  async checkOcean(lat: number, lon: number): Promise<boolean> {
+    const response = await api.get<{ ocean: boolean }>('/api/check-ocean', {
+      params: { lat, lon },
+    });
+    return response.data.ocean;
+  },
+
+  // -------------------------------------------------------------------------
   // Vessel API
   // -------------------------------------------------------------------------
 

@@ -1,7 +1,8 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
-import { Position } from '@/lib/api';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import { Position, apiClient } from '@/lib/api';
+import { useToast } from '@/components/Toast';
 
 /** Wrap longitude to [-180, 180] (Leaflet can return unwrapped values). */
 function wrapLng(lng: number): number {
@@ -23,6 +24,7 @@ interface WaypointEditorProps {
  */
 export default function WaypointEditor(props: WaypointEditorProps) {
   const [isMounted, setIsMounted] = useState(false);
+  const toast = useToast();
 
   useEffect(() => {
     setIsMounted(true);
@@ -33,7 +35,7 @@ export default function WaypointEditor(props: WaypointEditorProps) {
   }
 
   // Render the actual editor only on client side
-  return <WaypointEditorInner {...props} />;
+  return <WaypointEditorInner {...props} toast={toast} />;
 }
 
 // Inner component that uses react-leaflet
@@ -42,12 +44,15 @@ function WaypointEditorInner({
   onWaypointsChange,
   isEditing,
   routeColor = '#3a5eae',
-}: WaypointEditorProps) {
+  toast,
+}: WaypointEditorProps & { toast: ReturnType<typeof useToast> }) {
   // Dynamic imports for react-leaflet components
   const { useMap, useMapEvents, Marker, Polyline, Popup } = require('react-leaflet');
   const L = require('leaflet');
 
   const map = useMap();
+  // Track previous waypoints for drag revert
+  const waypointsBeforeDrag = useRef<Position[]>([]);
 
   // Create numbered icon
   const createNumberedIcon = useCallback((index: number, total: number) => {
@@ -78,38 +83,60 @@ function WaypointEditorInner({
     });
   }, [L]);
 
-  // Map click handler component
+  // Map click handler component — validates ocean before placing waypoint
   function MapClickHandler() {
     useMapEvents({
-      click(e: any) {
+      async click(e: any) {
         if (!isEditing) return;
 
-        const newWaypoint: Position = {
-          lat: e.latlng.lat,
-          lon: wrapLng(e.latlng.lng),
-        };
+        const lat = e.latlng.lat;
+        const lon = wrapLng(e.latlng.lng);
 
+        try {
+          const isOcean = await apiClient.checkOcean(lat, lon);
+          if (!isOcean) {
+            toast.warning('Waypoint on land', 'Waypoints can only be placed on water.');
+            return;
+          }
+        } catch {
+          // If the check fails (e.g. network error), allow placement
+        }
+
+        const newWaypoint: Position = { lat, lon };
         onWaypointsChange([...waypoints, newWaypoint]);
       },
     });
     return null;
   }
 
-  // Handle waypoint drag
+  // Handle waypoint drag — validates ocean and reverts if on land
   const handleDrag = useCallback(
-    (index: number, e: any) => {
+    async (index: number, e: any) => {
       const marker = e.target;
       const position = marker.getLatLng();
+      const lat = position.lat;
+      const lon = wrapLng(position.lng);
+
+      try {
+        const isOcean = await apiClient.checkOcean(lat, lon);
+        if (!isOcean) {
+          toast.warning('Waypoint on land', 'Waypoints can only be placed on water.');
+          // Revert marker to previous position
+          const prev = waypointsBeforeDrag.current[index];
+          if (prev) {
+            marker.setLatLng([prev.lat, prev.lon]);
+          }
+          return;
+        }
+      } catch {
+        // If the check fails, allow the move
+      }
 
       const newWaypoints = [...waypoints];
-      newWaypoints[index] = {
-        lat: position.lat,
-        lon: wrapLng(position.lng),
-      };
-
+      newWaypoints[index] = { lat, lon };
       onWaypointsChange(newWaypoints);
     },
-    [waypoints, onWaypointsChange]
+    [waypoints, onWaypointsChange, toast]
   );
 
   // Handle waypoint deletion
@@ -148,6 +175,7 @@ function WaypointEditorInner({
           icon={createNumberedIcon(index, waypoints.length)}
           draggable={isEditing && index > 0 && index < waypoints.length - 1}
           eventHandlers={{
+            dragstart: () => { waypointsBeforeDrag.current = [...waypoints]; },
             dragend: (e: any) => handleDrag(index, e),
             contextmenu: (e: any) => {
               e.originalEvent.preventDefault();
