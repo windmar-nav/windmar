@@ -38,6 +38,8 @@ services:
       REDIS_URL: ""
       DEMO_MODE: "true"
       DEMO_API_KEY_HASH: ${DEMO_API_KEY_HASH}
+      DEMO_API_KEY_HASHES: ${DEMO_API_KEY_HASHES:-}
+      FULL_API_KEY_HASHES: ${FULL_API_KEY_HASHES:-}
       AUTH_ENABLED: "false"
       RATE_LIMIT_ENABLED: "true"
       API_SECRET_KEY: ${API_SECRET_KEY:-change_me}
