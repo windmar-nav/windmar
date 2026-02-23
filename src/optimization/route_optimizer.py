@@ -32,6 +32,7 @@ from src.data.land_mask import is_ocean, is_path_clear, get_land_mask_status
 from src.data.regulatory_zones import get_zone_checker, ZoneChecker
 from src.data.strait_waypoints import STRAITS, StraitDefinition
 from src.optimization.base_optimizer import BaseOptimizer, OptimizedRoute, ParetoSolution
+from src.optimization.grid_builder import GridBuilder, GridCell as BuilderGridCell
 
 logger = logging.getLogger(__name__)
 
@@ -136,7 +137,7 @@ class RouteOptimizer(BaseOptimizer):
         zone_checker: Optional[ZoneChecker] = None,
         enforce_zones: bool = True,
         variable_speed: bool = True,  # Enable variable speed optimization
-        variable_resolution: bool = False,  # Enable two-tier grid
+        variable_resolution: bool = True,  # Enable two-tier grid
     ):
         """
         Initialize route optimizer.
@@ -160,7 +161,6 @@ class RouteOptimizer(BaseOptimizer):
         self.variable_speed = variable_speed
         self.variable_resolution = variable_resolution
         self.safety_weight: float = 0.0  # 0=pure fuel, 1=full safety penalties
-        self.skip_hard_limits: bool = False  # When True, relax wave/wind hard limits
 
         # Safety constraints (seakeeping model)
         self.safety_constraints = safety_constraints or create_default_safety_constraints(
@@ -268,8 +268,9 @@ class RouteOptimizer(BaseOptimizer):
         if path is None:
             raise ValueError(f"No route found after exploring {cells_explored} cells")
 
-        waypoints = [(cell.lat, cell.lon) for cell in path]
-        waypoints = self._smooth_path(waypoints)
+        raw_waypoints = [(cell.lat, cell.lon) for cell in path]
+        waypoints = self._smooth_path(raw_waypoints)
+        waypoints = self._validate_smoothed_path(waypoints, raw_waypoints)
 
         # Pin endpoints to actual origin/destination (grid cells may be offset)
         waypoints[0] = origin
@@ -463,8 +464,9 @@ class RouteOptimizer(BaseOptimizer):
             if path is None:
                 continue
 
-            waypoints = [(cell.lat, cell.lon) for cell in path]
-            waypoints = self._smooth_path(waypoints)
+            raw_waypoints = [(cell.lat, cell.lon) for cell in path]
+            waypoints = self._smooth_path(raw_waypoints)
+            waypoints = self._validate_smoothed_path(waypoints, raw_waypoints)
             waypoints[0] = origin
             waypoints[-1] = destination
 
@@ -514,8 +516,8 @@ class RouteOptimizer(BaseOptimizer):
         if selected is None:
             raise ValueError("No valid Pareto solutions found")
 
-        # Use selected point's lambda so reported fuel matches Pareto chart
-        self._lambda_time = base_fuel_rate * selected.lambda_value
+        # Restore lambda for stats calculation
+        self._lambda_time = base_fuel_rate * self.TIME_PENALTY_WEIGHT
 
         # Calculate direct route for comparison
         direct_wps = list(route_waypoints) if route_waypoints and len(route_waypoints) > 2 else [origin, destination]
@@ -673,68 +675,18 @@ class RouteOptimizer(BaseOptimizer):
         """
         Build routing grid covering the corridor defined by waypoints.
 
-        Computes a bounding box around ALL waypoints with margin, so A*
-        can explore the full area the user intended.
-        Filters out land cells if filter_land=True.
+        Delegates to GridBuilder.build_uniform() for grid generation.
         """
-        lats = [wp[0] for wp in corridor_waypoints]
-        lons = [wp[1] for wp in corridor_waypoints]
-
-        # Calculate bounding box with margin around all waypoints
-        lat_min = min(lats) - margin_deg
-        lat_max = max(lats) + margin_deg
-        lon_min = min(lons) - margin_deg
-        lon_max = max(lons) + margin_deg
-
-        # Expand bbox to include nearby strait waypoints so detour paths
-        # (e.g. Rotterdam→Augusta via Gibraltar) are reachable.  Only include
-        # straits whose waypoints are close to the original bbox in BOTH
-        # dimensions — otherwise far-away straits (Bosporus, Messina) bloat
-        # the grid for routes that don't need them.
-        from src.data.strait_waypoints import STRAITS
-        expand_margin = margin_deg  # how far outside the bbox a strait can be
-        for strait in STRAITS:
-            for wlat, wlon in strait.waypoints:
-                if (lat_min - expand_margin <= wlat <= lat_max + expand_margin
-                        and lon_min - expand_margin <= wlon <= lon_max + expand_margin):
-                    lon_min = min(lon_min, wlon - 1.0)
-                    lon_max = max(lon_max, wlon + 1.0)
-                    lat_min = min(lat_min, wlat - 1.0)
-                    lat_max = max(lat_max, wlat + 1.0)
-
-        # Clamp to valid ranges
-        lat_min = max(lat_min, -85)
-        lat_max = min(lat_max, 85)
-
-        # Handle antimeridian crossing
-        if lon_max - lon_min > 180:
-            # Route crosses antimeridian - expand to cover
-            lon_min, lon_max = -180, 180
-
-        # Build grid
+        builder_grid = GridBuilder.build_uniform(
+            corridor_waypoints=corridor_waypoints,
+            resolution_deg=self.resolution_deg,
+            margin_deg=margin_deg,
+            filter_land=filter_land,
+        )
+        # Convert BuilderGridCell to local GridCell (same fields)
         grid = {}
-        land_cells = 0
-        row = 0
-        lat = lat_min
-        while lat <= lat_max:
-            col = 0
-            lon = lon_min
-            while lon <= lon_max:
-                # Check if cell is ocean (skip land cells)
-                if filter_land and not is_ocean(lat, lon):
-                    land_cells += 1
-                else:
-                    cell = GridCell(lat=lat, lon=lon, row=row, col=col)
-                    grid[(row, col)] = cell
-                lon += self.resolution_deg
-                col += 1
-            lat += self.resolution_deg
-            row += 1
-
-        total_cells = row * col if row > 0 and col > 0 else 1
-        logger.info(f"Built grid: {len(grid)} ocean cells, {land_cells} land cells filtered "
-                   f"({row} rows x {col} cols, {land_cells/total_cells*100:.1f}% land)")
-
+        for key, cell in builder_grid.items():
+            grid[key] = GridCell(lat=cell.lat, lon=cell.lon, row=cell.row, col=cell.col)
         return grid
 
     def _inject_strait_edges(
@@ -934,14 +886,6 @@ class RouteOptimizer(BaseOptimizer):
                         if to_k not in neighbor_set:
                             neighbor_keys.append(to_k)
 
-            # Compute previous bearing once per expansion (incoming heading to current node)
-            prev_bearing = None
-            if current.parent is not None:
-                prev_bearing = self.bearing(
-                    current.parent.cell.lat, current.parent.cell.lon,
-                    current.cell.lat, current.cell.lon,
-                )
-
             for neighbor_key in neighbor_keys:
                 if neighbor_key not in grid:
                     continue
@@ -964,7 +908,6 @@ class RouteOptimizer(BaseOptimizer):
                     departure_time=current.arrival_time,
                     calm_speed_kts=calm_speed_kts,
                     is_laden=is_laden,
-                    prev_bearing=prev_bearing,
                 )
 
                 if move_cost == float('inf'):
@@ -1018,28 +961,6 @@ class RouteOptimizer(BaseOptimizer):
             time_heuristic = distance_nm / (service_speed + 2.0)
             return fuel_heuristic + self._lambda_time * time_heuristic
 
-    # Course-change penalty: penalises heading changes between consecutive
-    # edges to produce smoother, more realistic tracks.  The penalty is
-    # additive (fuel-equivalent cost in MT) scaled by the turn angle.
-    #   0-15°  → 0        (straight or near-straight — no penalty)
-    #  15-45°  → linear ramp 0 → 0.02 MT
-    #  45-90°  → linear ramp 0.02 → 0.08 MT
-    #  90-180° → linear ramp 0.08 → 0.20 MT
-    # Values calibrated so a 90° turn ≈ 5% of a typical cell transit cost.
-    COURSE_CHANGE_PENALTY_MT = 0.20   # Max penalty at 180° reversal
-
-    @staticmethod
-    def _course_change_penalty(prev_bearing: float, cur_bearing: float) -> float:
-        """Return additive fuel-equivalent penalty (MT) for a heading change."""
-        turn = abs(((cur_bearing - prev_bearing) + 180) % 360 - 180)
-        if turn <= 15.0:
-            return 0.0
-        if turn <= 45.0:
-            return 0.02 * (turn - 15.0) / 30.0
-        if turn <= 90.0:
-            return 0.02 + 0.06 * (turn - 45.0) / 45.0
-        return 0.08 + 0.12 * (turn - 90.0) / 90.0
-
     def _calculate_move_cost(
         self,
         from_cell: GridCell,
@@ -1047,14 +968,9 @@ class RouteOptimizer(BaseOptimizer):
         departure_time: datetime,
         calm_speed_kts: float,
         is_laden: bool,
-        prev_bearing: Optional[float] = None,
     ) -> Tuple[float, float]:
         """
         Calculate cost to move from one cell to another.
-
-        Args:
-            prev_bearing: Heading of the previous edge (degrees). If provided,
-                          a course-change penalty is added for sharp turns.
 
         Returns:
             Tuple of (cost, travel_time_hours)
@@ -1147,7 +1063,6 @@ class RouteOptimizer(BaseOptimizer):
                 speed_kts=calm_speed_kts,
                 is_laden=is_laden,
                 wind_speed_kts=weather.wind_speed_ms * 1.9438,
-                skip_hard_limits=self.skip_hard_limits,
             )
             if safety_factor == float('inf'):
                 return float('inf'), float('inf')  # Dangerous - forbidden
@@ -1173,20 +1088,15 @@ class RouteOptimizer(BaseOptimizer):
         # Combined cost factor (includes ice caution zone penalty)
         total_factor = dampened_sf * zone_factor * ice_cost_factor
 
-        # Course-change penalty (additive, fuel-equivalent MT)
-        turn_penalty = 0.0
-        if prev_bearing is not None:
-            turn_penalty = self._course_change_penalty(prev_bearing, bearing)
-
         # Return cost based on optimization target
         if self.optimization_target == "time":
-            return travel_time_hours * total_factor + turn_penalty, travel_time_hours
+            return travel_time_hours * total_factor, travel_time_hours
         else:
             # Time-constrained fuel minimization:
             # fuel cost + time penalty prevents detours that save marginal fuel
             fuel_cost = result['fuel_mt'] * total_factor
             time_penalty = self._lambda_time * travel_time_hours
-            return fuel_cost + time_penalty + turn_penalty, travel_time_hours
+            return fuel_cost + time_penalty, travel_time_hours
 
     def _find_optimal_speed(
         self,
@@ -1287,7 +1197,6 @@ class RouteOptimizer(BaseOptimizer):
                     speed_kts=speed_kts,
                     is_laden=is_laden,
                     wind_speed_kts=weather.wind_speed_ms * 1.9438,
-                    skip_hard_limits=self.skip_hard_limits,
                 )
                 if safety_factor == float('inf'):
                     continue  # Skip dangerous speeds
@@ -1465,6 +1374,65 @@ class RouteOptimizer(BaseOptimizer):
 
         result.append(waypoints[-1])
         logger.info(f"Turn-angle filter: {len(waypoints)} → {len(result)} waypoints (min turn {min_turn_deg}°)")
+        return result
+
+    def _validate_smoothed_path(
+        self,
+        smoothed: List[Tuple[float, float]],
+        raw: List[Tuple[float, float]],
+    ) -> List[Tuple[float, float]]:
+        """
+        Post-smoothing land validation.
+
+        Check every consecutive waypoint pair in the smoothed path. If any
+        segment crosses land, splice in the original unsmoothed A* waypoints
+        for that portion (they are guaranteed land-free by the A* search).
+        """
+        if len(smoothed) <= 1:
+            return smoothed
+
+        violations = 0
+        for i in range(len(smoothed) - 1):
+            if not is_path_clear(smoothed[i][0], smoothed[i][1],
+                                 smoothed[i + 1][0], smoothed[i + 1][1]):
+                violations += 1
+
+        if violations == 0:
+            return smoothed
+
+        logger.warning(
+            f"Post-smoothing validation: {violations} land crossings detected, "
+            f"falling back to unsmoothed path for affected segments"
+        )
+
+        # Build spatial index of raw waypoints for fast nearest-point lookup
+        result = [smoothed[0]]
+        for i in range(len(smoothed) - 1):
+            wp_a = smoothed[i]
+            wp_b = smoothed[i + 1]
+
+            if is_path_clear(wp_a[0], wp_a[1], wp_b[0], wp_b[1]):
+                result.append(wp_b)
+            else:
+                # Find closest raw waypoints to wp_a and wp_b
+                idx_a = min(range(len(raw)),
+                            key=lambda k: (raw[k][0] - wp_a[0])**2 + (raw[k][1] - wp_a[1])**2)
+                idx_b = min(range(len(raw)),
+                            key=lambda k: (raw[k][0] - wp_b[0])**2 + (raw[k][1] - wp_b[1])**2)
+
+                # Splice in the raw A* segment (guaranteed clear)
+                if idx_a < idx_b:
+                    for j in range(idx_a + 1, idx_b + 1):
+                        result.append(raw[j])
+                elif idx_a > idx_b:
+                    for j in range(idx_a - 1, idx_b - 1, -1):
+                        result.append(raw[j])
+                else:
+                    result.append(wp_b)
+
+        logger.info(
+            f"Post-smoothing fix: {len(smoothed)} → {len(result)} waypoints"
+        )
         return result
 
     def _calculate_route_stats(

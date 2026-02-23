@@ -20,73 +20,27 @@ Usage: Feed into ZoneChecker as Zone(coordinates=TSS_ZONES["key"], ...)
 TSS_ZONES: dict[str, list[tuple[float, float]]] = {
 
     # =========================================================================
-    # 1. STRAIT OF GIBRALTAR — IMO COLREG.2/Circ.66 (2014), Circ.58 (2006)
+    # 1. STRAIT OF GIBRALTAR
     # =========================================================================
-    # Reference chart: Spanish Navy Hydrographic Institute No.445, WGS-84
-    # Separation zone centerline (5 points, IMO numbered positions):
-    #   (1) 35d59.01'N 005d25.68'W  (2) 35d58.36'N 005d28.19'W
-    #   (3) 35d57.08'N 005d33.08'W  (4) 35d56.21'N 005d36.48'W
-    #   (5) 35d56.21'N 005d44.98'W
-    # Separation zone width: 0.5 nm (half-width = 0.25 nm ≈ 0.0042° lat)
-    # Westbound lane north boundary (IMO positions 7-8):
-    #   (7) 36d01.21'N 005d25.68'W  (8) 36d00.35'N 005d28.98'W
-    # Eastbound lane south boundary (IMO positions 15-16):
-    #   (15) 35d56.35'N 005d27.40'W (16) 35d56.84'N 005d25.68'W
+    # IMO COLREG.2/Circ.58 (2006), MSC.300(87) (2010)
+    # Separation zone centerline: 35d59.01'N 005d25.68'W to 35d56.21'N 005d44.98'W
+    # Eastbound lane (south), Westbound lane (north), ~2 nm each, 0.5 nm sep zone
     # Reporting: 005d15'W (east) to 005d58'W (west)
-    #
-    # Split into 3 sub-zones: westbound lane, separation zone, eastbound lane.
-    # Offsets computed from IMO centerline at 0.25 nm (sep edge) and ~2.2 nm
-    # (lane outer edge, calibrated against IMO positions 7 and 16).
-
-    # 1a. WESTBOUND TRAFFIC LANE (north of separation zone)
-    "gibraltar_westbound_lane": [
-        # North boundary (outer, ~2.2 nm north of sep centerline)
-        (35.974, -5.750),   # NW corner
-        (35.974, -5.608),   # W mid
-        (35.988, -5.551),   # Mid (abeam pt3)
-        (36.006, -5.483),   # IMO pt8 approx (36d00.35'N 005d28.98'W)
-        (36.020, -5.428),   # IMO pt7 (36d01.21'N 005d25.68'W)
-        # South boundary (sep zone north edge, reversed east to west)
-        (35.988, -5.428),   # Sep zone north edge at pt1
-        (35.977, -5.470),   # Sep zone north edge at pt2
-        (35.956, -5.551),   # Sep zone north edge at pt3
-        (35.941, -5.608),   # Sep zone north edge at pt4
-        (35.941, -5.750),   # Sep zone north edge at pt5
-        (35.974, -5.750),   # close polygon
-    ],
-
-    # 1b. SEPARATION ZONE (0.5 nm wide, centered on IMO positions 1-5)
-    "gibraltar_separation_zone": [
-        # North edge (west to east)
-        (35.941, -5.750),   # pt5 + 0.0042
-        (35.941, -5.608),   # pt4 + 0.0042
-        (35.956, -5.551),   # pt3 + 0.0042
-        (35.977, -5.470),   # pt2 + 0.0042
-        (35.988, -5.428),   # pt1 + 0.0042
-        # South edge (east to west)
-        (35.979, -5.428),   # pt1 - 0.0042
-        (35.969, -5.470),   # pt2 - 0.0042
-        (35.947, -5.551),   # pt3 - 0.0042
-        (35.933, -5.608),   # pt4 - 0.0042
-        (35.933, -5.750),   # pt5 - 0.0042
-        (35.941, -5.750),   # close polygon
-    ],
-
-    # 1c. EASTBOUND TRAFFIC LANE (south of separation zone)
-    "gibraltar_eastbound_lane": [
-        # North boundary (sep zone south edge, west to east)
-        (35.933, -5.750),   # Sep zone south edge at pt5
-        (35.933, -5.608),   # Sep zone south edge at pt4
-        (35.947, -5.551),   # Sep zone south edge at pt3
-        (35.969, -5.470),   # Sep zone south edge at pt2
-        (35.979, -5.428),   # Sep zone south edge at pt1
-        # South boundary (outer, ~2.2 nm south of sep centerline, reversed)
-        (35.947, -5.428),   # IMO pt16 (35d56.84'N 005d25.68'W)
-        (35.936, -5.470),   # Offset from pt2
-        (35.914, -5.551),   # Offset from pt3
-        (35.900, -5.608),   # Offset from pt4
-        (35.900, -5.750),   # SW corner
-        (35.933, -5.750),   # close polygon
+    # Reference chart: Spanish Navy Hydrographic Institute No.445, WGS-84
+    "strait_of_gibraltar": [
+        (36.047, -5.328),   # NE corner (north of westbound lane, east end)
+        (36.020, -5.483),   # N mid
+        (35.990, -5.600),   # N, approaching Tarifa
+        (35.960, -5.750),   # NW, west of separation
+        (35.940, -5.967),   # NW corner (reporting line 005d58'W)
+        (35.900, -5.967),   # SW corner
+        (35.870, -5.750),   # S, south of eastbound lane
+        (35.890, -5.600),   # S mid
+        (35.910, -5.483),   # S mid
+        (35.940, -5.328),   # SE corner (east of eastbound lane)
+        (35.948, -5.260),   # SE approach (reporting line 005d15'W area)
+        (36.047, -5.260),   # NE approach
+        (36.047, -5.328),   # close polygon
     ],
 
     # =========================================================================
@@ -513,6 +467,38 @@ TSS_ZONES: dict[str, list[tuple[float, float]]] = {
         (57.50, 17.70),     # NW
         (57.80, 18.00),     # close polygon
     ],
+
+    # =========================================================================
+    # 21. OFF CAPE SPARTEL (Morocco)
+    # =========================================================================
+    # IMO COLREG.2/Circ.64 (2012)
+    # West of Strait of Gibraltar, N-S traffic separation for Atlantic approach
+    # Two lanes: northbound (east), southbound (west)
+    "off_cape_spartel": [
+        (35.85, -6.10),     # NE
+        (35.85, -6.30),     # NW
+        (35.70, -6.35),     # W
+        (35.55, -6.30),     # SW
+        (35.55, -6.10),     # SE
+        (35.70, -6.05),     # E
+        (35.85, -6.10),     # close polygon
+    ],
+
+    # =========================================================================
+    # 22. IN THE STRAIT OF BONIFACIO (Banco de Hoyo area)
+    # =========================================================================
+    # Also known as "Al Hoceima" / western Med approach to Alboran Sea
+    # IMO-adopted TSS off the Moroccan/Spanish coast in the western Mediterranean
+    # E-W traffic near Banco de Hoyo (shallow area ~35.2N, -3.2W)
+    "banco_de_hoyo": [
+        (35.35, -3.50),     # NW
+        (35.35, -2.90),     # NE
+        (35.15, -2.85),     # SE
+        (35.05, -3.10),     # S
+        (35.05, -3.50),     # SW
+        (35.15, -3.55),     # W
+        (35.35, -3.50),     # close polygon
+    ],
 }
 
 
@@ -521,115 +507,183 @@ TSS_ZONES: dict[str, list[tuple[float, float]]] = {
 # ============================================================================
 
 TSS_METADATA: dict[str, dict] = {
-    "gibraltar_westbound_lane": {
-        "name": "Gibraltar TSS — Westbound Lane",
+    # direction_deg: primary traffic flow bearing (True North = 0°, clockwise)
+    # tolerance_deg: acceptable deviation from direction (default 20°)
+    # bidirectional: True if the polygon covers both traffic lanes (either direction valid)
+    "strait_of_gibraltar": {
+        "name": "Strait of Gibraltar TSS",
         "authority": "IMO",
-        "notes": "COLREG.2/Circ.66 (2014). Westbound traffic (Atlantic-bound). ~2 nm wide.",
-    },
-    "gibraltar_separation_zone": {
-        "name": "Gibraltar TSS — Separation Zone",
-        "authority": "IMO",
-        "notes": "COLREG.2/Circ.66 (2014). 0.5 nm wide. Rule 10(d): vessels shall not use separation zones.",
-        "interaction": "exclusion",
-    },
-    "gibraltar_eastbound_lane": {
-        "name": "Gibraltar TSS — Eastbound Lane",
-        "authority": "IMO",
-        "notes": "COLREG.2/Circ.66 (2014). Eastbound traffic (Mediterranean-bound). ~2 nm wide.",
+        "notes": "COLREG.2/Circ.58 (2006). E-W traffic, 2nm lanes, 0.5nm sep zone. GIBREP reporting.",
+        "direction_deg": 90,    # Eastbound / westbound (bidirectional)
+        "tolerance_deg": 25,
+        "bidirectional": True,
     },
     "dover_strait": {
         "name": "Dover Strait TSS",
         "authority": "IMO",
         "notes": "First international TSS (1967). NE/SW-bound lanes. CALDOVREP reporting.",
+        "direction_deg": 40,    # NE-bound / SW-bound
+        "tolerance_deg": 25,
+        "bidirectional": True,
     },
     "off_ushant": {
         "name": "Off Ushant (Ouessant) TSS",
         "authority": "IMO",
         "notes": "Amended 2003. 2nm lanes, 1.2nm sep zone. OUESSREP 40nm reporting area.",
+        "direction_deg": 200,   # Roughly SSW / NNE
+        "tolerance_deg": 30,
+        "bidirectional": True,
     },
     "off_casquets": {
         "name": "Off Casquets TSS",
         "authority": "IMO",
         "notes": "Adopted 1973. 2nm lanes, 1nm sep zone. Channel Islands.",
+        "direction_deg": 55,    # NE / SW
+        "tolerance_deg": 25,
+        "bidirectional": True,
     },
     "strait_of_hormuz": {
         "name": "Strait of Hormuz TSS",
         "authority": "IMO",
         "notes": "Adopted 1973, modified 1979. 2nm lanes, 2nm sep zone. Critical oil transit chokepoint.",
+        "direction_deg": 300,   # WNW inbound / ESE outbound
+        "tolerance_deg": 25,
+        "bidirectional": True,
     },
     "strait_of_malacca_singapore": {
         "name": "Straits of Malacca and Singapore TSS",
         "authority": "IMO",
         "notes": "STRAITREP 100d40'E-104d23'E. 250nm extent. Six choke points.",
+        "direction_deg": 135,   # SE-bound / NW-bound
+        "tolerance_deg": 30,
+        "bidirectional": True,
     },
     "bab_el_mandeb": {
         "name": "Bab el-Mandeb TSS",
         "authority": "IMO",
         "notes": "Adopted 1973, amended 1982/2003. 2nm lanes, 1nm sep zone. Red Sea entrance.",
+        "direction_deg": 340,   # NNW into Red Sea / SSE out
+        "tolerance_deg": 25,
+        "bidirectional": True,
     },
     "bosporus": {
         "name": "Bosporus (Istanbul Strait) TSS",
         "authority": "IMO / Turkey",
         "notes": "Adopted 1995. Turkish Straits VTS. Very narrow sinuous channel.",
+        "direction_deg": 20,    # NNE / SSW (sinuous, wide tolerance)
+        "tolerance_deg": 40,
+        "bidirectional": True,
     },
     "dardanelles": {
         "name": "Dardanelles (Canakkale) TSS",
         "authority": "IMO / Turkey",
         "notes": "Adopted 1995. Turkish Straits VTS. Aegean to Sea of Marmara.",
+        "direction_deg": 45,    # NE / SW
+        "tolerance_deg": 35,
+        "bidirectional": True,
     },
     "off_finisterre": {
         "name": "Off Finisterre TSS",
         "authority": "IMO",
         "notes": "A.957(23), 2003. 4 lanes (2N, 2S) after Prestige. Dangerous cargo outer lanes.",
+        "direction_deg": 180,   # N-S traffic
+        "tolerance_deg": 25,
+        "bidirectional": True,
     },
     "off_cabo_da_roca": {
         "name": "Off Cabo da Roca / Berlengas TSS",
         "authority": "IMO",
         "notes": "Adopted 2004, amended 2010. 4 lanes, 4 sep zones, 1 ITZ. Berlengas ATBA.",
+        "direction_deg": 180,   # N-S traffic
+        "tolerance_deg": 25,
+        "bidirectional": True,
     },
     "off_cabo_sao_vicente": {
         "name": "Off Cabo de Sao Vicente TSS",
         "authority": "IMO",
         "notes": "Adopted 2004, amended 2010. SW tip of Portugal. Atlantic/Med traffic convergence.",
+        "direction_deg": 90,    # E-W rounding
+        "tolerance_deg": 30,
+        "bidirectional": True,
     },
     "suez_canal_approaches": {
         "name": "Suez Canal Approaches (Port Said) TSS",
         "authority": "SCA",
         "notes": "Suez Canal Authority. Fairway Buoy at 31d21'N 32d21'E.",
+        "direction_deg": 180,   # N-S approach
+        "tolerance_deg": 25,
+        "bidirectional": True,
     },
     "off_cabo_de_gata": {
         "name": "Off Cabo de Gata TSS",
         "authority": "IMO",
         "notes": "Adopted 1998, repositioned 2006. 3nm lanes, 2nm sep. 13kn cetacean speed rec.",
+        "direction_deg": 65,    # ENE / WSW
+        "tolerance_deg": 25,
+        "bidirectional": True,
     },
     "off_bonifacio_strait": {
         "name": "Off Bonifacio Strait TSS",
         "authority": "IMO / France / Italy",
         "notes": "Corsica-Sardinia. Pilotage: Pertusato (W-E), Maddalena (E-W).",
+        "direction_deg": 90,    # E-W
+        "tolerance_deg": 25,
+        "bidirectional": True,
     },
     "off_cape_of_good_hope": {
         "name": "Off Cape of Good Hope TSS",
         "authority": "IMO / SAMSA",
         "notes": "Off Alphard Banks, south coast. Deep-draft tanker/bulk routes. Agulhas Current.",
+        "direction_deg": 90,    # E-W rounding
+        "tolerance_deg": 30,
+        "bidirectional": True,
     },
     "galveston_bay_approach": {
         "name": "Galveston Bay Approach TSS",
         "authority": "USCG",
         "notes": "33 CFR 167.350. NAD-83. Bolivar Roads approach to Houston Ship Channel.",
+        "direction_deg": 330,   # NNW approach
+        "tolerance_deg": 20,
+        "bidirectional": True,
     },
     "off_san_francisco": {
         "name": "Off San Francisco TSS",
         "authority": "USCG",
         "notes": "33 CFR 167.400-406. NAD-83. Precautionary area, 3 approaches, main channel, ATBA.",
+        "direction_deg": 90,    # E approach (multiple approaches, wide tolerance)
+        "tolerance_deg": 40,
+        "bidirectional": True,
     },
     "great_barrier_reef_torres_strait": {
         "name": "Great Barrier Reef / Torres Strait Two-Way Route",
         "authority": "IMO / AMSA",
         "notes": "Adopted 2014. Inner Route. Pilotage mandatory >70m/tankers. REEFVTS.",
+        "direction_deg": 330,   # NW-SE route
+        "tolerance_deg": 30,
+        "bidirectional": True,
     },
     "off_gotland": {
         "name": "Off Gotland TSS / Deep-Water Route",
         "authority": "IMO",
         "notes": "A.977(24), 2005. Min depth 25m, draught limit 12m. Baltic NE-bound traffic.",
+        "direction_deg": 30,    # NE / SW
+        "tolerance_deg": 25,
+        "bidirectional": True,
+    },
+    "off_cape_spartel": {
+        "name": "Off Cape Spartel TSS",
+        "authority": "IMO",
+        "notes": "COLREG.2/Circ.64 (2012). N-S traffic west of Gibraltar. Atlantic approach.",
+        "direction_deg": 180,   # N-S traffic
+        "tolerance_deg": 25,
+        "bidirectional": True,
+    },
+    "banco_de_hoyo": {
+        "name": "Banco de Hoyo TSS",
+        "authority": "IMO",
+        "notes": "Western Mediterranean, Alboran Sea. E-W traffic near shallow Banco de Hoyo (~35.2N).",
+        "direction_deg": 75,    # ENE / WSW
+        "tolerance_deg": 25,
+        "bidirectional": True,
     },
 }

@@ -257,11 +257,22 @@ def get_land_mask_status() -> dict:
         _load_gshhs()
 
     if _gshhs_loaded:
-        method = "GSHHS intermediate (vector, sub-km)"
+        method = "gshhs"
     elif _HAS_LAND_MASK:
-        method = "global-land-mask (1km raster)"
+        method = "global-land-mask"
     else:
-        method = "simplified bounding boxes"
+        method = "bbox-fallback"
+
+    # Log which method is active (once per startup via logger)
+    if method == "gshhs":
+        logger.info(f"Land mask active: GSHHS intermediate (vector, sub-km accuracy)")
+    elif method == "global-land-mask":
+        logger.warning("Land mask active: global-land-mask (1km raster) — GSHHS unavailable")
+    else:
+        logger.warning(
+            "Land mask active: simplified bounding boxes — COARSE ACCURACY. "
+            "Install cartopy for GSHHS or global-land-mask for reliable land avoidance."
+        )
 
     return {
         "high_resolution_available": _gshhs_loaded or _HAS_LAND_MASK,

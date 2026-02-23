@@ -276,7 +276,7 @@ export function WaypointList({
                     </span>
                     <div>
                       <div className="text-xs text-gray-300">
-                        {wp.lat.toFixed(3)}°, {wp.lon.toFixed(3)}°
+                        {wp.lat.toFixed(4)}°, {wp.lon.toFixed(4)}°
                       </div>
                     </div>
                   </div>

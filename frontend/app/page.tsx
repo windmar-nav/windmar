@@ -35,9 +35,7 @@ export default function HomePage() {
   const [isEditing, setIsEditing] = useState(true);
   const [isCalculating, setIsCalculating] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [optimizationAttempted, setOptimizationAttempted] = useState(false);
-  const [variableResolution, setVariableResolution] = useState(false);
-  const [enableVisir, setEnableVisir] = useState(false);
+  const [variableResolution, setVariableResolution] = useState(true);
   const [paretoFront, setParetoFront] = useState<ParetoSolution[] | null>(null);
   const [isRunningPareto, setIsRunningPareto] = useState(false);
 
@@ -545,7 +543,6 @@ export default function HomePage() {
     setRouteName('Custom Route');
     setDisplayedAnalysisId(null);
     setAllResults(EMPTY_ALL_RESULTS);
-    setOptimizationAttempted(false);
   };
 
   // Get displayed analysis for route indicator and optimization baseline
@@ -600,7 +597,6 @@ export default function HomePage() {
     }
 
     setIsOptimizing(true);
-    setOptimizationAttempted(true);
     setAllResults(EMPTY_ALL_RESULTS);
 
     const t0 = performance.now();
@@ -620,18 +616,15 @@ export default function HomePage() {
       baseline_time_hours: displayedAnalysis?.result.total_time_hours,
       baseline_distance_nm: displayedAnalysis?.result.total_distance_nm,
       variable_resolution: variableResolution,
-      enforced_zone_types: visibleZoneTypes.length > 0 ? visibleZoneTypes : [],
     };
 
     const combos: { engine: 'astar' | 'visir'; weight: number; key: OptimizedRouteKey }[] = [
       { engine: 'astar', weight: 0.0, key: 'astar_fuel' },
       { engine: 'astar', weight: 0.5, key: 'astar_balanced' },
       { engine: 'astar', weight: 1.0, key: 'astar_safety' },
-      ...(enableVisir ? [
-        { engine: 'visir' as const, weight: 0.0, key: 'visir_fuel' as OptimizedRouteKey },
-        { engine: 'visir' as const, weight: 0.5, key: 'visir_balanced' as OptimizedRouteKey },
-        { engine: 'visir' as const, weight: 1.0, key: 'visir_safety' as OptimizedRouteKey },
-      ] : []),
+      { engine: 'visir', weight: 0.0, key: 'visir_fuel' },
+      { engine: 'visir', weight: 0.5, key: 'visir_balanced' },
+      { engine: 'visir', weight: 1.0, key: 'visir_safety' },
     ];
 
     try {
@@ -646,12 +639,8 @@ export default function HomePage() {
         try {
           const r = await apiClient.optimizeRoute({ ...baseRequest, engine, safety_weight: weight });
           results[key] = r as OptimizationResponse | null;
-        } catch (err: unknown) {
+        } catch {
           results[key] = null;
-          // Extract structured error diagnostics for debugging
-          const detail = (err as { response?: { data?: { detail?: { message?: string } } } })?.response?.data?.detail;
-          const msg = typeof detail === 'object' && detail?.message ? detail.message : String(err);
-          debugLog('warn', 'ROUTE', `${key} failed: ${msg}`);
         }
         // Progressive update — show each result as it arrives
         setAllResults({ ...results });
@@ -694,7 +683,6 @@ export default function HomePage() {
         baseline_time_hours: displayedAnalysis?.result.total_time_hours,
         baseline_distance_nm: displayedAnalysis?.result.total_distance_nm,
         variable_resolution: variableResolution,
-        enforced_zone_types: visibleZoneTypes.length > 0 ? visibleZoneTypes : [],
         engine: 'astar',
         pareto: true,
       });
@@ -924,7 +912,6 @@ export default function HomePage() {
                 isOptimizing={isOptimizing}
                 onOptimize={handleOptimize}
                 allResults={allResults}
-                optimizationAttempted={optimizationAttempted}
                 onApplyRoute={applyOptimizedRoute}
                 onDismissRoutes={dismissOptimizedRoute}
                 routeVisibility={routeVisibility}
@@ -936,8 +923,6 @@ export default function HomePage() {
                 displayedAnalysis={displayedAnalysis}
                 variableResolution={variableResolution}
                 onVariableResolutionChange={setVariableResolution}
-                enableVisir={enableVisir}
-                onEnableVisirChange={setEnableVisir}
                 paretoFront={paretoFront}
                 isRunningPareto={isRunningPareto}
                 onRunPareto={handlePareto}

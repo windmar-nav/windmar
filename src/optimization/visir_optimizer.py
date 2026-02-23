@@ -40,6 +40,7 @@ from src.optimization.seakeeping import (
 from src.data.land_mask import is_ocean, is_path_clear
 from src.data.regulatory_zones import get_zone_checker, ZoneChecker
 from src.optimization.route_optimizer import apply_visibility_cap
+from src.optimization.grid_builder import GridBuilder
 
 logger = logging.getLogger(__name__)
 
@@ -101,21 +102,6 @@ class VisirOptimizer(BaseOptimizer):
     # Time penalty weight: same as A* engine — allows weather-avoidance detours.
     TIME_PENALTY_WEIGHT = 0.3
 
-    # Course-change penalty: penalises heading changes to produce smoother tracks.
-    COURSE_CHANGE_PENALTY_MT = 0.20   # Max penalty at 180° reversal
-
-    @staticmethod
-    def _course_change_penalty(prev_bearing: float, cur_bearing: float) -> float:
-        """Return additive fuel-equivalent penalty (MT) for a heading change."""
-        turn = abs(((cur_bearing - prev_bearing) + 180) % 360 - 180)
-        if turn <= 15.0:
-            return 0.0
-        if turn <= 45.0:
-            return 0.02 * (turn - 15.0) / 30.0
-        if turn <= 90.0:
-            return 0.02 + 0.06 * (turn - 45.0) / 45.0
-        return 0.08 + 0.12 * (turn - 90.0) / 90.0
-
     # 16-connected grid: 4 cardinal + 4 diagonal + 8 knight-move directions.
     # Knight moves enable ~26° and ~63° headings for smoother paths.
     DIRECTIONS = [
@@ -146,7 +132,6 @@ class VisirOptimizer(BaseOptimizer):
         self.enforce_safety = enforce_safety
         self.enforce_zones = enforce_zones
         self.safety_weight: float = 0.0  # 0=pure fuel, 1=full safety penalties
-        self.skip_hard_limits: bool = False  # When True, relax wave/wind hard limits
 
         self.safety_constraints = safety_constraints or create_default_safety_constraints(
             lpp=self.vessel_model.specs.lpp,
@@ -309,54 +294,15 @@ class VisirOptimizer(BaseOptimizer):
         """
         Build a 2-D (row, col) -> (lat, lon) ocean grid.
 
-        Returns the grid dict and grid_bounds dict with lat_min, lon_min,
-        num_rows, num_cols for O(1) index calculation and time-step sizing.
+        Delegates to GridBuilder.build_spatial() for grid generation.
         """
-        lat_min = min(origin[0], destination[0]) - margin_deg
-        lat_max = max(origin[0], destination[0]) + margin_deg
-        lon_min = min(origin[1], destination[1]) - margin_deg
-        lon_max = max(origin[1], destination[1]) + margin_deg
-
-        # Expand bbox to include nearby strait waypoints so detour paths
-        # (e.g. around Iberia via Gibraltar) are reachable.  Only include
-        # straits close to the original bbox in BOTH dimensions.
-        from src.data.strait_waypoints import STRAITS
-        expand_margin = margin_deg
-        for strait in STRAITS:
-            for wlat, wlon in strait.waypoints:
-                if (lat_min - expand_margin <= wlat <= lat_max + expand_margin
-                        and lon_min - expand_margin <= wlon <= lon_max + expand_margin):
-                    lon_min = min(lon_min, wlon - 1.0)
-                    lon_max = max(lon_max, wlon + 1.0)
-                    lat_min = min(lat_min, wlat - 1.0)
-                    lat_max = max(lat_max, wlat + 1.0)
-
-        lat_min, lat_max = max(lat_min, -85), min(lat_max, 85)
-
-        grid: Dict[Tuple[int, int], Tuple[float, float]] = {}
-        num_rows = 0
-        num_cols = 0
-        lat = lat_min
-        while lat <= lat_max:
-            col = 0
-            lon = lon_min
-            while lon <= lon_max:
-                if not filter_land or is_ocean(lat, lon):
-                    grid[(num_rows, col)] = (lat, lon)
-                lon += self.resolution_deg
-                col += 1
-            num_cols = max(num_cols, col)
-            lat += self.resolution_deg
-            num_rows += 1
-
-        grid_bounds = {
-            "lat_min": lat_min,
-            "lon_min": lon_min,
-            "num_rows": num_rows,
-            "num_cols": num_cols,
-        }
-        logger.info(f"VISIR grid: {len(grid)} ocean cells ({num_rows}x{num_cols})")
-        return grid, grid_bounds
+        return GridBuilder.build_spatial(
+            origin=origin,
+            destination=destination,
+            resolution_deg=self.resolution_deg,
+            margin_deg=margin_deg,
+            filter_land=filter_land,
+        )
 
     def _nearest_cell(
         self,
@@ -476,8 +422,6 @@ class VisirOptimizer(BaseOptimizer):
         h0 = heuristic(start_rc)
         pq: List[_QueueEntry] = [_QueueEntry(cost=h0, node=start_node)]
         explored = 0
-        wall_start = _time.time()
-        wall_timeout = 60.0  # seconds — fail fast instead of grinding for minutes
 
         # Cache zone penalties per spatial edge (row,col)->(row,col) to avoid
         # redundant polygon intersection tests across time steps
@@ -496,21 +440,10 @@ class VisirOptimizer(BaseOptimizer):
 
             explored += 1
 
-            # Wall-clock timeout to avoid blocking the API for minutes
-            if explored % 5000 == 0 and (_time.time() - wall_start) > wall_timeout:
-                break
-
             # Reached destination?
             if cur.row == end_rc[0] and cur.col == end_rc[1]:
                 path = self._reconstruct(cur_key, parent, node_map)
                 return path, explored
-
-            # Compute incoming bearing to current node (for course-change penalty)
-            prev_bearing = None
-            if cur_key in parent:
-                gp_key = parent[cur_key]
-                gp = node_map[gp_key]
-                prev_bearing = self.bearing(gp.lat, gp.lon, cur.lat, cur.lon)
 
             # Expand spatial neighbours
             for dr, dc in self.DIRECTIONS:
@@ -562,10 +495,6 @@ class VisirOptimizer(BaseOptimizer):
 
                 edge_cost, travel_hours, chosen_speed = best_edge
 
-                # Course-change penalty (additive, fuel-equivalent MT)
-                if prev_bearing is not None:
-                    edge_cost += self._course_change_penalty(prev_bearing, brg)
-
                 # Map travel time to the next discrete time step
                 nb_time = cur.time + timedelta(hours=travel_hours)
 
@@ -587,13 +516,7 @@ class VisirOptimizer(BaseOptimizer):
                     f_score = tentative_g + heuristic(nb_rc)
                     heapq.heappush(pq, _QueueEntry(cost=f_score, node=nb_node, speed_kts=chosen_speed))
 
-        elapsed = _time.time() - wall_start
-        if elapsed > wall_timeout:
-            reason = "timeout"
-        elif explored >= max_nodes:
-            reason = "max_nodes"
-        else:
-            reason = "pq_empty"
+        reason = "max_nodes" if explored >= max_nodes else "pq_empty"
         logger.warning(f"VISIR search failed: reason={reason}, explored={explored}, "
                        f"pq_size={len(pq)}, cost_so_far_size={len(cost_so_far)}, "
                        f"max_time_steps={max_time_steps}")
@@ -668,7 +591,6 @@ class VisirOptimizer(BaseOptimizer):
                     speed_kts=speed_kts,
                     is_laden=is_laden,
                     wind_speed_kts=weather.wind_speed_ms * 1.9438,
-                    skip_hard_limits=self.skip_hard_limits,
                 )
                 if sf == float("inf"):
                     continue  # unsafe at this speed — hard constraint always

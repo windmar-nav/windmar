@@ -2,12 +2,13 @@
 
 import { useState, useRef, useEffect } from 'react';
 import {
-  Navigation, Clock, Fuel, Ship, Loader2, Trash2, AlertTriangle,
+  Navigation, Clock, Fuel, Ship, Loader2, Trash2,
   Upload, Play, Zap, Dice5, ExternalLink, Eye, EyeOff,
   PenLine, MapPin, Download, FolderOpen, Check, X, CheckCircle, Grid3X3, TrendingUp,
 } from 'lucide-react';
 import Link from 'next/link';
 import RouteImport, { SampleRTZButton } from '@/components/RouteImport';
+import SettingsPanel from '@/components/SettingsPanel';
 import { useVoyage } from '@/components/VoyageContext';
 import { DEMO_MODE } from '@/lib/demoMode';
 import {
@@ -32,7 +33,6 @@ interface AnalysisPanelProps {
   isOptimizing: boolean;
   onOptimize: () => void;
   allResults: AllOptimizationResults;
-  optimizationAttempted?: boolean;
   onApplyRoute: (key: OptimizedRouteKey) => void;
   onDismissRoutes: () => void;
   routeVisibility: RouteVisibility;
@@ -43,8 +43,6 @@ interface AnalysisPanelProps {
   // Phase 3: Variable resolution + Pareto
   variableResolution: boolean;
   onVariableResolutionChange: (v: boolean) => void;
-  enableVisir: boolean;
-  onEnableVisirChange: (v: boolean) => void;
   paretoFront: ParetoSolution[] | null;
   isRunningPareto: boolean;
   onRunPareto: () => void;
@@ -66,7 +64,6 @@ export default function AnalysisPanel({
   isOptimizing,
   onOptimize,
   allResults,
-  optimizationAttempted,
   onApplyRoute,
   onDismissRoutes,
   routeVisibility,
@@ -76,8 +73,6 @@ export default function AnalysisPanel({
   displayedAnalysis,
   variableResolution,
   onVariableResolutionChange,
-  enableVisir,
-  onEnableVisirChange,
   paretoFront,
   isRunningPareto,
   onRunPareto,
@@ -318,32 +313,21 @@ export default function AnalysisPanel({
               </div>
             )}
 
-            {/* ── Optimization Options ── */}
-            <label className="flex items-center gap-2 px-2 py-1.5 rounded bg-white/5 text-xs text-gray-400 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={variableResolution}
-                onChange={(e) => onVariableResolutionChange(e.target.checked)}
-                className="accent-ocean-500"
-              />
-              <Grid3X3 className="w-3 h-3" />
-              <span>Variable resolution grid</span>
-              <span className="ml-auto text-[9px] text-gray-600" title="Fine 0.1° nearshore, coarse 0.5° ocean">
-                0.1°/0.5°
-              </span>
-            </label>
-            <label className="flex items-center gap-2 px-2 py-1.5 rounded bg-white/5 text-xs text-gray-400 cursor-pointer select-none">
-              <input
-                type="checkbox"
-                checked={enableVisir}
-                onChange={(e) => onEnableVisirChange(e.target.checked)}
-                className="accent-ocean-500"
-              />
-              <span>VISIR engine</span>
-              <span className="ml-auto text-[9px] text-gray-600" title="Dijkstra time-expanded graph — slower, may timeout on long routes">
-                optional
-              </span>
-            </label>
+            {/* ── Optimization Settings ── */}
+            <SettingsPanel
+              settings={{
+                gridResolution: 0.2,
+                safetyWeight: 0.0,
+                variableResolution,
+                pareto: false,
+              }}
+              onSettingsChange={(s) => {
+                onVariableResolutionChange(s.variableResolution);
+              }}
+              waypoints={waypoints}
+              calmSpeed={calmSpeed}
+              isLaden={isLaden}
+            />
 
             {/* ── Optimize Route ── */}
             <button
@@ -426,11 +410,6 @@ export default function AnalysisPanel({
                                   {fuelDeltaPct > 0 ? '+' : ''}{fuelDeltaPct.toFixed(1)}%
                                 </span>
                               )}
-                              {r.safety_degraded && (
-                                <span className="text-[10px] text-amber-400 flex items-center gap-0.5" title="Safety limits relaxed — verify conditions before sailing">
-                                  <AlertTriangle className="w-3 h-3" />
-                                </span>
-                              )}
                               <button
                                 onClick={() => onApplyRoute(key)}
                                 className="text-primary-400 hover:text-primary-300"
@@ -461,14 +440,6 @@ export default function AnalysisPanel({
                 </div>
               );
             })()}
-
-            {/* ── All engines failed message ── */}
-            {!hasOptimized && !isOptimizing && optimizationAttempted && (
-              <div className="px-3 py-2 rounded bg-amber-900/20 border border-amber-700/30 text-xs text-amber-300 flex items-start gap-2">
-                <AlertTriangle className="w-4 h-4 mt-0.5 flex-shrink-0" />
-                <span>No routes found — severe weather may be blocking departure. Try a different departure time or date.</span>
-              </div>
-            )}
 
             {/* ── Pareto Analysis ── */}
             {hasRoute && (

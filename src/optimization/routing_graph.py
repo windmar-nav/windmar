@@ -44,9 +44,9 @@ class RoutingGraph:
     Coarse (0.5°) over open ocean, fine (0.1°) within ~50nm of coast.
     """
 
-    FINE_RESOLUTION = 0.1
+    FINE_RESOLUTION = 0.05
     COARSE_RESOLUTION = 0.5
-    NEARSHORE_THRESHOLD_DEG = 0.83  # ~50nm at mid-latitudes
+    NEARSHORE_THRESHOLD_DEG = 1.5  # ~90nm at mid-latitudes — catches narrow peninsulas
 
     # 16-connected grid directions (shared with RouteOptimizer)
     DIRECTIONS = [

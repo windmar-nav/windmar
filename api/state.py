@@ -30,8 +30,6 @@ class VesselState:
     _model: Any = None
     _voyage_calculator: Any = None
     _monte_carlo_sim: Any = None
-    _route_optimizer: Any = None
-    _visir_optimizer: Any = None
     _calibrator: Any = None
     _calibration: Any = None
 
@@ -44,16 +42,12 @@ class VesselState:
         from src.optimization.vessel_model import VesselModel, VesselSpecs
         from src.optimization.voyage import VoyageCalculator
         from src.optimization.monte_carlo import MonteCarloSimulator
-        from src.optimization.route_optimizer import RouteOptimizer
-        from src.optimization.visir_optimizer import VisirOptimizer
         from src.optimization.vessel_calibration import VesselCalibrator
 
         self._specs = VesselSpecs()
         self._model = VesselModel(specs=self._specs)
         self._voyage_calculator = VoyageCalculator(vessel_model=self._model)
         self._monte_carlo_sim = MonteCarloSimulator(voyage_calculator=self._voyage_calculator)
-        self._route_optimizer = RouteOptimizer(vessel_model=self._model)
-        self._visir_optimizer = VisirOptimizer(vessel_model=self._model)
         self._calibrator = VesselCalibrator(vessel_specs=self._specs)
         self._calibration = None
 
@@ -80,18 +74,6 @@ class VesselState:
         """Get Monte Carlo simulator (thread-safe read)."""
         with self._lock:
             return self._monte_carlo_sim
-
-    @property
-    def route_optimizer(self):
-        """Get route optimizer (thread-safe read)."""
-        with self._lock:
-            return self._route_optimizer
-
-    @property
-    def visir_optimizer(self):
-        """Get VISIR optimizer (thread-safe read)."""
-        with self._lock:
-            return self._visir_optimizer
 
     @property
     def calibrator(self):
@@ -121,7 +103,8 @@ class VesselState:
         """
         Update vessel specifications atomically.
 
-        Rebuilds all dependent objects: model, calculators, optimizers, calibrator.
+        Rebuilds all dependent objects: model, calculators, calibrator.
+        Optimizers are created per-request and use the updated model.
 
         Args:
             specs_dict: Dictionary of vessel specification parameters
@@ -129,8 +112,6 @@ class VesselState:
         from src.optimization.vessel_model import VesselModel, VesselSpecs
         from src.optimization.voyage import VoyageCalculator
         from src.optimization.monte_carlo import MonteCarloSimulator
-        from src.optimization.route_optimizer import RouteOptimizer
-        from src.optimization.visir_optimizer import VisirOptimizer
         from src.optimization.vessel_calibration import VesselCalibrator
 
         with self._lock:
@@ -138,8 +119,6 @@ class VesselState:
             self._model = VesselModel(specs=self._specs)
             self._voyage_calculator = VoyageCalculator(vessel_model=self._model)
             self._monte_carlo_sim = MonteCarloSimulator(voyage_calculator=self._voyage_calculator)
-            self._route_optimizer = RouteOptimizer(vessel_model=self._model)
-            self._visir_optimizer = VisirOptimizer(vessel_model=self._model)
             self._calibrator = VesselCalibrator(vessel_specs=self._specs)
             self._calibration = None
 
@@ -155,8 +134,6 @@ class VesselState:
         from src.optimization.vessel_model import VesselModel
         from src.optimization.voyage import VoyageCalculator
         from src.optimization.monte_carlo import MonteCarloSimulator
-        from src.optimization.route_optimizer import RouteOptimizer
-        from src.optimization.visir_optimizer import VisirOptimizer
 
         with self._lock:
             self._calibration = calibration_factors
@@ -173,8 +150,6 @@ class VesselState:
             )
             self._voyage_calculator = VoyageCalculator(vessel_model=self._model)
             self._monte_carlo_sim = MonteCarloSimulator(voyage_calculator=self._voyage_calculator)
-            self._route_optimizer = RouteOptimizer(vessel_model=self._model)
-            self._visir_optimizer = VisirOptimizer(vessel_model=self._model)
 
             logger.info("Vessel calibration updated")
 
@@ -190,8 +165,6 @@ class VesselState:
                 'model': self._model,
                 'voyage_calculator': self._voyage_calculator,
                 'monte_carlo_sim': self._monte_carlo_sim,
-                'route_optimizer': self._route_optimizer,
-                'visir_optimizer': self._visir_optimizer,
                 'calibrator': self._calibrator,
                 'calibration': self._calibration,
             }

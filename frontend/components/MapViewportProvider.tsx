@@ -25,7 +25,7 @@ export default function MapViewportProvider({ onViewportChange }: MapViewportPro
     const b = map.getBounds();
     const latSpan = b.getNorth() - b.getSouth();
     const lngSpan = b.getEast() - b.getWest();
-    const margin = 0.25;
+    const margin = 0.35;
 
     onViewportChange({
       bounds: {
