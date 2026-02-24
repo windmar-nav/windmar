@@ -126,7 +126,7 @@ class TestTSSHeadingPenalty:
         assert penalty == 10.0
 
     def test_no_direction_metadata(self, checker):
-        """Zone without direction_deg should return 1.0 (no penalty)."""
+        """Zone without direction_deg should return 0.4 (mandatory incentive)."""
         # Create a fake TSS zone with no direction metadata
         from src.data.regulatory_zones import Zone, ZoneProperties, ZoneInteraction
         fake = Zone(
@@ -139,8 +139,8 @@ class TestTSSHeadingPenalty:
             coordinates=[(0, 0), (0, 1), (1, 1), (1, 0), (0, 0)],
         )
         penalty, warn = checker._check_tss_heading(fake, 45.0)
-        assert penalty == 1.0
-        assert warn is None
+        assert penalty == 0.4
+        assert warn is not None and "mandatory" in warn.lower()
 
     def test_all_tss_zones_have_direction(self, checker):
         """All TSS zones loaded from tss_zones.py should have direction metadata."""

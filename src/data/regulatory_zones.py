@@ -523,7 +523,7 @@ class ZoneChecker:
         meta = TSS_METADATA.get(zone_key, {})
         direction = meta.get("direction_deg")
         if direction is None:
-            return 1.0, None  # No direction data — no penalty
+            return 0.4, f"Mandatory TSS zone: {zone.properties.name}"
 
         tolerance = meta.get("tolerance_deg", 20)
         bidirectional = meta.get("bidirectional", True)

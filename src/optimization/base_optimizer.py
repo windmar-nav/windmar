@@ -154,6 +154,26 @@ class BaseOptimizer(ABC):
     # -------------------------------------------------------------------
 
     @staticmethod
+    def _course_change_penalty(current_heading_deg: float, next_heading_deg: float) -> float:
+        """
+        Piecewise-linear penalty for course changes during route optimization.
+
+        Discourages sharp turns:
+          0-15°  → 0.00  (routine helm corrections)
+         15-45°  → 0.00 – 0.02
+         45-90°  → 0.02 – 0.08
+         90-180° → 0.08 – 0.20
+        """
+        diff = abs(((next_heading_deg - current_heading_deg) + 180) % 360 - 180)
+        if diff <= 15.0:
+            return 0.0
+        if diff <= 45.0:
+            return 0.02 * (diff - 15.0) / 30.0
+        if diff <= 90.0:
+            return 0.02 + 0.06 * (diff - 45.0) / 45.0
+        return 0.08 + 0.12 * (min(diff, 180.0) - 90.0) / 90.0
+
+    @staticmethod
     def haversine(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
         """Calculate great circle distance in nautical miles."""
         R = 3440.065  # Earth radius in nm
