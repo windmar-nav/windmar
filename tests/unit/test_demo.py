@@ -38,27 +38,23 @@ def _make_request(api_key: str = "") -> MagicMock:
 class TestLimitDemoFrames:
     """Tests for limit_demo_frames()."""
 
-    def test_filters_frames_to_step_12(self):
+    def test_truncates_to_48h(self):
         result = {
             "cached_hours": 41,
             "frames": {str(h): {"data": h} for h in range(0, 121, 3)},
         }
         filtered = limit_demo_frames(result)
-        assert set(filtered["frames"].keys()) == {
-            "0", "12", "24", "36", "48", "60", "72", "84", "96", "108", "120"
-        }
-        assert filtered["cached_hours"] == 11
+        expected = {str(h) for h in range(0, 49, 3)}  # 0,3,6,...,48
+        assert set(filtered["frames"].keys()) == expected
+        assert filtered["cached_hours"] == len(expected)
 
-    def test_custom_step(self):
+    def test_keeps_all_frames_within_48h(self):
+        """All frames <= 48h are kept regardless of step."""
         result = {
-            "frames": {str(h): {} for h in range(0, 121, 3)},
+            "frames": {str(h): {} for h in [0, 1, 6, 12, 24, 47, 48, 49, 72]},
         }
-        with patch("api.demo.settings") as mock_settings:
-            mock_settings.demo_forecast_step = 24
-            filtered = limit_demo_frames(result)
-        assert set(filtered["frames"].keys()) == {
-            "0", "24", "48", "72", "96", "120"
-        }
+        filtered = limit_demo_frames(result)
+        assert set(filtered["frames"].keys()) == {"0", "1", "6", "12", "24", "47", "48"}
 
     def test_passthrough_non_dict(self):
         from starlette.responses import Response
@@ -74,6 +70,12 @@ class TestLimitDemoFrames:
         filtered = limit_demo_frames(result)
         assert filtered["frames"] == {}
         assert filtered["cached_hours"] == 0
+
+    def test_all_frames_beyond_48h_returns_original(self):
+        """Safety: if all frames are > 48h, return unchanged."""
+        result = {"frames": {"72": {}, "96": {}}}
+        filtered = limit_demo_frames(result)
+        assert set(filtered["frames"].keys()) == {"72", "96"}
 
 
 # ============================================================================
@@ -206,6 +208,7 @@ class TestIsDemoUser:
         h = _hash("demo-key")
         req = _make_request("demo-key")
         with patch("api.demo.settings") as s:
+            s.demo_mode = False
             s.full_api_key_hashes = ""
             s.demo_api_key_hashes = h
             s.demo_api_key_hash = None
@@ -215,15 +218,39 @@ class TestIsDemoUser:
         h = _hash("full-key")
         req = _make_request("full-key")
         with patch("api.demo.settings") as s:
+            s.demo_mode = False
             s.full_api_key_hashes = h
             s.demo_api_key_hashes = ""
             s.demo_api_key_hash = None
             assert is_demo_user(req) is False
 
-    def test_anonymous_is_not_demo_user(self):
+    def test_anonymous_not_demo_user_in_normal_mode(self):
+        """In non-demo mode, anonymous is NOT a demo user."""
         req = _make_request("")
         with patch("api.demo.settings") as s:
+            s.demo_mode = False
             s.full_api_key_hashes = ""
+            s.demo_api_key_hashes = ""
+            s.demo_api_key_hash = None
+            assert is_demo_user(req) is False
+
+    def test_anonymous_is_demo_user_in_demo_mode(self):
+        """In demo mode, anonymous IS a demo user (RC1 fix)."""
+        req = _make_request("")
+        with patch("api.demo.settings") as s:
+            s.demo_mode = True
+            s.full_api_key_hashes = ""
+            s.demo_api_key_hashes = ""
+            s.demo_api_key_hash = None
+            assert is_demo_user(req) is True
+
+    def test_full_key_not_demo_user_in_demo_mode(self):
+        """In demo mode, full-tier users bypass demo restrictions."""
+        h = _hash("full-key")
+        req = _make_request("full-key")
+        with patch("api.demo.settings") as s:
+            s.demo_mode = True
+            s.full_api_key_hashes = h
             s.demo_api_key_hashes = ""
             s.demo_api_key_hash = None
             assert is_demo_user(req) is False

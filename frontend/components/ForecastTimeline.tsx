@@ -261,6 +261,7 @@ export default function ForecastTimeline({
       }
     } catch (e) {
       console.error('Failed to load wind forecast frames:', e);
+      setPrefetchComplete(true);
       setIsLoading(false);
     }
   }, [onForecastHourChange]);
@@ -310,6 +311,7 @@ export default function ForecastTimeline({
       }
     } catch (e) {
       debugLog('error', 'WAVE', `Failed to load wave forecast frames: ${e}`);
+      setPrefetchComplete(true);
       setIsLoading(false);
     }
   }, [onWaveForecastHourChange]);
@@ -401,6 +403,7 @@ export default function ForecastTimeline({
       }
     } catch (e) {
       debugLog('error', 'CURRENT', `Failed to load current forecast frames: ${e}`);
+      setPrefetchComplete(true);
       setIsLoading(false);
     }
   }, [onCurrentForecastHourChange]);
@@ -462,6 +465,7 @@ export default function ForecastTimeline({
       }
     } catch (e) {
       debugLog('error', 'ICE', `Failed to load ice forecast frames: ${e}`);
+      setPrefetchComplete(true);
       setIsLoading(false);
     }
   }, [onIceForecastHourChange]);
@@ -518,6 +522,7 @@ export default function ForecastTimeline({
       }
     } catch (e) {
       debugLog('error', 'SWELL', `Failed to load swell forecast frames: ${e}`);
+      setPrefetchComplete(true);
       setIsLoading(false);
     }
   }, [onSwellForecastHourChange]);
@@ -578,6 +583,7 @@ export default function ForecastTimeline({
       }
     } catch (e) {
       debugLog('error', 'SST', `Failed to load SST forecast frames: ${e}`);
+      setPrefetchComplete(true);
       setIsLoading(false);
     }
   }, [onSstForecastHourChange]);
@@ -639,6 +645,7 @@ export default function ForecastTimeline({
       }
     } catch (e) {
       debugLog('error', 'VIS', `Failed to load visibility forecast frames: ${e}`);
+      setPrefetchComplete(true);
       setIsLoading(false);
     }
   }, [onVisForecastHourChange]);
@@ -897,11 +904,15 @@ export default function ForecastTimeline({
             <span className="text-gray-400 text-xs">|</span>
             <span className="text-gray-300 text-xs">{formatValidTime(currentHour)}</span>
           </div>
-          {isLoading && (
+          {isLoading ? (
             <div className="text-xs text-gray-500 mt-0.5">
               {loadProgress.total > 0
                 ? `Loading ${loadProgress.cached}/${loadProgress.total} frames...`
                 : 'Loading frames...'}
+            </div>
+          ) : prefetchComplete && availableHours.length === 0 && (
+            <div className="text-xs text-amber-500 mt-0.5">
+              No forecast data — try resync
             </div>
           )}
         </div>

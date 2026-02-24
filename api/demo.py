@@ -81,8 +81,15 @@ def get_user_tier(request: Request) -> str:
 
 
 def is_demo_user(request: Request) -> bool:
-    """Return True if the current request comes from a demo-tier user."""
-    return get_user_tier(request) == "demo"
+    """Return True if the current request comes from a demo-tier user.
+
+    In demo mode, both ``"anonymous"`` and ``"demo"`` tier users are treated
+    as demo users.  Only ``"full"`` tier bypasses demo restrictions.
+    """
+    tier = get_user_tier(request)
+    if settings.demo_mode:
+        return tier != "full"
+    return tier == "demo"
 
 
 # ============================================================================
@@ -124,23 +131,25 @@ def is_demo() -> bool:
     return settings.demo_mode
 
 
-def limit_demo_frames(result: dict) -> dict:
-    """Filter forecast frames to keep only every Nth hour in demo mode.
+DEMO_MAX_FORECAST_HOUR = 48  # 2 days — same resolution as prod, shorter horizon
 
-    Reduces 41 frames (0-120h @ 3h) to ~11 frames (0, 12, 24, ..., 120)
-    based on ``settings.demo_forecast_step``.  Passes through non-dict
-    results and results without a ``frames`` key unchanged.
+
+def limit_demo_frames(result: dict) -> dict:
+    """Truncate forecast frames to the first 48 hours in demo mode.
+
+    Keeps all frames whose hour key is <= ``DEMO_MAX_FORECAST_HOUR``.
+    Same temporal resolution as production, just a shorter horizon.
+    Passes through non-dict results and results without a ``frames``
+    key unchanged.
     """
     if not isinstance(result, dict) or "frames" not in result:
         return result
 
-    step = settings.demo_forecast_step
     frames = result["frames"]
-    filtered = {
-        k: v for k, v in frames.items()
-        if int(k) % step == 0
-    }
-    result["frames"] = filtered
+    kept = {k: v for k, v in frames.items() if int(k) <= DEMO_MAX_FORECAST_HOUR}
+    if not kept:
+        return result  # safety: don't strip all frames
+    result["frames"] = kept
     if "cached_hours" in result:
-        result["cached_hours"] = len(filtered)
+        result["cached_hours"] = len(kept)
     return result

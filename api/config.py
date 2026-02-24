@@ -20,8 +20,6 @@ class Settings(BaseSettings):
     demo_api_key_hash: Optional[str] = None
     demo_api_key_hashes: str = ""
     full_api_key_hashes: str = ""
-    demo_forecast_step: int = 12
-
     # ========================================================================
     # Redis Configuration
     # ========================================================================

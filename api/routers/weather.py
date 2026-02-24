@@ -1054,7 +1054,7 @@ async def api_weather_health():
     return health
 
 
-@router.post("/api/weather/{layer}/resync", dependencies=[Depends(require_not_demo("Weather resync"))])
+@router.post("/api/weather/{layer}/resync")
 async def api_weather_layer_resync(
     layer: str,
     lat_min: Optional[float] = Query(None, ge=-90, le=90),
