@@ -1793,6 +1793,11 @@ export const apiClient = {
     return response.data;
   },
 
+  async getCurrentField(params: { lat_min?: number; lat_max?: number; lon_min?: number; lon_max?: number; resolution?: number } = {}): Promise<GridFieldData> {
+    const response = await api.get<GridFieldData>('/api/weather/currents', { params });
+    return response.data;
+  },
+
   async getIceField(params: { lat_min?: number; lat_max?: number; lon_min?: number; lon_max?: number; resolution?: number } = {}): Promise<GridFieldData> {
     const response = await api.get<GridFieldData>('/api/weather/ice', { params });
     return response.data;

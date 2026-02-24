@@ -214,8 +214,9 @@ export default function ForecastTimeline({
 
   // Pad viewport bounds OUT to grid cell edges so fetched data always covers the
   // full grid cell.  This prevents truncated overlays when panning within a cell.
-  // Cap to MAX_SPAN degrees per axis to avoid multi-GB responses when zoomed out.
-  const MAX_SPAN = 120; // degrees — keeps response ~290 MB at 0.25° grid
+  // Cap must match backend _CMEMS_MAX_LAT/LON_SPAN (30°/70°) to avoid OOM.
+  const MAX_LAT_SPAN = 30; // degrees — matches backend resync cap
+  const MAX_LON_SPAN = 70; // degrees — matches backend resync cap
   const paddedBounds = () => {
     const b = boundsRef.current;
     if (!b) return undefined;
@@ -223,16 +224,16 @@ export default function ForecastTimeline({
     let lat_max = Math.ceil(b.lat_max / BOUNDS_GRID) * BOUNDS_GRID;
     let lon_min = Math.floor(b.lon_min / BOUNDS_GRID) * BOUNDS_GRID;
     let lon_max = Math.ceil(b.lon_max / BOUNDS_GRID) * BOUNDS_GRID;
-    // Clamp oversized spans around viewport center
-    if (lat_max - lat_min > MAX_SPAN) {
+    // Clamp oversized spans around viewport center (must match backend caps)
+    if (lat_max - lat_min > MAX_LAT_SPAN) {
       const mid = (b.lat_min + b.lat_max) / 2;
-      lat_min = Math.floor((mid - MAX_SPAN / 2) / BOUNDS_GRID) * BOUNDS_GRID;
-      lat_max = lat_min + MAX_SPAN;
+      lat_min = Math.floor((mid - MAX_LAT_SPAN / 2) / BOUNDS_GRID) * BOUNDS_GRID;
+      lat_max = lat_min + MAX_LAT_SPAN;
     }
-    if (lon_max - lon_min > MAX_SPAN) {
+    if (lon_max - lon_min > MAX_LON_SPAN) {
       const mid = (b.lon_min + b.lon_max) / 2;
-      lon_min = Math.floor((mid - MAX_SPAN / 2) / BOUNDS_GRID) * BOUNDS_GRID;
-      lon_max = lon_min + MAX_SPAN;
+      lon_min = Math.floor((mid - MAX_LON_SPAN / 2) / BOUNDS_GRID) * BOUNDS_GRID;
+      lon_max = lon_min + MAX_LON_SPAN;
     }
     // Clamp to valid geographic range
     lat_min = Math.max(-89.9, lat_min);

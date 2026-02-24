@@ -97,6 +97,27 @@ for _fn in FIELD_NAMES:
 
 _OVERLAY_MAX_DIM = 500
 
+# Maximum bbox span for CMEMS/GFS downloads — prevents OOM.
+# Wave forecast at 30×70° ≈ 400 MB (8 params × 41 steps × ~304K grid points).
+_MAX_LAT_SPAN = 30.0
+_MAX_LON_SPAN = 70.0
+
+
+def _clamp_bbox(lat_min, lat_max, lon_min, lon_max):
+    """Clamp bbox to _MAX_LAT/LON_SPAN, centered on the original midpoint."""
+    lat_span = lat_max - lat_min
+    lon_span = lon_max - lon_min
+    if lat_span > _MAX_LAT_SPAN or lon_span > _MAX_LON_SPAN:
+        lat_center = (lat_min + lat_max) / 2
+        lon_center = (lon_min + lon_max) / 2
+        lat_half = min(lat_span / 2, _MAX_LAT_SPAN / 2)
+        lon_half = min(lon_span / 2, _MAX_LON_SPAN / 2)
+        lat_min = max(-89.9, lat_center - lat_half)
+        lat_max = min(89.9, lat_center + lat_half)
+        lon_min = max(-180.0, lon_center - lon_half)
+        lon_max = min(180.0, lon_center + lon_half)
+    return lat_min, lat_max, lon_min, lon_max
+
 
 def _overlay_step(lats, lons):
     """Compute subsample step for overlay grids exceeding target size."""
@@ -371,6 +392,9 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
     """
     field_name = mgr.name
     cfg = get_field(field_name)
+
+    # Cap bbox to prevent OOM on large viewports
+    lat_min, lat_max, lon_min, lon_max = _clamp_bbox(lat_min, lat_max, lon_min, lon_max)
 
     cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
 
@@ -1041,6 +1065,9 @@ async def api_get_weather_field(
     if time is None:
         time = datetime.now(timezone.utc)
 
+    # Cap bbox to prevent OOM on large viewports
+    lat_min, lat_max, lon_min, lon_max = _clamp_bbox(lat_min, lat_max, lon_min, lon_max)
+
     params = dict(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min,
                   lon_max=lon_max, resolution=resolution)
 
@@ -1449,21 +1476,10 @@ async def api_weather_layer_resync(
 
     cfg = get_field(field)
 
-    # Cap CMEMS bbox
-    _CMEMS_MAX_LAT_SPAN = 55.0
-    _CMEMS_MAX_LON_SPAN = 130.0
+    # Cap CMEMS bbox to prevent OOM
     has_bbox = all(v is not None for v in (lat_min, lat_max, lon_min, lon_max))
     if has_bbox:
-        lat_span = lat_max - lat_min
-        lon_span = lon_max - lon_min
-        lat_center = (lat_min + lat_max) / 2
-        lon_center = (lon_min + lon_max) / 2
-        lat_half = min(lat_span / 2, _CMEMS_MAX_LAT_SPAN / 2)
-        lon_half = min(lon_span / 2, _CMEMS_MAX_LON_SPAN / 2)
-        lat_min = max(-89.9, lat_center - lat_half)
-        lat_max = min(89.9, lat_center + lat_half)
-        lon_min = max(-180.0, lon_center - lon_half)
-        lon_max = min(180.0, lon_center + lon_half)
+        lat_min, lat_max, lon_min, lon_max = _clamp_bbox(lat_min, lat_max, lon_min, lon_max)
 
     logger.info(f"Per-layer resync starting: {field}" +
                 (f" bbox=[{lat_min:.1f},{lat_max:.1f}]x[{lon_min:.1f},{lon_max:.1f}]" if has_bbox else ""))

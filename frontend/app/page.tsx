@@ -161,10 +161,15 @@ export default function HomePage() {
         if (waves) setWaveData(waves);
         if (waves?.ingested_at && !resyncRunningRef.current) setLayerIngestedAt(waves.ingested_at);
       } else if (activeLayer === 'currents') {
-        const currentVel = await apiClient.getCurrentVelocity(params).then(orNull).catch(() => null);
+        const [currentVel, currentGrid] = await Promise.all([
+          apiClient.getCurrentVelocity(params).then(orNull).catch(() => null),
+          apiClient.getCurrentField(params).then(orNull).catch(() => null),
+        ]);
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Currents loaded in ${dt}ms: ${currentVel ? 'yes' : 'no data'}`);
         setCurrentVelocityData(currentVel);
+        if (currentGrid) setExtendedWeatherData(currentGrid);
+        if (currentGrid?.ingested_at && !resyncRunningRef.current) setLayerIngestedAt(currentGrid.ingested_at);
       } else if (activeLayer === 'ice') {
         const data = await apiClient.getIceField(params).then(orNull);
         const dt = (performance.now() - t0).toFixed(0);
@@ -184,10 +189,10 @@ export default function HomePage() {
         if (data) setExtendedWeatherData(data);
         if (data?.ingested_at && !resyncRunningRef.current) setLayerIngestedAt(data.ingested_at);
       } else if (activeLayer === 'swell') {
-        const data = await apiClient.getSwellField(params);
+        const data = await apiClient.getSwellField(params).then(orNull);
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Swell loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
-        setExtendedWeatherData(data);
+        if (data) setExtendedWeatherData(data);
         if (data?.ingested_at && !resyncRunningRef.current) setLayerIngestedAt(data.ingested_at);
       }
     } catch (error) {
