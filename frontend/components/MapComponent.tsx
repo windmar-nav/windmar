@@ -233,15 +233,16 @@ export default function MapComponent({
         {/* GSHHS coastline overlay — crisp vector land boundaries above weather grids */}
         {weatherLayer !== 'none' && <CoastlineOverlay />}
 
-        {/* Hover tooltip for wind, waves, swell, currents, visibility layers */}
-        {(weatherLayer === 'wind' || weatherLayer === 'waves' || weatherLayer === 'swell' || weatherLayer === 'currents' || weatherLayer === 'visibility') && (
+        {/* Hover tooltip for wind, waves, swell, currents, visibility, sst layers */}
+        {(weatherLayer === 'wind' || weatherLayer === 'waves' || weatherLayer === 'swell' || weatherLayer === 'currents' || weatherLayer === 'visibility' || weatherLayer === 'sst') && (
           <WaveInfoPopup
-            layer={weatherLayer as 'wind' | 'waves' | 'swell' | 'currents' | 'visibility'}
+            layer={weatherLayer as 'wind' | 'waves' | 'swell' | 'currents' | 'visibility' | 'sst'}
             waveData={weatherLayer === 'waves' ? waveData : null}
             windData={windData}
             swellData={weatherLayer === 'swell' ? extendedWeatherData as any : null}
             currentVelocityData={currentVelocityData}
             visibilityData={weatherLayer === 'visibility' ? extendedWeatherData as any : null}
+            sstData={weatherLayer === 'sst' ? extendedWeatherData as any : null}
           />
         )}
 
