@@ -802,7 +802,7 @@ async def get_weather_freshness(request: Request):
 async def _compat_wind_status(
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_get_field_status(field="wind", lat_min=lat_min,
@@ -815,7 +815,7 @@ async def _compat_wind_prefetch(
     background_tasks: BackgroundTasks,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_trigger_field_prefetch(field="wind", background_tasks=background_tasks,
@@ -828,7 +828,7 @@ async def _compat_wind_frames(
     request: Request,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_get_field_frames(field="wind", request=request,
@@ -842,7 +842,7 @@ async def _compat_wind_frames(
 async def _compat_wave_status(
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_get_field_status(field="waves", lat_min=lat_min,
@@ -855,7 +855,7 @@ async def _compat_wave_prefetch(
     background_tasks: BackgroundTasks,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_trigger_field_prefetch(field="waves", background_tasks=background_tasks,
@@ -868,7 +868,7 @@ async def _compat_wave_frames(
     request: Request,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_get_field_frames(field="waves", request=request,
@@ -882,7 +882,7 @@ async def _compat_wave_frames(
 async def _compat_current_status(
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_get_field_status(field="currents", lat_min=lat_min,
@@ -895,7 +895,7 @@ async def _compat_current_prefetch(
     background_tasks: BackgroundTasks,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_trigger_field_prefetch(field="currents", background_tasks=background_tasks,
@@ -908,7 +908,7 @@ async def _compat_current_frames(
     request: Request,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_get_field_frames(field="currents", request=request,
@@ -922,7 +922,7 @@ async def _compat_current_frames(
 async def _compat_ice_status(
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_get_field_status(field="ice", lat_min=lat_min,
@@ -935,7 +935,7 @@ async def _compat_ice_prefetch(
     background_tasks: BackgroundTasks,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_trigger_field_prefetch(field="ice", background_tasks=background_tasks,
@@ -948,7 +948,7 @@ async def _compat_ice_frames(
     request: Request,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_get_field_frames(field="ice", request=request,
@@ -962,7 +962,7 @@ async def _compat_ice_frames(
 async def _compat_sst_status(
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_get_field_status(field="sst", lat_min=lat_min,
@@ -975,7 +975,7 @@ async def _compat_sst_prefetch(
     background_tasks: BackgroundTasks,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_trigger_field_prefetch(field="sst", background_tasks=background_tasks,
@@ -988,7 +988,7 @@ async def _compat_sst_frames(
     request: Request,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_get_field_frames(field="sst", request=request,
@@ -1002,7 +1002,7 @@ async def _compat_sst_frames(
 async def _compat_vis_status(
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_get_field_status(field="visibility", lat_min=lat_min,
@@ -1015,7 +1015,7 @@ async def _compat_vis_prefetch(
     background_tasks: BackgroundTasks,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_trigger_field_prefetch(field="visibility", background_tasks=background_tasks,
@@ -1028,7 +1028,7 @@ async def _compat_vis_frames(
     request: Request,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     return await api_get_field_frames(field="visibility", request=request,
@@ -1045,7 +1045,7 @@ async def api_get_weather_field(
     field: str,
     lat_min: float = Query(30.0, ge=-90, le=90),
     lat_max: float = Query(60.0, ge=-90, le=90),
-    lon_min: float = Query(-15.0, ge=-180, le=180),
+    lon_min: float = Query(-30.0, ge=-180, le=180),
     lon_max: float = Query(40.0, ge=-180, le=180),
     resolution: float = Query(1.0, ge=0.25, le=5.0),
     time: Optional[datetime] = None,
@@ -1191,7 +1191,7 @@ async def api_get_velocity_format(
     field: str,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
     resolution: float = Query(1.0),
     time: Optional[datetime] = None,
@@ -1206,6 +1206,8 @@ async def api_get_velocity_format(
 
     if time is None:
         time = datetime.now(timezone.utc)
+
+    lat_min, lat_max, lon_min, lon_max = _clamp_bbox(lat_min, lat_max, lon_min, lon_max)
 
     if field == "wind":
         gfs_provider = _get_providers()['gfs']
@@ -1268,7 +1270,7 @@ async def api_get_field_status(
     field: str,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     """Get forecast status for any weather field."""
@@ -1366,7 +1368,7 @@ async def api_trigger_field_prefetch(
     background_tasks: BackgroundTasks,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     """Trigger background download of forecast data for any field."""
@@ -1387,7 +1389,7 @@ async def api_get_field_frames(
     request: Request,
     lat_min: float = Query(30.0),
     lat_max: float = Query(60.0),
-    lon_min: float = Query(-15.0),
+    lon_min: float = Query(-30.0),
     lon_max: float = Query(40.0),
 ):
     """Return all forecast frames for any field.
@@ -1398,6 +1400,8 @@ async def api_get_field_frames(
     if field not in WEATHER_FIELDS:
         raise HTTPException(status_code=400,
                             detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}")
+
+    lat_min, lat_max, lon_min, lon_max = _clamp_bbox(lat_min, lat_max, lon_min, lon_max)
 
     cfg = get_field(field)
     mgr = _get_layer_manager(field)

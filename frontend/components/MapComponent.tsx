@@ -72,7 +72,7 @@ const Tooltip = dynamic(
   { ssr: false }
 );
 
-const DEFAULT_CENTER: [number, number] = [45, 10];
+const DEFAULT_CENTER: [number, number] = [45, 5];
 const DEFAULT_ZOOM = 5;
 
 export type WeatherLayer = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';

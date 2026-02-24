@@ -27,13 +27,26 @@ export default function MapViewportProvider({ onViewportChange }: MapViewportPro
     const lngSpan = b.getEast() - b.getWest();
     const margin = 0.35;
 
+    // Expand by margin, then cap to backend limits (30° lat × 70° lon)
+    const MAX_LAT_SPAN = 30;
+    const MAX_LON_SPAN = 70;
+    let lat_min = Math.max(-85, b.getSouth() - latSpan * margin);
+    let lat_max = Math.min(85, b.getNorth() + latSpan * margin);
+    let lon_min = Math.max(-180, b.getWest() - lngSpan * margin);
+    let lon_max = Math.min(180, b.getEast() + lngSpan * margin);
+    if (lat_max - lat_min > MAX_LAT_SPAN) {
+      const mid = (lat_min + lat_max) / 2;
+      lat_min = mid - MAX_LAT_SPAN / 2;
+      lat_max = mid + MAX_LAT_SPAN / 2;
+    }
+    if (lon_max - lon_min > MAX_LON_SPAN) {
+      const mid = (lon_min + lon_max) / 2;
+      lon_min = mid - MAX_LON_SPAN / 2;
+      lon_max = mid + MAX_LON_SPAN / 2;
+    }
+
     onViewportChange({
-      bounds: {
-        lat_min: Math.max(-85, b.getSouth() - latSpan * margin),
-        lat_max: Math.min(85, b.getNorth() + latSpan * margin),
-        lon_min: Math.max(-180, b.getWest() - lngSpan * margin),
-        lon_max: Math.min(180, b.getEast() + lngSpan * margin),
-      },
+      bounds: { lat_min, lat_max, lon_min, lon_max },
       zoom: map.getZoom(),
     });
   }, [map, onViewportChange]);
