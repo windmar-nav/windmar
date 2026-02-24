@@ -1,0 +1,32 @@
+# Large binary/cache directories - prevent Claude Code from scanning
+frontend/node_modules/
+frontend/.next/
+data/
+logs/
+*.log
+
+# Build artifacts
+frontend/out/
+frontend/build/
+dist/
+build/
+
+# Python caches
+__pycache__/
+*.pyc
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Environment
+.env
+.env.*
+*.key
+*.pem
+*.crt
+
+# Data files
+*.nc
+*.sql.gz
+*.db
+*.sqlite

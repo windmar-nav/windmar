@@ -160,6 +160,10 @@ def _get_cache_key(data_type: str, lat_min: float, lat_max: float, lon_min: floa
 
 def build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05):
     """Build high-res ocean mask using vectorized numpy calls (fast)."""
+    lat_min = max(-89.99, lat_min)
+    lat_max = min(89.99, lat_max)
+    lon_min = max(-180.0, lon_min)
+    lon_max = min(180.0, lon_max)
     mask_lats = np.arange(lat_min, lat_max + step / 2, step)
     mask_lons = np.arange(lon_min, lon_max + step / 2, step)
     lon_grid, lat_grid = np.meshgrid(mask_lons, mask_lats)

@@ -2,7 +2,7 @@
 
 Technical reference for the WindMar weather ingestion, storage, caching, visualization, and downsampling pipeline.
 
-Last updated: 2026-02-22 (v0.1.0 — modular router architecture, viewport-aware resync, overlay subsampling)
+Last updated: 2026-02-24 (v0.1.2 — CMEMS bbox cap 55×130, coordinate clamping, stale-data guard)
 
 ---
 
@@ -137,24 +137,31 @@ Layers: `wind`, `waves`, `currents`, `ice`, `visibility`, `swell`
 
 **Viewport-aware bbox:** The frontend passes its current map viewport bounds as query parameters. For CMEMS layers (waves, currents, swell, ice), these bounds determine which geographic region is downloaded from Copernicus. GFS layers (wind, visibility) are global and ignore the bbox.
 
-**CMEMS bbox cap (OOM protection):** The viewport bbox is capped to a maximum of **40° latitude × 60° longitude**, centered on the viewport midpoint. This prevents OOM kills in the API container — a full-viewport CMEMS download at 0.083° resolution with 9 wave parameters × 41 timesteps can exceed 10 GB of RAM for large viewports.
+**CMEMS bbox cap (OOM protection):** The viewport bbox is capped to a maximum of **55° latitude × 130° longitude**, centered on the viewport midpoint. This prevents OOM kills in the API container — the `copernicusmarine` Python client downloads data at **full native 0.083° resolution regardless of any post-download subsampling** (`isel`, stride, etc.), so the bbox is the only mechanism to control download size and memory usage.
+
+**Why 55° × 130°:** This covers the demo viewport (NE Atlantic + Mediterranean: lat ~12.5°–67.5°, lon ~−55°–75°) with margin. It produces a ~660 × 1560 grid per timestep at 0.083° resolution, which results in approximately 700 MB download and ~2 GB peak RAM for wave data (9 parameters × 41 timesteps).
+
+**Critical constraint — `copernicusmarine` native resolution:** The Copernicus Marine client (`copernicusmarine.open_dataset()`) always downloads the full native-resolution data within the requested bbox. Post-download operations like `ds.isel(latitude=slice(None, None, 3))` only discard data *after* it has been fetched and loaded into memory. This means subsampling does NOT reduce download time, network bandwidth, or peak memory during ingestion. The bbox cap is the **sole** protection against OOM.
 
 | Viewport Size | Grid Points (0.083°) | Estimated RAM (waves) | Status |
 |---|---|---|---|
 | 35° × 60° (default) | ~420 × 720 | ~1.5 GB | Safe |
-| 40° × 60° (max cap) | ~480 × 720 | ~2 GB | Safe |
-| 50° × 80° (uncapped) | ~600 × 960 | ~4 GB | Risky |
-| 78° × 150° (full viewport) | ~940 × 1800 | ~10+ GB | **OOM kill** |
+| 55° × 130° (max cap) | ~660 × 1560 | ~2 GB | Safe |
+| 65° × 150° (uncapped) | ~780 × 1800 | ~5 GB | Risky |
+| 78° × 207° (full viewport) | ~940 × 2490 | ~10+ GB | **OOM kill** |
 
 **Behavior:**
-1. Cap bbox to 40° × 60° centered on viewport
-2. Call the layer's ingest function with `force=True` (bypasses freshness checks)
-3. Supersede old runs **for this source only** (`_supersede_old_runs(source)`)
-4. Clean up orphaned grid data **for this source only** (`cleanup_orphaned_grid_data(source)`)
-5. Clear the layer's frame cache + stale file caches
-6. Return `{ "status": "complete", "ingested_at": "<ISO>" }`
+1. Cap bbox to 55° × 130° centered on viewport midpoint
+2. Clamp all coordinates to valid geographic range (lat ≤ 89.9°, lon ≤ 180°)
+3. Call the layer's ingest function with `force=True` (bypasses freshness checks)
+4. Supersede old runs **for this source only** (`_supersede_old_runs(source)`)
+5. Clean up orphaned grid data **for this source only** (`cleanup_orphaned_grid_data(source)`)
+6. Clear the layer's frame cache + stale file caches
+7. Return `{ "status": "complete", "ingested_at": "<ISO>" }`
 
 **Source isolation:** Resyncing Wind never touches Wave/Current/Ice data. The `source` parameter scopes both supersede and cleanup operations to the specific DB source (`gfs`, `cmems_wave`, etc.).
+
+**Coordinate clamping:** Both the backend bbox cap and the frontend `paddedBounds()` clamp coordinates to safe ranges. See Section 13 (Coordinate Clamping) for the full defense-in-depth strategy.
 
 **Timeout:** 30–120s for CMEMS layers depending on bbox size and Copernicus server load.
 
@@ -213,7 +220,7 @@ _dynamic_mask_step(bbox)      → ocean mask step scaled to viewport span
 
 | Endpoint | Subsampled | Reason |
 |---|---|---|
-| `GET /api/weather/waves` | Yes | CMEMS 0.083° — 480 × 720 grid at 40° × 60° |
+| `GET /api/weather/waves` | Yes | CMEMS 0.083° — up to 660 × 1560 grid at 55° × 130° |
 | `GET /api/weather/swell` | Yes | Same CMEMS wave data (swell decomposition) |
 | `GET /api/weather/currents` | Yes | CMEMS 0.083° — same grid dimensions |
 | `GET /api/weather/currents/velocity` | Yes | CMEMS 0.083° — velocity format for particle animation |
@@ -227,10 +234,10 @@ _dynamic_mask_step(bbox)      → ocean mask step scaled to viewport span
 
 | Viewport | Layer | Native Grid | Step | Subsampled Grid | Reduction |
 |---|---|---|---|---|---|
+| 55° × 130° (NE Atlantic + Med) | Waves | 660 × 1560 | 4 | 165 × 390 | 16× fewer points |
+| 55° × 130° | Currents | 660 × 1560 | 4 | 165 × 390 | 16× fewer points |
 | 40° × 60° (North Atlantic) | Waves | 480 × 720 | 2 | 240 × 360 | 4× fewer points |
-| 40° × 60° | Currents | 480 × 720 | 2 | 240 × 360 | 4× fewer points |
 | 30° × 40° (Indian Ocean) | Ice | 360 × 480 | 1 | 360 × 480 | None (under cap) |
-| 53° × 60° (resync cap) | Visibility | 212 × 240 | 1 | 212 × 240 | None (under cap) |
 | Global (uncapped) | Visibility | 681 × 1439 | 3 | 227 × 480 | 9× fewer points |
 
 ### Ocean Mask Subsampling
@@ -290,7 +297,7 @@ Computed client-side from the `ingested_at` timestamp in each weather response.
 ### Resync (user clicks Resync button)
 
 1. Frontend calls `POST /api/weather/{activeLayer}/resync` **with current viewport bounds**
-2. Backend caps bbox to 40° × 60° (CMEMS layers), then re-ingests
+2. Backend caps bbox to 55° × 130° (CMEMS layers), clamps coordinates to valid range, then re-ingests
 3. Shows spinning indicator while waiting (can take 30–120s)
 4. On success, updates `layerIngestedAt` and reloads the layer data
 5. Staleness indicator resets to "< 1h ago"
@@ -303,13 +310,19 @@ Only available when a layer is active (button hidden when `weatherLayer === 'non
 2. Backend reads ALL forecast frames from file cache (Tier 2) or rebuilds from DB (Tier 1)
 3. Entire multi-frame response loaded into browser memory
 4. User scrubs the timeline slider — frame switching is instant (client-side)
-5. Slider auto-positions to the forecast hour nearest to "now" based on the model run time
+5. Slider auto-positions to the forecast hour nearest to "now" based on the model run time (see stale-data guard below)
 
 **All 7 layers use the same direct-load pattern:**
 - Check client-side cache (React ref) first — if frames exist, restore UI instantly with no network call
 - If cache miss, call `loadXxxFrames()` which hits the `/frames` endpoint
 - Backend serves from file cache if available, otherwise rebuilds from PostgreSQL (~3s for wind, up to ~50s for large viewports)
 - No prefetch/polling — a single request-response cycle
+
+**Stale-data guard (`nearestHourToNow`):**
+- When the timeline opens, the slider positions to the frame closest to "now" relative to the forecast model run time
+- If the forecast is fully expired (elapsed hours > max available hour), the slider starts at T+0 instead of pinning to the last frame — this prevents a confusing state where the timeline displays a date far in the past
+- An amber "Forecast expired — resync for latest data" warning appears below the timestamp when data is stale
+- The `isStale` flag is computed client-side: `(Date.now() - runTime) / 3600000 > maxAvailableHour`
 
 **Viewport bounds and the MAX_SPAN cap:**
 - When the timeline opens, the current viewport bounds are padded to 10-degree grid cell edges
@@ -379,38 +392,38 @@ Every weather endpoint now returns an `ingested_at` ISO timestamp alongside the 
 
 Grids are **fully decompressed in process memory** for each request. They are NOT streamed.
 
-**Per-request memory estimates (single frame, viewport-cropped to 40° × 60°):**
+**Per-request memory estimates (single frame, viewport-cropped to 55° × 130°):**
 
 | Layer | Cropped Grid Size | Params | Memory per Frame |
 |---|---|---|---|
-| Wind (GFS 0.5°) | 81 × 121 | 2 (u, v) | ~0.08 MB |
-| Wave (CMEMS 0.083°) | 480 × 720 | 9 | ~12 MB |
-| Current (CMEMS 0.083°) | 480 × 720 | 2 | ~2.8 MB |
-| Ice (CMEMS 0.083°) | 240 × 720 | 1 | ~0.7 MB |
-| Visibility (GFS 0.25°) | 161 × 241 | 1 | ~0.16 MB |
+| Wind (GFS 0.5°) | 111 × 261 | 2 (u, v) | ~0.23 MB |
+| Wave (CMEMS 0.083°) | 660 × 1560 | 9 | ~37 MB |
+| Current (CMEMS 0.083°) | 660 × 1560 | 2 | ~8.2 MB |
+| Ice (CMEMS 0.083°) | 240 × 1560 | 1 | ~1.5 MB |
+| Visibility (GFS 0.25°) | 221 × 521 | 1 | ~0.46 MB |
 
 **Timeline rebuild (all frames from DB):**
 
-| Layer | Frames | Estimated RAM |
+| Layer | Frames | Estimated RAM (55° × 130° cap) |
 |---|---|---|
-| Wind | 41 | ~3 MB |
-| Wave | 41 | ~500 MB |
-| Current | 41 | ~115 MB |
-| Ice | 10 | ~7 MB |
-| Visibility | 41 | ~6.5 MB |
+| Wind | 41 | ~10 MB |
+| Wave | 41 | ~1.5 GB |
+| Current | 41 | ~340 MB |
+| Ice | 10 | ~15 MB |
+| Visibility | 41 | ~19 MB |
 
-Wave timeline rebuild is the most expensive operation. For viewports near the 40° × 60° cap, it approaches 500 MB. The API container should have at least 2 GB of available RAM.
+Wave timeline rebuild is the most expensive operation. At the 55° × 130° cap, it requires ~1.5 GB. The API container should have at least **3 GB of available RAM** (wave rebuild + overhead + concurrent requests).
 
 **CMEMS ingestion (download + xarray load):**
 
 | Viewport | Estimated RAM (wave ingestion) | Status |
 |---|---|---|
 | 35° × 60° | ~1.5 GB | Safe |
-| 40° × 60° (cap) | ~2 GB | Safe |
-| 50° × 80° | ~4 GB | Risky |
-| 78° × 150° | ~10+ GB | **OOM kill** |
+| 55° × 130° (cap) | ~2 GB | Safe |
+| 65° × 150° | ~5 GB | Risky |
+| 78° × 207° (uncapped) | ~10+ GB | **OOM kill** |
 
-The 40° × 60° cap in the resync endpoint prevents the most dangerous case.
+The 55° × 130° cap in the resync endpoint prevents the most dangerous case. See Section 5 for why `isel` subsampling cannot replace the bbox cap.
 
 ---
 
@@ -459,8 +472,9 @@ The following endpoints were removed in the user-triggered overlay refactor:
 |---|---|---|
 | **First-time CMEMS layer load takes 30–120s** | User waits on first activation if DB empty | Medium |
 | **No SST in DB** (cmems_sst disabled) | SST layer unavailable | Medium |
-| **CMEMS resync capped at 40° × 60°** | Users viewing large regions get data centered on viewport, not full extent | Medium |
-| **Full grid decompression in memory** | Memory spikes on concurrent large requests | Medium |
+| **CMEMS resync capped at 55° × 130°** | Users viewing regions beyond this span get data centered on viewport, not full extent. Wave coverage may not match wind (GFS is global) for very wide viewports. | Medium |
+| **`copernicusmarine` downloads at full resolution** | `isel` / stride subsampling does NOT reduce download size or peak memory — the bbox cap is the only OOM protection | High |
+| **Full grid decompression in memory** | Memory spikes on concurrent large requests — wave rebuild at cap size requires ~1.5 GB | Medium |
 | **All timeline frames loaded to browser** | Browser memory pressure on large viewports — capped at 120° per axis | Medium |
 | **Overlay subsampled to ≤500 pts/axis** | Slight resolution loss on CMEMS layers at wide zoom — not applied to ice or wind | Low |
 | **Pan/zoom does not auto-refetch timeline** | Heatmap truncated at grid edges when panning beyond loaded bounds — user must Resync + reopen timeline | By design |
@@ -469,3 +483,86 @@ The following endpoints were removed in the user-triggered overlay refactor:
 | **Redis not invalidated on resync** | Up to 60 min stale data after resync | Low |
 | **GFS publishes progressively** | Wind may have <41 frames for recent model runs | Informational |
 | **SST/Visibility refTime uses valid_time** | Initial slider position may be off by one frame for SST and Visibility layers | Low |
+| **Stale data on hard refresh** | If data in DB is >48h old, timeline slider starts at T+0 with amber warning — user must Resync | Low |
+
+---
+
+## 13. Coordinate Clamping — Defense in Depth
+
+The `global_land_mask.globe.is_ocean()` function used for ocean masks rejects latitude values at exactly ±90° with `ValueError: latitude must be <= 90`. The `paddedBounds()` function on the frontend rounds viewport edges to 10° grid cells, which can produce exactly 90° (e.g., `ceil(80.85 / 10) * 10 = 90`). To prevent 500 errors, coordinates are clamped at three independent layers:
+
+### Layer 1 — Frontend: `paddedBounds()` (`ForecastTimeline.tsx`)
+
+```
+lat_min = Math.max(-89.9, lat_min);
+lat_max = Math.min(89.9, lat_max);
+lon_min = Math.max(-180, lon_min);
+lon_max = Math.min(180, lon_max);
+```
+
+Applied after 10° grid-snapping and MAX_SPAN capping. Prevents the frontend from ever sending lat=±90 to the API.
+
+### Layer 2 — Backend: CMEMS bbox cap (`api/routers/weather.py`)
+
+```python
+lat_min = max(-89.9, lat_center - lat_half)
+lat_max = min(89.9, lat_center + lat_half)
+lon_min = max(-180.0, lon_center - lon_half)
+lon_max = min(180.0, lon_center + lon_half)
+```
+
+Applied after centering and capping the bbox to 55° × 130°. Prevents any API request from producing extreme coordinates after arithmetic.
+
+### Layer 3 — Backend: `build_ocean_mask()` (`api/weather_service.py`)
+
+```python
+lat_min = max(-89.99, lat_min)
+lat_max = min(89.99, lat_max)
+lon_min = max(-180.0, lon_min)
+lon_max = min(180.0, lon_max)
+```
+
+Applied at the point of use, immediately before `globe.is_ocean()` is called. This is the last-resort clamp — even if both upstream layers are bypassed (e.g., by a direct API call), the ocean mask builder will not crash.
+
+### Why Three Layers
+
+Each layer operates independently. If a future code change removes or breaks one clamping point, the others still protect against the `ValueError`. The cost is negligible (4 comparisons per call).
+
+---
+
+## 14. Stability Guarantees & Known Failure Modes
+
+### What Makes the Wave Pipeline Stable
+
+1. **Bbox cap is mandatory.** The 55° × 130° cap in the resync endpoint (`_CMEMS_MAX_LAT_SPAN`, `_CMEMS_MAX_LON_SPAN`) ensures that `copernicusmarine` never downloads more than ~2 GB of wave data. This is the single most important stability mechanism.
+
+2. **Coordinate clamping is three-deep.** See Section 13. No combination of viewport geometry can produce invalid coordinates that crash `global_land_mask`.
+
+3. **Source isolation prevents cascade failures.** A wave resync failure does not affect wind, currents, or ice. Each source is scoped by the `source` column in PostgreSQL. See Section 3.
+
+4. **DB-first architecture provides resilience.** Once wave data is ingested, it survives container restarts (PostgreSQL volume). Only the file cache (`/tmp/windmar_cache/`) is lost on restart, and it rebuilds lazily from DB.
+
+5. **Stale-data guard prevents confusing UI.** When forecast data is fully expired (elapsed > max hour), the timeline slider starts at T+0 with an amber warning instead of pinning to a date far in the past.
+
+### Known Failure Modes
+
+| Failure | Cause | Symptom | Recovery |
+|---|---|---|---|
+| **Wave resync OOM** | Bbox cap removed or increased beyond 55° × 130° | API container killed by kernel OOM killer | Restore bbox cap, restart API container |
+| **`latitude must be <= 90`** | Coordinate clamp removed from all three layers | 500 error on wave/overlay endpoints | Re-add clamp to `build_ocean_mask()` at minimum |
+| **Partial wave coverage** | Bbox cap too small for the visible viewport | Waves stop at a geographic boundary while wind covers the full view | Increase `_CMEMS_MAX_LAT_SPAN` / `_CMEMS_MAX_LON_SPAN` (test memory first) |
+| **Copernicus server timeout** | CMEMS API slow or unavailable | Resync hangs for 120s then fails | Retry later; DB retains last successful ingestion |
+| **Stale data after hard refresh** | No resync triggered, DB contains old forecast run | Amber "Forecast expired" warning, timeline stuck at T+0 | Click Resync to fetch fresh data |
+| **Frame cache mismatch** | Container rebuilt without volume clear | Timeline shows data for wrong region | Delete file cache files or resync the layer |
+
+### Adjusting the Bbox Cap
+
+If the demo viewport is changed (e.g., to cover the Indian Ocean or Pacific), the bbox cap must be adjusted:
+
+1. Calculate the required lat/lon span from the new viewport bounds
+2. Estimate memory: `grid_lat × grid_lon × 9_params × 4_bytes × 41_frames` for waves
+3. Ensure the API container has 2× the estimated memory available
+4. Update `_CMEMS_MAX_LAT_SPAN` and `_CMEMS_MAX_LON_SPAN` in `api/routers/weather.py`
+5. Test with a full resync cycle — monitor container memory via `docker stats`
+
+**Rule of thumb:** Every 10° of additional longitude at 0.083° adds ~120 columns to the grid. Every 10° of additional latitude adds ~120 rows. Memory scales quadratically with both dimensions.

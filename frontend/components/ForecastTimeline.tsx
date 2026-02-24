@@ -77,6 +77,12 @@ function nearestHourToNow(runTimeStr: string, frames: Record<string, unknown>): 
     }
     if (isNaN(runMs)) { debugLog('info', 'TIMELINE', `nearestHourToNow: invalid runMs for "${runTimeStr}"`); return 0; }
     const elapsedHours = (Date.now() - runMs) / 3_600_000;
+    const maxHour = hours[hours.length - 1];
+    // If forecast is fully in the past (stale data), start at T+0 instead of pinning to the end
+    if (elapsedHours > maxHour) {
+      debugLog('info', 'TIMELINE', `nearestHourToNow: run="${runTimeStr}" elapsed=${elapsedHours.toFixed(1)}h > max=${maxHour}h — stale data, starting at T+0`);
+      return hours[0];
+    }
     // Find largest available hour <= elapsedHours (i.e., most recent past frame)
     let best = hours[0];
     for (const h of hours) {
@@ -224,6 +230,11 @@ export default function ForecastTimeline({
       lon_min = Math.floor((mid - MAX_SPAN / 2) / BOUNDS_GRID) * BOUNDS_GRID;
       lon_max = lon_min + MAX_SPAN;
     }
+    // Clamp to valid geographic range
+    lat_min = Math.max(-89.9, lat_min);
+    lat_max = Math.min(89.9, lat_max);
+    lon_min = Math.max(-180, lon_min);
+    lon_max = Math.min(180, lon_max);
     return { lat_min, lat_max, lon_min, lon_max };
   };
   // NOTE: No auto-refetch on pan/zoom. Data loads once when timeline opens.
@@ -856,6 +867,14 @@ export default function ForecastTimeline({
   const defaultLabel = isWindMode ? 'Wind Speed' : isWaveMode ? 'Waves' : isCurrentMode ? 'Currents' : isIceMode ? 'Ice' : isSwellMode ? 'Swell' : isSstMode ? 'Sea Surface Temp' : 'Visibility';
   const layerLabel = displayLayerName || defaultLabel;
 
+  // Stale data detection: forecast horizon fully in the past
+  const isStale = (() => {
+    const base = parseRunTime();
+    if (!base || availableHours.length === 0) return false;
+    const maxHour = availableHours[availableHours.length - 1];
+    return (Date.now() - base.getTime()) / 3_600_000 > maxHour;
+  })();
+
   // Color-code: green when forecast data loaded, gray when not
   const sourceColor = (() => {
     if (isWindMode && Object.keys(windFrames).length > 0) return 'text-green-400';
@@ -910,9 +929,13 @@ export default function ForecastTimeline({
                 ? `Loading ${loadProgress.cached}/${loadProgress.total} frames...`
                 : 'Loading frames...'}
             </div>
-          ) : prefetchComplete && availableHours.length === 0 && (
+          ) : prefetchComplete && availableHours.length === 0 ? (
             <div className="text-xs text-amber-500 mt-0.5">
               No forecast data — try resync
+            </div>
+          ) : isStale && (
+            <div className="text-xs text-amber-400/70 mt-0.5">
+              Forecast expired — resync for latest data
             </div>
           )}
         </div>

@@ -1076,18 +1076,21 @@ async def api_weather_layer_resync(
     if weather_ingestion is None:
         raise HTTPException(status_code=503, detail="Weather ingestion not configured")
 
-    # Cap CMEMS bbox to safe max size (40 deg lat x 60 deg lon) centered on viewport
-    # to avoid OOM -- 0.083 deg resolution x 9 params x 41 timesteps gets huge fast.
-    _CMEMS_MAX_LAT_SPAN = 40.0
-    _CMEMS_MAX_LON_SPAN = 60.0
+    # Cap CMEMS bbox — copernicusmarine downloads at native 0.083° resolution
+    # regardless of any post-download subsampling, so we must limit the area.
+    # 55×130 covers the NE Atlantic + Med demo viewport (~700 MB download).
+    _CMEMS_MAX_LAT_SPAN = 55.0
+    _CMEMS_MAX_LON_SPAN = 130.0
     has_bbox = all(v is not None for v in (lat_min, lat_max, lon_min, lon_max))
     if has_bbox:
+        lat_span = lat_max - lat_min
+        lon_span = lon_max - lon_min
         lat_center = (lat_min + lat_max) / 2
         lon_center = (lon_min + lon_max) / 2
-        lat_half = min((lat_max - lat_min) / 2, _CMEMS_MAX_LAT_SPAN / 2)
-        lon_half = min((lon_max - lon_min) / 2, _CMEMS_MAX_LON_SPAN / 2)
-        lat_min = max(-90.0, lat_center - lat_half)
-        lat_max = min(90.0, lat_center + lat_half)
+        lat_half = min(lat_span / 2, _CMEMS_MAX_LAT_SPAN / 2)
+        lon_half = min(lon_span / 2, _CMEMS_MAX_LON_SPAN / 2)
+        lat_min = max(-89.9, lat_center - lat_half)
+        lat_max = min(89.9, lat_center + lat_half)
         lon_min = max(-180.0, lon_center - lon_half)
         lon_max = min(180.0, lon_center + lon_half)
 
