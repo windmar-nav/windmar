@@ -3,9 +3,8 @@
 import { useEffect, useState } from 'react';
 import { Wind, Waves, Droplets, Clock, RefreshCw, Snowflake, CloudFog, AudioWaveform, Thermometer, Database } from 'lucide-react';
 import { WeatherLayer } from '@/components/MapComponent';
+import { apiClient } from '@/lib/api';
 import { isDemoUser } from '@/lib/demoMode';
-
-const API_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
 interface MapOverlayControlsProps {
   weatherLayer: WeatherLayer;
@@ -38,11 +37,9 @@ export default function MapOverlayControls({
   useEffect(() => {
     const fetchFreshness = async () => {
       try {
-        const res = await fetch(`${API_URL}/api/weather/ingest/status`);
-        if (!res.ok) return;
-        const data = await res.json();
-        if (data.freshness) {
-          setFreshness(data.freshness);
+        const data = await apiClient.getWeatherFreshness();
+        if (data.age_hours != null) {
+          setFreshness({ age_hours: data.age_hours, latest_ingestion: data.message ?? '' });
         }
       } catch {
         // Silently ignore — indicator simply won't show

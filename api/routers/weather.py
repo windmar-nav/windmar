@@ -1062,6 +1062,10 @@ async def api_get_weather_field(
         if db_weather is not None:
             ingested_at = datetime.now(timezone.utc)
 
+    if data is None or not hasattr(data, 'lats') or data.lats is None:
+        raise HTTPException(status_code=503,
+                            detail=f"No {field} data available. Try resyncing.")
+
     # Subsample
     step = _overlay_step(data.lats, data.lons)
     sub_lats = data.lats[::step].tolist()
@@ -1109,18 +1113,6 @@ async def api_get_weather_field(
     if cfg.components == "vector":
         response["u"] = _sub2d(data.u_component, step) if data.u_component is not None else []
         response["v"] = _sub2d(data.v_component, step) if data.v_component is not None else []
-
-        # Wind: also piggyback SST
-        if field == "wind":
-            sst_data = get_sst_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
-            if sst_data is not None and sst_data.values is not None:
-                sst_clean = np.nan_to_num(sst_data.values, nan=-999.0)
-                response["sst"] = {
-                    "lats": sst_data.lats.tolist(),
-                    "lons": sst_data.lons.tolist(),
-                    "data": np.round(sst_clean, 2).tolist(),
-                    "unit": "\u00b0C",
-                }
 
     elif cfg.components == "wave_decomp":
         response["data"] = _sub2d(data.values, step)
