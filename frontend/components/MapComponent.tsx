@@ -59,6 +59,10 @@ const MapViewportProvider = dynamic(
   () => import('@/components/MapViewportProvider'),
   { ssr: false }
 );
+const InitialFitBounds = dynamic(
+  () => import('@/components/InitialFitBounds'),
+  { ssr: false }
+);
 const FitBoundsHandler = dynamic(
   () => import('@/components/FitBoundsHandler'),
   { ssr: false }
@@ -74,6 +78,7 @@ const Tooltip = dynamic(
 
 const DEFAULT_CENTER: [number, number] = [45, 5];
 const DEFAULT_ZOOM = 5;
+const INITIAL_BOUNDS: [[number, number], [number, number]] = [[30, -30], [60, 40]];
 
 export type WeatherLayer = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
 
@@ -168,6 +173,8 @@ export default function MapComponent({
         center={DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
         minZoom={3}
+        zoomSnap={0.25}
+        zoomDelta={0.5}
         maxBounds={DEMO_MODE ? DEMO_BOUNDS : [[-85, -180], [85, 180]]}
         maxBoundsViscosity={1.0}
         worldCopyJump={true}
@@ -183,6 +190,9 @@ export default function MapComponent({
 
         {/* Viewport tracker */}
         {onViewportChange && <MapViewportProvider onViewportChange={onViewportChange} />}
+
+        {/* Fit initial viewport to weather window */}
+        <InitialFitBounds bounds={INITIAL_BOUNDS} />
 
         {/* Fit bounds handler */}
         <FitBoundsHandler bounds={fitBoundsProp} fitKey={fitKey} />

@@ -13,11 +13,11 @@ export const DEMO_MODE =
 export const DEMO_TOOLTIP =
   'This feature is disabled in demo mode.';
 
-/** Canarias -> North Sea bounding box for map lock.
- *  Wave data coverage extends to 67.9N in snapshot (run 344). */
+/** NE Atlantic + Mediterranean bounding box for map lock.
+ *  Matches backend weather viewport: 30N-60N, 30W-40E. */
 export const DEMO_BOUNDS: [[number, number], [number, number]] = [
-  [25, -20],
-  [55, 10],
+  [30, -30],
+  [60, 40],
 ];
 
 // ============================================================================
