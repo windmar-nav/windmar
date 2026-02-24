@@ -4,7 +4,7 @@ import { useEffect, useRef } from 'react';
 import { WindFieldData, WaveFieldData, SwellFieldData, VelocityData, GridFieldData } from '@/lib/api';
 import { bilinearInterpolate, getGridIndices } from '@/lib/gridInterpolation';
 
-type ActiveLayer = 'waves' | 'swell' | 'wind' | 'currents' | 'visibility' | 'sst';
+type ActiveLayer = 'waves' | 'swell' | 'wind' | 'currents' | 'visibility';
 
 interface WeatherHoverTooltipProps {
   layer: ActiveLayer;
@@ -13,7 +13,6 @@ interface WeatherHoverTooltipProps {
   swellData: SwellFieldData | null;
   currentVelocityData: VelocityData[] | null;
   visibilityData: GridFieldData | null;
-  sstData: GridFieldData | null;
 }
 
 /** 16-point compass label */
@@ -73,7 +72,7 @@ function uvToSpeedDir(u: number, v: number): { speed: number; dir: number } {
  * throttled to ~16 fps. Content adapts to the active layer.
  */
 export default function WaveInfoPopup({
-  layer, windData, waveData, swellData, currentVelocityData, visibilityData, sstData,
+  layer, windData, waveData, swellData, currentVelocityData, visibilityData,
 }: WeatherHoverTooltipProps) {
   const { useMap } = require('react-leaflet');
   const L = require('leaflet');
@@ -85,14 +84,12 @@ export default function WaveInfoPopup({
   const swellRef = useRef(swellData);
   const curRef   = useRef(currentVelocityData);
   const visRef   = useRef(visibilityData);
-  const sstRef   = useRef(sstData);
   layerRef.current = layer;
   windRef.current  = windData;
   waveRef.current  = waveData;
   swellRef.current = swellData;
   curRef.current   = currentVelocityData;
   visRef.current   = visibilityData;
-  sstRef.current   = sstData;
 
   useEffect(() => {
     const container = map.getContainer();
@@ -225,40 +222,6 @@ export default function WaveInfoPopup({
               + `Visibility ${km.toFixed(1)} km &nbsp;(${nm.toFixed(1)} nm)</div>`;
         h += `<div style="color:${fogColor}">${fogLabel}</div>`;
         tip.innerHTML = h;
-      }
-
-      // ------------------------------------------------------------------
-      // SST layer
-      // ------------------------------------------------------------------
-      else if (mode === 'sst') {
-        const sd = sstRef.current;
-        if (!sd || !sd.data) { tip.style.display = 'none'; return; }
-        const mask = sd.ocean_mask;
-        if (mask) {
-          const mLats = sd.ocean_mask_lats || sd.lats;
-          const mLons = sd.ocean_mask_lons || sd.lons;
-          const mNy = mLats.length, mNx = mLons.length;
-          const mi = Math.round(((lat - mLats[0]) / (mLats[mNy - 1] - mLats[0])) * (mNy - 1));
-          const mj = Math.round(((lon - mLons[0]) / (mLons[mNx - 1] - mLons[0])) * (mNx - 1));
-          if (mi < 0 || mi >= mNy || mj < 0 || mj >= mNx || !mask[mi]?.[mj]) {
-            tip.style.display = 'none'; return;
-          }
-        }
-        const gi = getGridIndices(lat, lon, sd.lats, sd.lons);
-        if (!gi) { tip.style.display = 'none'; return; }
-        const val = bilinearInterpolate(sd.data, gi.latIdx, gi.lonIdx, gi.latFrac, gi.lonFrac, sd.lats.length, sd.lons.length);
-        if (val == null || val < -100) { tip.style.display = 'none'; return; }
-        // Color: blue→cyan→green→yellow→orange→red matching SST ramp
-        let col = '#22d3ee';
-        if (val < 5) col = '#3b82f6';
-        else if (val < 12) col = '#22d3ee';
-        else if (val < 18) col = '#4ade80';
-        else if (val < 24) col = '#facc15';
-        else if (val < 28) col = '#f97316';
-        else col = '#ef4444';
-        const f = val * 9 / 5 + 32;
-        tip.innerHTML = `<div style="font-weight:700;font-size:12px;color:#fff;margin-bottom:2px">SST ${val.toFixed(1)}°C</div>`
-          + `<div style="color:${col}">${f.toFixed(1)}°F</div>`;
       }
 
       // ------------------------------------------------------------------
