@@ -17,7 +17,7 @@ Authentication:
 import logging
 import os
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 
@@ -240,13 +240,13 @@ class CopernicusDataProvider:
         import xarray as xr
 
         if start_time is None:
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
         if end_time is None:
             end_time = start_time + timedelta(days=5)
 
         # ERA5 is reanalysis data with ~5-day lag; clamp to latest available
         era5_lag = timedelta(days=5)
-        latest_available = datetime.utcnow() - era5_lag
+        latest_available = datetime.now(timezone.utc) - era5_lag
         if start_time > latest_available:
             logger.info(
                 f"ERA5 data not yet available for {start_time.date()}, "
@@ -350,7 +350,7 @@ class CopernicusDataProvider:
         import xarray as xr
 
         if start_time is None:
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
 
         # Generate cache filename
         cache_file = self._get_cache_path(
@@ -512,7 +512,7 @@ class CopernicusDataProvider:
 
         logger.info(f"Wave forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         # CMEMS analysis+forecast dataset — request next 120 hours
         start_dt = now - timedelta(hours=1)  # slight overlap to ensure t=0
         end_dt = now + timedelta(hours=122)
@@ -655,7 +655,7 @@ class CopernicusDataProvider:
         import xarray as xr
 
         if start_time is None:
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
 
         cache_file = self._get_cache_path(
             "current", lat_min, lat_max, lon_min, lon_max, start_time
@@ -778,7 +778,7 @@ class CopernicusDataProvider:
 
         logger.info(f"Current forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         start_dt = now - timedelta(hours=1)
         end_dt = now + timedelta(hours=122)
 
@@ -910,7 +910,7 @@ class CopernicusDataProvider:
         import xarray as xr
 
         if start_time is None:
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
 
         cache_file = self._get_cache_path(
             "sst", lat_min, lat_max, lon_min, lon_max, start_time
@@ -1009,7 +1009,7 @@ class CopernicusDataProvider:
 
         logger.info(f"SST forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         start_dt = now - timedelta(hours=1)
         end_dt = now + timedelta(hours=122)
 
@@ -1166,7 +1166,7 @@ class CopernicusDataProvider:
         import xarray as xr
 
         if start_time is None:
-            start_time = datetime.utcnow()
+            start_time = datetime.now(timezone.utc)
 
         cache_file = self._get_cache_path(
             "ice", lat_min, lat_max, lon_min, lon_max, start_time
@@ -1260,7 +1260,7 @@ class CopernicusDataProvider:
 
         logger.info(f"Ice forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         start_dt = now - timedelta(hours=1)
         end_dt = now + timedelta(days=self.ICE_FORECAST_DAYS + 1)
 
@@ -1518,7 +1518,7 @@ class SyntheticDataProvider:
     ) -> WeatherData:
         """Generate synthetic wind field."""
         if time is None:
-            time = datetime.utcnow()
+            time = datetime.now(timezone.utc)
 
         lats = np.arange(lat_min, lat_max + resolution, resolution)
         lons = np.arange(lon_min, lon_max + resolution, resolution)
@@ -1565,7 +1565,7 @@ class SyntheticDataProvider:
         wind_data: Optional[WeatherData] = None,
     ) -> WeatherData:
         """Generate synthetic wave field with wind-wave/swell decomposition."""
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
         lats = np.arange(lat_min, lat_max + resolution, resolution)
         lons = np.arange(lon_min, lon_max + resolution, resolution)
@@ -1636,7 +1636,7 @@ class SyntheticDataProvider:
     ) -> WeatherData:
         """Generate synthetic SST field based on latitude."""
         if time is None:
-            time = datetime.utcnow()
+            time = datetime.now(timezone.utc)
 
         lats = np.arange(lat_min, lat_max + resolution, resolution)
         lons = np.arange(lon_min, lon_max + resolution, resolution)
@@ -1671,7 +1671,7 @@ class SyntheticDataProvider:
     ) -> WeatherData:
         """Generate synthetic visibility field."""
         if time is None:
-            time = datetime.utcnow()
+            time = datetime.now(timezone.utc)
 
         lats = np.arange(lat_min, lat_max + resolution, resolution)
         lons = np.arange(lon_min, lon_max + resolution, resolution)
@@ -1704,7 +1704,7 @@ class SyntheticDataProvider:
     ) -> WeatherData:
         """Generate synthetic ice concentration field."""
         if time is None:
-            time = datetime.utcnow()
+            time = datetime.now(timezone.utc)
 
         lats = np.arange(lat_min, lat_max + resolution, resolution)
         lons = np.arange(lon_min, lon_max + resolution, resolution)
@@ -1745,7 +1745,7 @@ class SyntheticDataProvider:
     ) -> Dict[int, WeatherData]:
         """Generate 10-day synthetic ice forecast with daily variation."""
         frames: Dict[int, WeatherData] = {}
-        base_time = datetime.utcnow()
+        base_time = datetime.now(timezone.utc)
 
         for day in range(10):
             fh = day * 24
@@ -1800,7 +1800,7 @@ class SyntheticDataProvider:
         - General wind-driven surface currents
         """
         if time is None:
-            time = datetime.utcnow()
+            time = datetime.now(timezone.utc)
 
         lats = np.arange(lat_min, lat_max + resolution, resolution)
         lons = np.arange(lon_min, lon_max + resolution, resolution)
@@ -1872,7 +1872,7 @@ class GFSDataProvider:
         Returns:
             Tuple of (date_str "YYYYMMDD", hour_str "HH")
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         # Subtract availability lag to find what's actually ready
         available_time = now - timedelta(hours=self.AVAILABILITY_LAG_HOURS)
 
@@ -1996,7 +1996,7 @@ class GFSDataProvider:
             return None
 
         if time is None:
-            time = datetime.utcnow()
+            time = datetime.now(timezone.utc)
 
         if run_date is None or run_hour is None:
             run_date, run_hour = self._get_latest_run()
@@ -2094,7 +2094,7 @@ class GFSDataProvider:
             return None
 
         if time is None:
-            time = datetime.utcnow()
+            time = datetime.now(timezone.utc)
 
         run_date, run_hour = self._get_latest_run()
 
@@ -2340,7 +2340,7 @@ class GFSDataProvider:
 
     def clear_old_cache(self, keep_hours: int = 12) -> int:
         """Remove GRIB cache files older than keep_hours."""
-        cutoff = datetime.utcnow() - timedelta(hours=keep_hours)
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=keep_hours)
         count = 0
         for f in self.cache_dir.glob("*.grib2"):
             if f.stat().st_mtime < cutoff.timestamp():
@@ -2695,7 +2695,7 @@ class UnifiedWeatherProvider:
         Returns:
             Tuple of (PointWeather, WeatherDataSource)
         """
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         hours_ahead = (time - now).total_seconds() / 3600
         days_ahead = hours_ahead / 24
 

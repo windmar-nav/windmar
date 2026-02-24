@@ -14,7 +14,7 @@ import sqlite3
 import threading
 from collections import deque
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -126,7 +126,7 @@ class TimeSeriesBuffer:
             Dictionary with mean, std, min, max, count
         """
         if window_seconds is not None:
-            start = datetime.utcnow() - timedelta(seconds=window_seconds)
+            start = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
             _, values = self.get_range(start=start)
         else:
             _, values = self.get_range()

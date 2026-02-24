@@ -4,7 +4,7 @@ Authentication and authorization for WINDMAR API.
 from fastapi import HTTPException, Security, status, Depends
 from fastapi.security import APIKeyHeader
 from sqlalchemy.orm import Session
-from datetime import datetime
+from datetime import datetime, timezone
 import bcrypt
 import secrets
 import logging
@@ -108,14 +108,14 @@ async def get_api_key(
     for key_obj in api_keys:
         if verify_api_key(api_key, key_obj.key_hash):
             # Check expiration
-            if key_obj.expires_at and key_obj.expires_at < datetime.utcnow():
+            if key_obj.expires_at and key_obj.expires_at < datetime.now(timezone.utc):
                 raise HTTPException(
                     status_code=status.HTTP_401_UNAUTHORIZED,
                     detail="API key has expired",
                 )
 
             # Update last used timestamp
-            key_obj.last_used_at = datetime.utcnow()
+            key_obj.last_used_at = datetime.now(timezone.utc)
             db.commit()
 
             logger.info(f"API key authenticated: {key_obj.name}")

@@ -8,7 +8,7 @@ import logging
 import functools
 import asyncio
 from typing import TypeVar, Callable, Any, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from enum import Enum
 from dataclasses import dataclass, field
 import threading
@@ -83,7 +83,7 @@ class CircuitBreaker:
             if self._state == CircuitState.OPEN:
                 # Check if recovery timeout has elapsed
                 if self._last_failure_time:
-                    elapsed = (datetime.utcnow() - self._last_failure_time).total_seconds()
+                    elapsed = (datetime.now(timezone.utc) - self._last_failure_time).total_seconds()
                     if elapsed >= self.recovery_timeout:
                         self._transition_to_half_open()
 
@@ -98,7 +98,7 @@ class CircuitBreaker:
     def _transition_to_open(self):
         """Transition to open state."""
         self._state = CircuitState.OPEN
-        self._last_failure_time = datetime.utcnow()
+        self._last_failure_time = datetime.now(timezone.utc)
         logger.warning(f"Circuit breaker '{self.name}' OPENED after {self._failure_count} failures")
 
     def _transition_to_closed(self):
@@ -125,7 +125,7 @@ class CircuitBreaker:
         """Record a failed call."""
         with self._lock:
             self._failure_count += 1
-            self._last_failure_time = datetime.utcnow()
+            self._last_failure_time = datetime.now(timezone.utc)
 
             logger.warning(f"Circuit breaker '{self.name}' recorded failure: {error}")
 

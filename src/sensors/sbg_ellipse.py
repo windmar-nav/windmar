@@ -15,7 +15,7 @@ import math
 import threading
 import time
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Callable, Dict, List, Optional, Tuple
 from collections import deque
 from enum import Enum
@@ -496,7 +496,7 @@ class SBGEllipseN:
         """Process raw data and extract NMEA sentences."""
         try:
             text = raw_data.decode('ascii', errors='ignore')
-        except:
+        except (UnicodeDecodeError, AttributeError):
             return
 
         self._nmea_buffer += text
@@ -511,7 +511,7 @@ class SBGEllipseN:
                 if parsed:
                     self._update_data(parsed)
                     self._message_count += 1
-                    self._last_message_time = datetime.utcnow()
+                    self._last_message_time = datetime.now(timezone.utc)
                 else:
                     self._parse_errors += 1
 
@@ -553,7 +553,7 @@ class SBGEllipseN:
                 self._current_data.sway = parsed.get("sway", self._current_data.sway)
 
             # Update timestamp
-            self._current_data.timestamp = datetime.utcnow()
+            self._current_data.timestamp = datetime.now(timezone.utc)
 
             # Add to buffer
             self._data_buffer.append(SBGData(**vars(self._current_data)))
@@ -584,7 +584,7 @@ class SBGEllipseN:
             data = list(self._data_buffer)
 
         if seconds is not None:
-            cutoff = datetime.utcnow().timestamp() - seconds
+            cutoff = datetime.now(timezone.utc).timestamp() - seconds
             data = [d for d in data if d.timestamp.timestamp() > cutoff]
 
         return data
@@ -780,7 +780,7 @@ class SBGSimulator:
         sog = self.speed_kts + np.random.normal(0, 0.2)
 
         return SBGData(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             latitude=self.latitude,
             longitude=self.longitude,
             altitude=0.0,

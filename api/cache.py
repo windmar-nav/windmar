@@ -12,7 +12,7 @@ import threading
 import logging
 from typing import TypeVar, Optional, Dict, Any, Callable
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import OrderedDict
 import functools
 
@@ -93,7 +93,7 @@ class BoundedLRUCache:
             entry = self._cache[key]
 
             # Check expiration
-            if entry.expires_at and datetime.utcnow() > entry.expires_at:
+            if entry.expires_at and datetime.now(timezone.utc) > entry.expires_at:
                 self._remove(key)
                 self._expirations += 1
                 self._misses += 1
@@ -101,7 +101,7 @@ class BoundedLRUCache:
 
             # Update access metadata and move to end (most recently used)
             entry.access_count += 1
-            entry.last_accessed = datetime.utcnow()
+            entry.last_accessed = datetime.now(timezone.utc)
             self._cache.move_to_end(key)
 
             self._hits += 1
@@ -126,12 +126,12 @@ class BoundedLRUCache:
             ttl = ttl_seconds if ttl_seconds is not None else self.default_ttl_seconds
             expires_at = None
             if ttl:
-                expires_at = datetime.utcnow() + timedelta(seconds=ttl)
+                expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
 
             # Create entry
             entry = CacheEntry(
                 value=value,
-                created_at=datetime.utcnow(),
+                created_at=datetime.now(timezone.utc),
                 expires_at=expires_at,
             )
 
@@ -195,7 +195,7 @@ class BoundedLRUCache:
             Number of entries removed
         """
         with self._lock:
-            now = datetime.utcnow()
+            now = datetime.now(timezone.utc)
             expired_keys = [
                 key for key, entry in self._cache.items()
                 if entry.expires_at and now > entry.expires_at
@@ -274,7 +274,7 @@ class BoundedLRUCache:
             if key not in self._cache:
                 return False
             entry = self._cache[key]
-            if entry.expires_at and datetime.utcnow() > entry.expires_at:
+            if entry.expires_at and datetime.now(timezone.utc) > entry.expires_at:
                 return False
             return True
 

@@ -12,7 +12,7 @@ import json
 import logging
 import os
 import zlib
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
@@ -126,7 +126,7 @@ def _redis_cache_get(key: str) -> Optional[WeatherData]:
         except Exception:
             logger.debug("Redis cache get failed for key %s", key, exc_info=True)
     # Fallback to in-memory
-    if key in _weather_cache and key in _cache_expiry and datetime.utcnow() < _cache_expiry[key]:
+    if key in _weather_cache and key in _cache_expiry and datetime.now(timezone.utc) < _cache_expiry[key]:
         return _weather_cache[key]
     return None
 
@@ -142,7 +142,7 @@ def _redis_cache_put(key: str, data: WeatherData, ttl_seconds: int = 900):
             logger.debug("Redis cache put failed for key %s", key, exc_info=True)
     # Fallback to in-memory
     _weather_cache[key] = data
-    _cache_expiry[key] = datetime.utcnow() + timedelta(seconds=ttl_seconds)
+    _cache_expiry[key] = datetime.now(timezone.utc) + timedelta(seconds=ttl_seconds)
 
 
 # ---------------------------------------------------------------------------
@@ -261,7 +261,7 @@ def get_wind_field(
     Provider chain: Redis cache -> DB (pre-ingested) -> GFS live -> ERA5 -> Synthetic.
     """
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     cache_key = _get_cache_key("wind", lat_min, lat_max, lon_min, lon_max)
 
@@ -400,7 +400,7 @@ def get_sst_field(
     Provider chain: CMEMS live -> Synthetic.
     """
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     cache_key = _get_cache_key("sst", lat_min, lat_max, lon_min, lon_max)
     cached = _redis_cache_get(cache_key)
@@ -433,7 +433,7 @@ def get_visibility_field(
     Provider chain: GFS live -> Synthetic.
     """
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     cache_key = _get_cache_key("visibility", lat_min, lat_max, lon_min, lon_max)
     cached = _redis_cache_get(cache_key)
@@ -466,7 +466,7 @@ def get_ice_field(
     Provider chain: Redis -> DB -> CMEMS live -> Synthetic.
     """
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     cache_key = _get_cache_key("ice", lat_min, lat_max, lon_min, lon_max)
     cached = _redis_cache_get(cache_key)

@@ -9,7 +9,7 @@ import threading
 import logging
 from typing import Optional, Dict, Any
 from dataclasses import dataclass, field
-from datetime import datetime
+from datetime import datetime, timezone
 from contextlib import contextmanager
 
 logger = logging.getLogger(__name__)
@@ -199,7 +199,7 @@ class ApplicationState:
         self._initialized = True
         self._vessel_state = VesselState()
         self._weather_providers = None
-        self._startup_time = datetime.utcnow()
+        self._startup_time = datetime.now(timezone.utc)
 
         logger.info("Application state initialized")
 
@@ -280,7 +280,7 @@ class ApplicationState:
     @property
     def uptime_seconds(self) -> float:
         """Get application uptime in seconds."""
-        return (datetime.utcnow() - self._startup_time).total_seconds()
+        return (datetime.now(timezone.utc) - self._startup_time).total_seconds()
 
     def health_check(self) -> Dict[str, Any]:
         """

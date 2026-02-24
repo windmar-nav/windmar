@@ -7,7 +7,7 @@ Designed for Kubernetes liveness/readiness probes and load balancer health check
 import logging
 import asyncio
 from typing import Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
 from enum import Enum
 from dataclasses import dataclass
 import redis
@@ -43,7 +43,7 @@ def check_database_health() -> ComponentHealth:
     Returns:
         ComponentHealth with database status
     """
-    start = datetime.utcnow()
+    start = datetime.now(timezone.utc)
 
     try:
         from api.database import SessionLocal
@@ -53,7 +53,7 @@ def check_database_health() -> ComponentHealth:
             # Execute simple query
             from sqlalchemy import text
             result = db.execute(text("SELECT 1")).scalar()
-            latency_ms = (datetime.utcnow() - start).total_seconds() * 1000
+            latency_ms = (datetime.now(timezone.utc) - start).total_seconds() * 1000
 
             if result == 1:
                 return ComponentHealth(
@@ -72,7 +72,7 @@ def check_database_health() -> ComponentHealth:
             db.close()
 
     except Exception as e:
-        latency_ms = (datetime.utcnow() - start).total_seconds() * 1000
+        latency_ms = (datetime.now(timezone.utc) - start).total_seconds() * 1000
         logger.error(f"Database health check failed: {e}")
         return ComponentHealth(
             name="database",
@@ -89,7 +89,7 @@ def check_redis_health() -> ComponentHealth:
     Returns:
         ComponentHealth with Redis status
     """
-    start = datetime.utcnow()
+    start = datetime.now(timezone.utc)
 
     if not settings.redis_enabled:
         return ComponentHealth(
@@ -105,7 +105,7 @@ def check_redis_health() -> ComponentHealth:
             socket_timeout=5,
         )
         pong = client.ping()
-        latency_ms = (datetime.utcnow() - start).total_seconds() * 1000
+        latency_ms = (datetime.now(timezone.utc) - start).total_seconds() * 1000
 
         if pong:
             # Get some stats
@@ -128,7 +128,7 @@ def check_redis_health() -> ComponentHealth:
             )
 
     except Exception as e:
-        latency_ms = (datetime.utcnow() - start).total_seconds() * 1000
+        latency_ms = (datetime.now(timezone.utc) - start).total_seconds() * 1000
         logger.error(f"Redis health check failed: {e}")
         return ComponentHealth(
             name="redis",
@@ -199,7 +199,7 @@ async def perform_full_health_check() -> Dict[str, Any]:
     Returns:
         Dict with overall status and component details
     """
-    start = datetime.utcnow()
+    start = datetime.now(timezone.utc)
 
     # Run health checks
     db_health = check_database_health()
@@ -219,11 +219,11 @@ async def perform_full_health_check() -> Dict[str, Any]:
     else:
         overall_status = HealthStatus.HEALTHY
 
-    total_time_ms = (datetime.utcnow() - start).total_seconds() * 1000
+    total_time_ms = (datetime.now(timezone.utc) - start).total_seconds() * 1000
 
     return {
         "status": overall_status.value,
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
         "version": "2.1.0",
         "check_duration_ms": round(total_time_ms, 2),
         "components": {
@@ -250,7 +250,7 @@ async def perform_liveness_check() -> Dict[str, Any]:
     """
     return {
         "status": "alive",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
     }
 
 
@@ -271,7 +271,7 @@ async def perform_readiness_check() -> Dict[str, Any]:
 
     return {
         "status": "ready" if is_ready else "not_ready",
-        "timestamp": datetime.utcnow().isoformat() + "Z",
+        "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
         "database": db_health.status.value,
     }
 

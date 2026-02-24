@@ -14,7 +14,7 @@ import logging
 import json
 from typing import Callable, Optional
 from contextvars import ContextVar
-from datetime import datetime
+from datetime import datetime, timezone
 
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
@@ -44,7 +44,7 @@ class StructuredLogger:
     def _log(self, level: str, message: str, **kwargs):
         """Internal log method with structured output."""
         log_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
+            "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
             "level": level,
             "message": message,
             "service": "windmar-api",
@@ -289,7 +289,7 @@ class MetricsCollector:
         self.request_duration_sum: dict = {}
         self.request_duration_count: dict = {}
         self.error_count: dict = {}
-        self.start_time = datetime.utcnow()
+        self.start_time = datetime.now(timezone.utc)
 
     def record_request(
         self,
@@ -331,7 +331,7 @@ class MetricsCollector:
 
     def get_metrics(self) -> dict:
         """Get all metrics as a dictionary."""
-        uptime = (datetime.utcnow() - self.start_time).total_seconds()
+        uptime = (datetime.now(timezone.utc) - self.start_time).total_seconds()
 
         return {
             "uptime_seconds": uptime,
@@ -354,7 +354,7 @@ class MetricsCollector:
         lines = []
 
         # Uptime
-        uptime = (datetime.utcnow() - self.start_time).total_seconds()
+        uptime = (datetime.now(timezone.utc) - self.start_time).total_seconds()
         lines.append(f"# HELP windmar_uptime_seconds Time since service start")
         lines.append(f"# TYPE windmar_uptime_seconds gauge")
         lines.append(f"windmar_uptime_seconds {uptime}")

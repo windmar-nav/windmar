@@ -8,7 +8,7 @@ and optimizer status queries.
 import asyncio
 import logging
 import time as _time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException
@@ -72,7 +72,7 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
     _vs = get_vessel_state()
     db_weather = get_app_state().weather_providers.get('db_weather')
 
-    departure = request.departure_time or datetime.utcnow()
+    departure = request.departure_time or datetime.now(timezone.utc)
 
     # Create fresh optimizer per request (avoids race conditions with concurrent requests)
     engine_name = request.engine.lower()
@@ -397,7 +397,7 @@ def _benchmark_sync(request: "BenchmarkRequest") -> "BenchmarkResponse":
     """Synchronous benchmark logic (runs in a thread pool)."""
     _vs = get_vessel_state()
     db_weather = get_app_state().weather_providers.get('db_weather')
-    departure = request.departure_time or datetime.utcnow()
+    departure = request.departure_time or datetime.now(timezone.utc)
     vessel_model = _vs.model
 
     allowed_engines = {"astar", "visir"}

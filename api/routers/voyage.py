@@ -8,7 +8,7 @@ and weather-along-route queries.
 import asyncio
 import logging
 import time as _time
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 
 from fastapi import APIRouter, HTTPException, Query
@@ -67,7 +67,7 @@ async def calculate_voyage(request: VoyageRequest):
     _vs = get_vessel_state()
     db_weather = get_app_state().weather_providers.get('db_weather')
 
-    departure = request.departure_time or datetime.utcnow()
+    departure = request.departure_time or datetime.now(timezone.utc)
     t_start = _time.monotonic()
     logger.info(f"Voyage calculation started: {len(request.waypoints)} waypoints, speed={request.calm_speed_kts}kts, weather={request.use_weather}")
 
@@ -270,7 +270,7 @@ async def monte_carlo_simulation(request: MonteCarloRequest):
     _vs = get_vessel_state()
     db_weather = get_app_state().weather_providers.get('db_weather')
 
-    departure = request.departure_time or datetime.utcnow()
+    departure = request.departure_time or datetime.now(timezone.utc)
 
     wps = [(wp.lat, wp.lon) for wp in request.waypoints]
     route = create_route_from_waypoints(wps, "MC Simulation Route")
@@ -346,7 +346,7 @@ async def get_weather_along_route(
     with cumulative distance for chart display.
     """
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     # Parse waypoints
     try:

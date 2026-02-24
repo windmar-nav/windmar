@@ -3,7 +3,7 @@
 from datetime import datetime
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict
 
 from .vessel import CalibrationFactorsModel
 
@@ -56,8 +56,7 @@ class EngineLogEntryResponse(BaseModel):
     source_file: Optional[str] = None
     extended_data: Optional[Dict] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class EngineLogSummaryResponse(BaseModel):

@@ -22,7 +22,7 @@ Architecture:
 
 import logging
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List, Callable, Any
 from collections import deque
 from threading import Lock
@@ -288,7 +288,7 @@ class FusionEngine:
         if lat == 0 and lon == 0:
             return  # No valid position
 
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         # Fetch if no forecast or stale
         should_fetch = (
@@ -333,7 +333,7 @@ class FusionEngine:
 
     def _build_state(self) -> FusedState:
         """Build fused state from current data."""
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         state = FusedState(timestamp=now)
 
         # SBG data
@@ -532,7 +532,7 @@ def test_fusion_engine():
 
         # Create motion data
         motion = ShipMotionData(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             roll_deg=roll,
             pitch_deg=pitch,
             heading_deg=heading,

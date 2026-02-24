@@ -22,7 +22,7 @@ changes in hull and propeller performance
 import logging
 import json
 from dataclasses import dataclass, asdict, field
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, List, Callable
 from collections import deque
 from pathlib import Path
@@ -212,7 +212,7 @@ class CalibrationLoop:
                 metrics.set_gauge("calibration_c2_wind", self._coefficients.C2_wind)
 
                 # Update timestamp
-                self._coefficients.last_update = datetime.utcnow().isoformat()
+                self._coefficients.last_update = datetime.now(timezone.utc).isoformat()
                 self._coefficients.total_samples += 1
 
                 # Track history
@@ -386,7 +386,7 @@ def test_calibration_loop():
 
     for i in range(100):
         signal = CalibrationSignal(
-            timestamp=datetime.utcnow(),
+            timestamp=datetime.now(timezone.utc),
             wave_hs_error=0.20 + np.random.normal(0, 0.05),  # 20% ± 5%
             wave_tp_error=0.10 + np.random.normal(0, 0.03),
             roll_rms_deg=4.0 + np.random.normal(0, 1.0),

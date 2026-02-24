@@ -277,7 +277,7 @@ def _rebuild_wind_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
             lat_north = float(lats[0])
             lat_south = float(lats[-1])
 
-        valid_time = run_time + timedelta(hours=fh) if run_time else datetime.utcnow()
+        valid_time = run_time + timedelta(hours=fh) if run_time else datetime.now(timezone.utc)
         header = {
             "parameterCategory": 2,
             "parameterNumber": 2,
@@ -1164,7 +1164,7 @@ async def api_get_wind_field(
     copernicus_provider = _get_providers()['copernicus']
 
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     ingested_at = None
     # Try DB first
@@ -1204,7 +1204,7 @@ async def api_get_wind_field(
         "ocean_mask_lats": mask_lats,
         "ocean_mask_lons": mask_lons,
         "source": (
-            "gfs" if (wind_data.time and (datetime.utcnow() - wind_data.time).total_seconds() < 43200)
+            "gfs" if (wind_data.time and (datetime.now(timezone.utc) - wind_data.time).total_seconds() < 43200)
             else "copernicus" if copernicus_provider._has_cdsapi
             else "synthetic"
         ),
@@ -1240,7 +1240,7 @@ async def api_get_wind_velocity_format(
     gfs_provider = _get_providers()['gfs']
 
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     if forecast_hour > 0:
         # Direct GFS fetch for specific forecast hour
@@ -1998,7 +1998,7 @@ async def api_get_wave_field(
     copernicus_provider = _get_providers()['copernicus']
 
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     ingested_at = None
     if db_weather is not None:
@@ -2094,7 +2094,7 @@ async def api_get_current_field(
     copernicus_provider = _get_providers()['copernicus']
 
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     current_data = get_current_field(lat_min, lat_max, lon_min, lon_max, resolution)
 
@@ -2141,7 +2141,7 @@ async def api_get_current_velocity_format(
     DB-first: returns cached data if available, otherwise fetches from API.
     """
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     current_data = get_current_field(lat_min, lat_max, lon_min, lon_max, resolution)
 
@@ -2214,7 +2214,7 @@ async def api_get_weather_point(
     Returns wind, waves, and currents (if available).
     """
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     wx = get_weather_at_point(lat, lon, time)
 
@@ -2260,7 +2260,7 @@ async def api_get_sst_field(
     copernicus_provider = _get_providers()['copernicus']
 
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     ingested_at = None
     if db_weather is not None:
@@ -2333,7 +2333,7 @@ async def api_get_visibility_field(
     db_weather = _db_weather()
 
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     ingested_at = None
     if db_weather is not None:
@@ -2407,7 +2407,7 @@ async def api_get_ice_field(
     copernicus_provider = _get_providers()['copernicus']
 
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     ingested_at = None
     if db_weather is not None:
@@ -2469,7 +2469,7 @@ async def api_get_swell_field(
     Same query params as /api/weather/waves.
     """
     if time is None:
-        time = datetime.utcnow()
+        time = datetime.now(timezone.utc)
 
     wave_data = get_wave_field(lat_min, lat_max, lon_min, lon_max, resolution)
 

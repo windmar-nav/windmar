@@ -15,7 +15,7 @@ Usage:
 """
 import argparse
 import sys
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 
 # Ensure imports work
@@ -34,7 +34,7 @@ def create_api_key(
 
     expires_at = None
     if expires_days:
-        expires_at = datetime.utcnow() + timedelta(days=expires_days)
+        expires_at = datetime.now(timezone.utc) + timedelta(days=expires_days)
 
     with get_db_context() as db:
         plain_key, api_key_obj = create_api_key_in_db(

@@ -14,7 +14,7 @@ Key calibration factors:
 import json
 import logging
 from dataclasses import dataclass, field, asdict
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Dict, List, Optional, Tuple
 import numpy as np
@@ -461,7 +461,7 @@ class VesselCalibrator:
             wind=result.x[1],
             waves=result.x[2],
             sfoc_factor=result.x[3],
-            calibrated_at=datetime.utcnow(),
+            calibrated_at=datetime.now(timezone.utc),
             num_reports_used=len(valid_reports),
             days_since_drydock=days_since_drydock,
         )

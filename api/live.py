@@ -12,7 +12,7 @@ Based on MIROS-style monitoring dashboard requirements.
 import asyncio
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Dict, List, Optional
 
@@ -159,7 +159,7 @@ async def get_sensor_status():
             connection_type="simulator",
             message_count=0,
             parse_errors=0,
-            last_message_time=datetime.utcnow().isoformat(),
+            last_message_time=datetime.now(timezone.utc).isoformat(),
         )
 
     stats = sensor.get_statistics()
@@ -303,7 +303,7 @@ async def get_timeseries(
     store = _get_data_store()
 
     try:
-        start = datetime.utcnow() - timedelta(seconds=window_seconds)
+        start = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
         timestamps, values = store.get_channel(channel, start=start)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -327,7 +327,7 @@ async def get_all_timeseries(
     store = _get_data_store()
     channel_list = [c.strip() for c in channels.split(",")]
 
-    start = datetime.utcnow() - timedelta(seconds=window_seconds)
+    start = datetime.now(timezone.utc) - timedelta(seconds=window_seconds)
     result = {}
 
     for channel in channel_list:
@@ -432,10 +432,10 @@ async def export_data(
     """Export recorded data."""
     store = _get_data_store()
 
-    end = datetime.utcnow()
+    end = datetime.now(timezone.utc)
     start = end - timedelta(hours=window_hours)
 
-    timestamp_str = datetime.utcnow().strftime("%Y%m%d_%H%M%S")
+    timestamp_str = datetime.now(timezone.utc).strftime("%Y%m%d_%H%M%S")
     filename = f"data/exports/sensor_data_{timestamp_str}.csv"
 
     Path("data/exports").mkdir(parents=True, exist_ok=True)

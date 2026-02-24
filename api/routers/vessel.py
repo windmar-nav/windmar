@@ -8,7 +8,7 @@ performance curves, fuel scenarios, and performance prediction.
 import logging
 import math
 import tempfile
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import List, Optional
 
@@ -77,7 +77,7 @@ def save_vessel_specs_to_db(specs_dict: dict) -> None:
                 if k != "name":
                     setattr(row, k, v)
             row.extra_metadata = extra
-            row.updated_at = datetime.utcnow()
+            row.updated_at = datetime.now(timezone.utc)
         logger.info("Vessel specs persisted to DB (name='default')")
 
 
@@ -220,7 +220,7 @@ async def set_calibration_factors(
         wind=factors.wind,
         waves=factors.waves,
         sfoc_factor=factors.sfoc_factor,
-        calibrated_at=datetime.utcnow(),
+        calibrated_at=datetime.now(timezone.utc),
         num_reports_used=0,
         days_since_drydock=factors.days_since_drydock,
     ))

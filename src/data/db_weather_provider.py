@@ -84,7 +84,7 @@ class DbWeatherProvider:
 
             return WeatherData(
                 parameter="wave_height",
-                time=datetime.utcnow(),
+                time=datetime.now(timezone.utc),
                 lats=lats_c,
                 lons=lons_c,
                 values=hs_crop,
@@ -142,7 +142,7 @@ class DbWeatherProvider:
 
             return WeatherData(
                 parameter="ice_concentration",
-                time=datetime.utcnow(),
+                time=datetime.now(timezone.utc),
                 lats=lats_c,
                 lons=lons_c,
                 values=siconc_crop,
@@ -199,7 +199,7 @@ class DbWeatherProvider:
             param_name = "wind" if "wind" in u_param else "current"
             return WeatherData(
                 parameter=param_name,
-                time=datetime.utcnow(),
+                time=datetime.now(timezone.utc),
                 lats=lats_c,
                 lons=lons_c,
                 values=speed,
@@ -457,7 +457,7 @@ class DbWeatherProvider:
 
             return WeatherData(
                 parameter="sst",
-                time=datetime.utcnow(),
+                time=datetime.now(timezone.utc),
                 lats=lats_c,
                 lons=lons_c,
                 values=sst_crop,
@@ -499,7 +499,7 @@ class DbWeatherProvider:
 
             return WeatherData(
                 parameter="visibility",
-                time=datetime.utcnow(),
+                time=datetime.now(timezone.utc),
                 lats=lats_c,
                 lons=lons_c,
                 values=vis_crop,

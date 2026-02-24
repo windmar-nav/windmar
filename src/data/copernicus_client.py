@@ -14,7 +14,7 @@ API Reference: https://marine.copernicus.eu/
 
 import logging
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Dict, Any, Tuple
 import numpy as np
 from functools import lru_cache
@@ -163,13 +163,13 @@ class CopernicusClient:
             OceanConditions with wave, current, temperature data
         """
         if timestamp is None:
-            timestamp = datetime.utcnow()
+            timestamp = datetime.now(timezone.utc)
 
         # Check cache
         cache_key = self._cache_key(latitude, longitude, timestamp)
         if cache_key in self._cache:
             cache_time = self._cache_timestamps.get(cache_key)
-            if cache_time and (datetime.utcnow() - cache_time).total_seconds() < self.cache_hours * 3600:
+            if cache_time and (datetime.now(timezone.utc) - cache_time).total_seconds() < self.cache_hours * 3600:
                 logger.debug(f"Cache hit for {cache_key}")
                 return self._cache[cache_key]
 
@@ -181,7 +181,7 @@ class CopernicusClient:
 
         # Update cache
         self._cache[cache_key] = conditions
-        self._cache_timestamps[cache_key] = datetime.utcnow()
+        self._cache_timestamps[cache_key] = datetime.now(timezone.utc)
 
         return conditions
 
@@ -198,7 +198,7 @@ class CopernicusClient:
         is derived from wind. For direct wind, use ERA5 or GFS.
         """
         if timestamp is None:
-            timestamp = datetime.utcnow()
+            timestamp = datetime.now(timezone.utc)
 
         if self.mock_mode:
             return self._generate_mock_wind(latitude, longitude, timestamp)
@@ -240,7 +240,7 @@ class CopernicusClient:
             List of OceanConditions for each time step
         """
         forecasts = []
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
 
         for h in range(0, hours_ahead + 1, interval_hours):
             forecast_time = now + timedelta(hours=h)

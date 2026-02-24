@@ -17,6 +17,7 @@ import logging
 import os
 from pathlib import Path
 
+from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -45,6 +46,44 @@ logger = logging.getLogger(__name__)
 # Application Factory
 # =============================================================================
 
+@asynccontextmanager
+async def lifespan(application: FastAPI):
+    """Run migrations, load persisted vessel specs on startup."""
+    _run_weather_migrations()
+    _run_voyage_migrations()
+
+    # Ensure cache dirs exist (volume mounts may lack subdirectories)
+    for sub in ("wind", "wave", "current", "ice", "sst", "vis"):
+        Path(f"/tmp/windmar_cache/{sub}").mkdir(parents=True, exist_ok=True)
+
+    # Load persisted vessel specs from DB (survives container restarts)
+    from api.routers.vessel import load_vessel_specs_from_db
+    _vs = get_vessel_state()
+    try:
+        saved_specs = load_vessel_specs_from_db()
+        if saved_specs is not None:
+            _vs.update_specs(saved_specs)
+            logger.info("Vessel specs loaded from DB: %s kW / %s kts",
+                        saved_specs.get("mcr_kw"), saved_specs.get("service_speed_laden"))
+    except Exception as e:
+        logger.warning("Could not load vessel specs from DB (using defaults): %s", e)
+
+    # Auto-load saved calibration from disk (survives container restarts)
+    try:
+        _saved_cal = _vs.calibrator.load_calibration("default")
+        if _saved_cal is not None:
+            _vs.update_calibration(_saved_cal)
+            logger.info(
+                "Auto-loaded calibration: calm_water=%.4f, sfoc_factor=%.4f, reports=%d",
+                _saved_cal.calm_water, _saved_cal.sfoc_factor, _saved_cal.num_reports_used,
+            )
+    except Exception as e:
+        logger.warning("Could not auto-load calibration (using theoretical): %s", e)
+
+    logger.info("Startup complete")
+    yield
+
+
 def create_app() -> FastAPI:
     """
     Application factory for WINDMAR API.
@@ -57,6 +96,7 @@ def create_app() -> FastAPI:
     """
     application = FastAPI(
         title="WINDMAR API",
+        lifespan=lifespan,
         description="""
 ## Weather Routing & Performance Analytics API
 
@@ -281,47 +321,6 @@ async def validation_exception_handler(request: Request, exc: RequestValidationE
     logging.error(f"Validation error on {request.method} {request.url.path}: {exc.errors()}")
     logging.error(f"Request body: {body[:500]}")
     return JSONResponse(status_code=422, content={"detail": exc.errors()})
-
-
-# =============================================================================
-# Startup Event
-# =============================================================================
-
-@app.on_event("startup")
-async def startup_event():
-    """Run migrations, load persisted vessel specs, and start background weather ingestion."""
-    _run_weather_migrations()
-    _run_voyage_migrations()
-
-    # Ensure cache dirs exist (volume mounts may lack subdirectories)
-    for sub in ("wind", "wave", "current", "ice", "sst", "vis"):
-        Path(f"/tmp/windmar_cache/{sub}").mkdir(parents=True, exist_ok=True)
-
-    # Load persisted vessel specs from DB (survives container restarts)
-    from api.routers.vessel import load_vessel_specs_from_db
-    _vs = get_vessel_state()
-    try:
-        saved_specs = load_vessel_specs_from_db()
-        if saved_specs is not None:
-            _vs.update_specs(saved_specs)
-            logger.info("Vessel specs loaded from DB: %s kW / %s kts",
-                        saved_specs.get("mcr_kw"), saved_specs.get("service_speed_laden"))
-    except Exception as e:
-        logger.warning("Could not load vessel specs from DB (using defaults): %s", e)
-
-    # Auto-load saved calibration from disk (survives container restarts)
-    try:
-        _saved_cal = _vs.calibrator.load_calibration("default")
-        if _saved_cal is not None:
-            _vs.update_calibration(_saved_cal)
-            logger.info(
-                "Auto-loaded calibration: calm_water=%.4f, sfoc_factor=%.4f, reports=%d",
-                _saved_cal.calm_water, _saved_cal.sfoc_factor, _saved_cal.num_reports_used,
-            )
-    except Exception as e:
-        logger.warning("Could not auto-load calibration (using theoretical): %s", e)
-
-    logger.info("Startup complete")
 
 
 # =============================================================================
