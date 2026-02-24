@@ -139,9 +139,12 @@ export default function ForecastTimeline({
 
   // Invalidate all cached frames when data timestamp changes (e.g., after resync)
   const prevTimestampRef = useRef(dataTimestamp);
+  // Track resync-triggered re-fetches so the wind effect skips redundant GFS prefetch
+  const resyncTriggeredRef = useRef(false);
   useEffect(() => {
     if (dataTimestamp && dataTimestamp !== prevTimestampRef.current) {
       debugLog('info', 'TIMELINE', `Data timestamp changed — clearing frame caches for re-fetch`);
+      resyncTriggeredRef.current = true;
       setWindFrames({});
       windFramesRef.current = {};
       setWaveFrameData(null);
@@ -355,8 +358,13 @@ export default function ForecastTimeline({
     setPrefetchComplete(false);
     loadWindFrames(bp);
 
-    // Fire-and-forget: warm the GRIB file cache for future requests
-    apiClient.triggerForecastPrefetch(bp).catch(() => {});
+    // Fire-and-forget: warm the GRIB file cache for future requests.
+    // Skip after resync — resync already downloaded fresh GFS data, so
+    // loadWindFrames (which reads from DB) is sufficient.
+    if (!resyncTriggeredRef.current) {
+      apiClient.triggerForecastPrefetch(bp).catch(() => {});
+    }
+    resyncTriggeredRef.current = false;
   }, [visible, isWindMode, hasBounds, dataTimestamp, loadWindFrames]);
 
   // ------------------------------------------------------------------
