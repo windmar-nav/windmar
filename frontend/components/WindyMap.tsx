@@ -1,7 +1,7 @@
 'use client';
 
 import { useEffect, useRef, useState } from 'react';
-import { MapContainer, TileLayer, Marker, Popup, Circle, useMap } from 'react-leaflet';
+import { MapContainer, TileLayer, Marker, Popup, Circle, Polyline, useMap } from 'react-leaflet';
 import CountryLabels from '@/components/CountryLabels';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
@@ -165,7 +165,7 @@ export default function WindyMap({
 
           {/* Track line */}
           {trackPoints.length > 1 && (
-            <L.Polyline
+            <Polyline
               positions={trackPoints}
               pathOptions={{
                 color: '#22d3ee',

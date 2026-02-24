@@ -563,7 +563,7 @@ export default function HomePage() {
 
   // Get displayed analysis for route indicator and optimization baseline
   const displayedAnalysis = displayedAnalysisId
-    ? analyses.find(a => a.id === displayedAnalysisId)
+    ? analyses.find(a => a.id === displayedAnalysisId) ?? null
     : null;
 
   // Calculate voyage

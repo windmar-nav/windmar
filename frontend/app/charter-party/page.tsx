@@ -463,9 +463,9 @@ function WeatherTab({
                     <Tooltip
                       contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
                       labelStyle={{ color: '#fff' }}
-                      formatter={(value: number, _: string, props: { payload: { good: boolean; bf: number } }) => [
-                        `${value.toFixed(1)}h (BF ${props.payload.bf})`,
-                        props.payload.good ? 'Good Weather' : 'Bad Weather',
+                      formatter={(value: number, _: string, props: { payload?: { good: boolean; bf: number } }) => [
+                        `${value.toFixed(1)}h (BF ${props.payload?.bf ?? 0})`,
+                        props.payload?.good ? 'Good Weather' : 'Bad Weather',
                       ]}
                     />
                     <Bar dataKey="hours" radius={[4, 4, 0, 0]}>
@@ -622,7 +622,7 @@ function WarrantyTab({
                   {['wind_speed_kts', 'wave_height_m', 'time_hours', 'distance_nm', 'sog_kts', 'fuel_mt'].map((field) => (
                     <td key={field} className="py-2 px-2">
                       <input type="number" step={field === 'wave_height_m' ? '0.1' : '1'}
-                        value={(leg as Record<string, number>)[field] ?? 0}
+                        value={(leg as unknown as Record<string, number>)[field] ?? 0}
                         onChange={(e) => updateLeg(idx, field, Number(e.target.value))}
                         className="w-16 px-2 py-1 bg-maritime-dark border border-white/10 rounded text-white text-sm" />
                     </td>
@@ -851,9 +851,9 @@ function OffHireTab({
                     <Tooltip
                       contentStyle={{ backgroundColor: '#1e293b', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '8px' }}
                       labelStyle={{ color: '#fff' }}
-                      formatter={(value: number, _: string, props: { payload: { reason: string } }) => [
+                      formatter={(value: number, _: string, props: { payload?: { reason: string } }) => [
                         `${value.toFixed(1)} hours`,
-                        props.payload.reason,
+                        props.payload?.reason ?? '',
                       ]}
                     />
                     <Bar dataKey="hours" fill="rgba(239,68,68,0.7)" radius={[4, 4, 0, 0]} />

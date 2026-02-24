@@ -278,7 +278,7 @@ export default function MapComponent({
                   [leg.to_lat, leg.to_lon] as [number, number],
                 ]}
                 pathOptions={{
-                  color: sogToColor(leg.sog_kts, minSog, maxSog),
+                  color: sogToColor(leg.sog_kts, minSog, maxSog) ?? undefined,
                   weight: 3,
                   opacity: 0.9,
                 }}

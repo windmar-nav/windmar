@@ -182,7 +182,7 @@ function ZoneForm({
   onSave, onCancel,
   saving, coordinateCount,
 }: ZoneFormProps) {
-  const interactionIcons: Record<ZoneInteraction, JSX.Element> = {
+  const interactionIcons: Record<ZoneInteraction, React.ReactElement> = {
     mandatory: <MapPin className="w-4 h-4" />,
     exclusion: <Ban className="w-4 h-4" />,
     penalty: <AlertTriangle className="w-4 h-4" />,

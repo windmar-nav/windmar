@@ -357,6 +357,9 @@ export interface LegResult {
   arrival_time: string;
   fuel_mt: number;
   power_kw: number;
+  // Current data (ocean currents)
+  current_speed_ms?: number;
+  current_dir_deg?: number;
   // Data source info
   data_source?: 'forecast' | 'blended' | 'climatology';
   forecast_weight?: number;

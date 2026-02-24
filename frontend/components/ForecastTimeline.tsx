@@ -208,7 +208,7 @@ export default function ForecastTimeline({
   const MAX_SPAN = 120; // degrees — keeps response ~290 MB at 0.25° grid
   const paddedBounds = () => {
     const b = boundsRef.current;
-    if (!b) return {};
+    if (!b) return undefined;
     let lat_min = Math.floor(b.lat_min / BOUNDS_GRID) * BOUNDS_GRID;
     let lat_max = Math.ceil(b.lat_max / BOUNDS_GRID) * BOUNDS_GRID;
     let lon_min = Math.floor(b.lon_min / BOUNDS_GRID) * BOUNDS_GRID;
