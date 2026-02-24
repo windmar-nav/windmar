@@ -508,13 +508,15 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
     elif cfg.components == "scalar":
         global_min, global_max = float('inf'), float('-inf')
         for fh, wd in sorted(result.items()):
-            vals = getattr(wd, field_name, None) or wd.values
-            if field_name == "ice":
-                vals = wd.ice_concentration if wd.ice_concentration is not None else wd.values
-            if field_name == "visibility":
-                vals = wd.visibility if wd.visibility is not None else wd.values
-            if field_name == "sst":
-                vals = wd.sst if wd.sst is not None else wd.values
+            vals = getattr(wd, field_name, None)
+            if vals is None:
+                vals = wd.values
+            if field_name == "ice" and wd.ice_concentration is not None:
+                vals = wd.ice_concentration
+            if field_name == "visibility" and wd.visibility is not None:
+                vals = wd.visibility
+            if field_name == "sst" and wd.sst is not None:
+                vals = wd.sst
             if vals is not None:
                 clean = np.nan_to_num(vals[::STEP, ::STEP], nan=cfg.nan_fill)
                 if field_name == "sst":

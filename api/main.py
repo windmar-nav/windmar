@@ -15,6 +15,8 @@ License: Apache 2.0 - See LICENSE file
 
 import logging
 import os
+import threading
+from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
 
 from contextlib import asynccontextmanager
@@ -81,6 +83,10 @@ async def lifespan(application: FastAPI):
         logger.warning("Could not auto-load calibration (using theoretical): %s", e)
 
     logger.info("Startup complete")
+
+    # Prefetch all weather fields on default viewport (background, single worker)
+    threading.Thread(target=_prefetch_all_weather, daemon=True).start()
+
     yield
 
 
@@ -270,6 +276,90 @@ def _run_voyage_migrations():
             conn.close()
     except Exception as e:
         logger.error(f"Failed to run voyage migrations: {e}")
+
+
+# =============================================================================
+# Startup Weather Prefetch
+# =============================================================================
+
+# Default viewport: NE Atlantic + Mediterranean (30°N-60°N, 30°W-40°E)
+_DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX = 30.0, 60.0
+_DEFAULT_LON_MIN, _DEFAULT_LON_MAX = -30.0, 40.0
+
+# Advisory lock ID for single-worker prefetch (prevent 4 workers downloading simultaneously)
+_PREFETCH_LOCK_ID = 20260224
+
+
+def _prefetch_all_weather():
+    """Download all weather fields into file cache + DB on startup.
+
+    Uses a PostgreSQL advisory lock so only one gunicorn worker runs this.
+    Fields are fetched in parallel (ThreadPoolExecutor) — total ~2-3 min.
+    """
+    import time
+    import psycopg2
+
+    db_url = os.environ.get("DATABASE_URL", settings.database_url)
+    if not db_url.startswith("postgresql"):
+        logger.info("Skipping weather prefetch (non-PostgreSQL database)")
+        return
+
+    # Advisory lock: only one worker prefetches
+    try:
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = True
+        cur = conn.cursor()
+        cur.execute(f"SELECT pg_try_advisory_lock({_PREFETCH_LOCK_ID})")
+        if not cur.fetchone()[0]:
+            logger.info("Another worker is running weather prefetch, skipping")
+            conn.close()
+            return
+    except Exception as e:
+        logger.warning("Could not acquire prefetch lock: %s", e)
+        return
+
+    try:
+        from api.routers.weather import _do_generic_prefetch, _get_layer_manager
+        from api.weather_fields import FIELD_NAMES
+
+        t0 = time.monotonic()
+        logger.info(
+            "Weather prefetch started: %s on [%.0f,%.0f]x[%.0f,%.0f]",
+            ", ".join(FIELD_NAMES),
+            _DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX, _DEFAULT_LON_MIN, _DEFAULT_LON_MAX,
+        )
+
+        def _prefetch_field(field_name: str):
+            ft0 = time.monotonic()
+            try:
+                mgr = _get_layer_manager(field_name)
+                _do_generic_prefetch(
+                    mgr,
+                    _DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX,
+                    _DEFAULT_LON_MIN, _DEFAULT_LON_MAX,
+                )
+                logger.info(
+                    "Weather prefetch %s complete (%.0fs)",
+                    field_name, time.monotonic() - ft0,
+                )
+            except Exception as e:
+                logger.error("Weather prefetch %s failed: %s", field_name, e)
+
+        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="wx-prefetch") as pool:
+            pool.map(_prefetch_field, FIELD_NAMES)
+
+        logger.info(
+            "Weather prefetch ALL COMPLETE: %d fields in %.0fs",
+            len(FIELD_NAMES), time.monotonic() - t0,
+        )
+    except Exception as e:
+        logger.error("Weather prefetch failed: %s", e)
+    finally:
+        try:
+            cur.execute(f"SELECT pg_advisory_unlock({_PREFETCH_LOCK_ID})")
+            conn.close()
+        except Exception:
+            pass
 
 
 # =============================================================================
