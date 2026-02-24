@@ -134,7 +134,8 @@ export default function ForecastTimeline({
   useEffect(() => { availableHoursRef.current = availableHours; }, [availableHours]);
 
   // Reset available hours when layer changes so stale data from a previous layer doesn't persist
-  useEffect(() => { setAvailableHours([]); setCurrentHour(0); }, [layerType]);
+  // Stop playback when switching to SST (auto-play disabled for slow-changing field)
+  useEffect(() => { setAvailableHours([]); setCurrentHour(0); if (layerType === 'sst') setIsPlaying(false); }, [layerType]);
 
   // Invalidate all cached frames when data timestamp changes (e.g., after resync)
   const prevTimestampRef = useRef(dataTimestamp);
@@ -900,10 +901,11 @@ export default function ForecastTimeline({
       )}
 
       <div className="px-4 py-3 flex items-center gap-4">
-        {/* Play/Pause */}
+        {/* Play/Pause — disabled for SST (changes too slow for animation) */}
         <button
-          onClick={() => setIsPlaying(!isPlaying)}
-          disabled={!prefetchComplete}
+          onClick={() => { if (!isSstMode) setIsPlaying(!isPlaying); }}
+          disabled={!prefetchComplete || isSstMode}
+          title={isSstMode ? 'SST changes too slowly for animation — use the slider' : undefined}
           className="flex-shrink-0 w-9 h-9 flex items-center justify-center rounded-full bg-primary-500 text-white disabled:opacity-40 disabled:cursor-not-allowed hover:bg-primary-400 transition-colors"
         >
           {isLoading ? (
@@ -932,6 +934,10 @@ export default function ForecastTimeline({
           ) : prefetchComplete && availableHours.length === 0 ? (
             <div className="text-xs text-amber-500 mt-0.5">
               No forecast data — try resync
+            </div>
+          ) : isSstMode && prefetchComplete ? (
+            <div className="text-xs text-gray-500 mt-0.5">
+              Scrub to compare — SST changes ~0.04°C/3h
             </div>
           ) : isStale && (
             <div className="text-xs text-amber-400/70 mt-0.5">
