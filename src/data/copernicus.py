@@ -947,6 +947,11 @@ class CopernicusDataProvider:
                 if ds is None:
                     logger.error("CMEMS returned None for SST data")
                     return None
+                # Subsample to ~0.25° for visualisation overlay
+                lat_step = max(1, round(0.25 / 0.083))
+                lon_step = max(1, round(0.25 / 0.083))
+                ds = ds.isel(latitude=slice(None, None, lat_step),
+                             longitude=slice(None, None, lon_step))
                 ds.to_netcdf(cache_file)
             except Exception as e:
                 logger.error(f"Failed to download SST data: {e}")
@@ -962,8 +967,6 @@ class CopernicusDataProvider:
                 sst = sst[0, 0]
             elif len(sst.shape) == 3:
                 sst = sst[0]
-
-            sst = np.nan_to_num(sst, nan=0.0)
 
             return WeatherData(
                 parameter="sst",
@@ -1050,6 +1053,17 @@ class CopernicusDataProvider:
                 if ds is None:
                     logger.error("CMEMS returned None for SST forecast")
                     return None
+                # Subsample to ~0.25° before loading — native 0.083° is
+                # too heavy for the full NE Atlantic + Med bbox (122h × 420×720
+                # ≈ 148 MB).  0.25° is plenty for a visualisation overlay.
+                lat_step = max(1, round(0.25 / 0.083))  # 3
+                lon_step = max(1, round(0.25 / 0.083))
+                ds = ds.isel(latitude=slice(None, None, lat_step),
+                             longitude=slice(None, None, lon_step))
+                logger.info(
+                    f"SST forecast subsampled to ~0.25°: "
+                    f"{ds.sizes.get('latitude', '?')}×{ds.sizes.get('longitude', '?')}"
+                )
                 # Load into memory first to avoid hung lazy reads during to_netcdf
                 logger.info("Loading SST forecast data into memory...")
                 ds = ds.load()
@@ -1089,7 +1103,6 @@ class CopernicusDataProvider:
                 else:
                     continue
 
-                sst_2d = np.nan_to_num(sst_2d, nan=0.0)
                 raw_frames[fh] = (sst_2d, ts)
 
             logger.info(

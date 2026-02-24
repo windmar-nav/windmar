@@ -247,7 +247,11 @@ export default function MapComponent({
 
         {/* Weather Legend */}
         {weatherLayer !== 'none' && (
-          <WeatherLegend mode={weatherLayer} timelineVisible={forecastEnabled} />
+          <WeatherLegend
+            mode={weatherLayer}
+            timelineVisible={forecastEnabled}
+            dataRange={weatherLayer === 'sst' && extendedWeatherData?.colorscale ? { min: extendedWeatherData.colorscale.data_min, max: extendedWeatherData.colorscale.data_max } : null}
+          />
         )}
 
         {/* Waypoint Editor */}

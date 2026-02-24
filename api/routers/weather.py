@@ -819,12 +819,21 @@ def _do_sst_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
     )
 
     frames = {}
+    global_min, global_max = float('inf'), float('-inf')
     for fh, wd in sorted(result.items()):
         sst_vals = wd.sst if wd.sst is not None else wd.values
         if sst_vals is not None:
+            clean = np.nan_to_num(sst_vals[::STEP, ::STEP], nan=-999.0)
+            valid = clean[clean > -100]
+            if valid.size > 0:
+                global_min = min(global_min, float(np.min(valid)))
+                global_max = max(global_max, float(np.max(valid)))
             frames[str(fh)] = {
-                "data": np.round(sst_vals[::STEP, ::STEP], 2).tolist(),
+                "data": np.round(clean, 2).tolist(),
             }
+
+    if not np.isfinite(global_min):
+        global_min, global_max = -2.0, 32.0
 
     cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
     mgr.cache_put(cache_key, {
@@ -839,7 +848,11 @@ def _do_sst_prefetch(mgr, lat_min, lat_max, lon_min, lon_max):
         "ocean_mask": ocean_mask_arr,
         "ocean_mask_lats": mask_lats_arr,
         "ocean_mask_lons": mask_lons_arr,
-        "colorscale": {"min": -2, "max": 32, "colors": ["#0000ff", "#00ccff", "#00ff88", "#ffff00", "#ff8800", "#ff0000"]},
+        "colorscale": {
+            "min": -2, "max": 32,
+            "data_min": round(global_min, 2), "data_max": round(global_max, 2),
+            "colors": ["#0000ff", "#00ccff", "#00ff88", "#ffff00", "#ff8800", "#ff0000"],
+        },
         "frames": frames,
     })
     logger.info(f"SST forecast cached: {len(frames)} frames")
@@ -884,12 +897,21 @@ def _rebuild_sst_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
     )
 
     frames = {}
+    global_min, global_max = float('inf'), float('-inf')
     for fh in sorted(hours):
         if fh in grids["sst"]:
             _, _, d = grids["sst"][fh]
+            clean = np.nan_to_num(d[::STEP, ::STEP], nan=-999.0)
+            valid = clean[clean > -100]
+            if valid.size > 0:
+                global_min = min(global_min, float(np.min(valid)))
+                global_max = max(global_max, float(np.max(valid)))
             frames[str(fh)] = {
-                "data": np.round(d[::STEP, ::STEP], 2).tolist(),
+                "data": np.round(clean, 2).tolist(),
             }
+
+    if not np.isfinite(global_min):
+        global_min, global_max = -2.0, 32.0
 
     cache_data = {
         "run_time": run_time.isoformat() if run_time else "",
@@ -903,7 +925,11 @@ def _rebuild_sst_cache_from_db(cache_key, lat_min, lat_max, lon_min, lon_max):
         "ocean_mask": ocean_mask_arr,
         "ocean_mask_lats": mask_lats_arr,
         "ocean_mask_lons": mask_lons_arr,
-        "colorscale": {"min": -2, "max": 32, "colors": ["#0000ff", "#00ccff", "#00ff88", "#ffff00", "#ff8800", "#ff0000"]},
+        "colorscale": {
+            "min": -2, "max": 32,
+            "data_min": round(global_min, 2), "data_max": round(global_max, 2),
+            "colors": ["#0000ff", "#00ccff", "#00ff88", "#ffff00", "#ff8800", "#ff0000"],
+        },
         "frames": frames,
     }
 
@@ -2302,7 +2328,7 @@ async def api_get_sst_field(
         "ny": len(sub_lats),
         "lats": sub_lats,
         "lons": sub_lons,
-        "data": np.round(np.nan_to_num(sst_data.values[::step, ::step], nan=15.0), 2).tolist(),
+        "data": np.round(np.nan_to_num(sst_data.values[::step, ::step], nan=-999.0), 2).tolist(),
         "unit": "\u00b0C",
         "ocean_mask": ocean_mask,
         "ocean_mask_lats": mask_lats,

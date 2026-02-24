@@ -86,13 +86,13 @@ function swellPeriodColor(period: number): string {
   return `rgb(${r},${g},${b})`;
 }
 
-// Visibility ramp (meters) — grey-blue fog severity
+// Visibility ramp (km) — green nuances, only rendered where vis < 20 km
 const VIS_RAMP: ColorStop[] = [
-  [    0,  60,  60, 100],  // zero vis — dark
-  [ 1000, 100, 100, 140],  // 1km
-  [ 2000, 140, 140, 160],  // 2km
-  [ 5000, 180, 180, 190],  // 5km
-  [10000, 220, 220, 230],  // 10km — light
+  [  0,  20,  80,  10],  // 0 km — dark green (dense fog)
+  [  1,  40, 120,  20],  // 1 km — deep green (fog)
+  [  4,  80, 170,  40],  // 4 km — green (poor)
+  [ 10, 130, 210,  70],  // 10 km — bright green (moderate)
+  [ 20, 180, 240, 120],  // 20 km — light green (fading out)
 ];
 
 // Wind color scale: m/s → RGBA
@@ -164,13 +164,12 @@ function iceColor(concentration: number): [number, number, number, number] {
   return interpolateColorRamp(concentration, ICE_RAMP, 120, 200, 180);
 }
 
-// Visibility color scale: meters → RGBA (fog severity grey-blue ramp)
-// Alpha computed inversely: dense fog=200, clear=0 (transparent above 10km)
-function visibilityColor(vis_m: number): [number, number, number, number] {
-  if (vis_m > 10000) return [0, 0, 0, 0]; // clear — transparent
-  const [, r, g, b] = interpolateColorRamp(vis_m, VIS_RAMP, 0, 0, 0);
-  // Inverse alpha: worse visibility = more opaque
-  const alpha = Math.round(200 * (1 - Math.min(1, vis_m / 10000)));
+// Visibility color scale: km → RGBA (transparent background, green overlay for reduced vis)
+function visibilityColor(vis_km: number): [number, number, number, number] {
+  if (vis_km < 0 || vis_km > 20) return [0, 0, 0, 0]; // clear or invalid — transparent
+  const [r, g, b] = interpolateColorRamp(vis_km, VIS_RAMP, 0, 0, 0);
+  // Inverse alpha: fog (0 km) = 220, poor (4 km) ≈ 175, moderate (10 km) ≈ 110, good (20 km) = 0
+  const alpha = Math.round(220 * (1 - vis_km / 20));
   return [r, g, b, alpha];
 }
 
@@ -266,6 +265,11 @@ function WeatherGridLayerInner({
         const waveDir = currentMode === 'waves' && currentWaveData ? (currentWaveData as WaveFieldData).direction : null;
         const extValues = isExtended && currentExtendedData ? currentExtendedData.data : null;
 
+        // SST auto-scaling: map data_min..data_max → ramp range for visible animation
+        const sstScale = (currentMode === 'sst' && currentExtendedData?.colorscale?.data_min != null)
+          ? { dMin: currentExtendedData.colorscale.data_min as number, dMax: currentExtendedData.colorscale.data_max as number }
+          : null;
+
         // Compute lat/lon ranges (handle both ascending and descending order)
         const latStart = lats[0];
         const latEnd = lats[ny - 1];
@@ -343,14 +347,23 @@ function WeatherGridLayerInner({
               color = waveColor(h);
             } else if (extValues) {
               const val = bilinearInterpolate(extValues, latIdx, lonIdx, latFrac, lonFrac, ny, nx);
-              if (Number.isNaN(val)) {
+              if (Number.isNaN(val) || val < -100) {
                 const idx = (py * DS + px) * 4;
                 pixels[idx + 3] = 0;
                 continue;
               }
               if (currentMode === 'ice') color = iceColor(val);
-              else if (currentMode === 'visibility') color = visibilityColor(val * 1000);
-              else if (currentMode === 'sst') color = sstColor(val);
+              else if (currentMode === 'visibility') color = visibilityColor(val);
+              else if (currentMode === 'sst') {
+                // Auto-scale: map [data_min, data_max] → [-2, 32] so the full
+                // color ramp is utilized and frame-to-frame changes are visible.
+                if (sstScale && sstScale.dMax > sstScale.dMin) {
+                  const t = (val - sstScale.dMin) / (sstScale.dMax - sstScale.dMin);
+                  color = sstColor(-2 + t * 34);
+                } else {
+                  color = sstColor(val);
+                }
+              }
               else color = swellColor(val);
             } else {
               const idx = (py * DS + px) * 4;

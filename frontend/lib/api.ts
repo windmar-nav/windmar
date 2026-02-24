@@ -113,6 +113,8 @@ export interface WaveFieldData {
   colorscale: {
     min: number;
     max: number;
+    data_min?: number;
+    data_max?: number;
     colors: string[];
   };
   ingested_at?: string;
@@ -134,7 +136,7 @@ export interface GridFieldData {
   ocean_mask_lats?: number[];
   ocean_mask_lons?: number[];
   source?: string;
-  colorscale?: { min: number; max: number; colors: string[] };
+  colorscale?: { min: number; max: number; data_min?: number; data_max?: number; colors: string[] };
   ingested_at?: string;
 }
 
@@ -169,7 +171,7 @@ export interface WaveForecastFrames {
   ocean_mask?: boolean[][];
   ocean_mask_lats?: number[];
   ocean_mask_lons?: number[];
-  colorscale: { min: number; max: number; colors: string[] };
+  colorscale: { min: number; max: number; data_min?: number; data_max?: number; colors: string[] };
   frames: Record<string, WaveForecastFrame>;
 }
 
@@ -226,7 +228,7 @@ export interface SstForecastFrames {
   ocean_mask?: boolean[][];
   ocean_mask_lats?: number[];
   ocean_mask_lons?: number[];
-  colorscale?: { min: number; max: number; colors: string[] };
+  colorscale?: { min: number; max: number; data_min?: number; data_max?: number; colors: string[] };
   frames: Record<string, SstForecastFrame>;
 }
 
@@ -247,7 +249,7 @@ export interface VisForecastFrames {
   ocean_mask?: boolean[][];
   ocean_mask_lats?: number[];
   ocean_mask_lons?: number[];
-  colorscale?: { min: number; max: number; colors: string[] };
+  colorscale?: { min: number; max: number; data_min?: number; data_max?: number; colors: string[] };
   frames: Record<string, VisForecastFrame>;
 }
 

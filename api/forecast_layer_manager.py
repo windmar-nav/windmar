@@ -183,7 +183,7 @@ class ForecastLayerManager:
     def cache_put(self, cache_key: str, data: dict) -> None:
         p = self.cache_path(cache_key)
         tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data))
+        tmp.write_text(json.dumps(data, allow_nan=False, default=str))
         tmp.rename(p)  # atomic on same filesystem
 
     # -- prefetch lifecycle ------------------------------------------------

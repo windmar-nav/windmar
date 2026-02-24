@@ -3,6 +3,7 @@
 interface WeatherLegendProps {
   mode: 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell';
   timelineVisible?: boolean;
+  dataRange?: { min: number; max: number } | null;
 }
 
 const WIND_STOPS = [
@@ -41,11 +42,11 @@ const ICE_STOPS = [
 ];
 
 const VIS_STOPS = [
-  { value: 0, color: 'rgb(60,60,100)' },
-  { value: 1, color: 'rgb(100,100,140)' },
-  { value: 2, color: 'rgb(140,140,160)' },
-  { value: 5, color: 'rgb(180,180,190)' },
-  { value: 10, color: 'rgb(220,220,230)' },
+  { value: 0, color: 'rgb(20,80,10)' },
+  { value: 1, color: 'rgb(40,120,20)' },
+  { value: 4, color: 'rgb(80,170,40)' },
+  { value: 10, color: 'rgb(130,210,70)' },
+  { value: 20, color: 'rgb(180,240,120)' },
 ];
 
 const SST_STOPS = [
@@ -87,10 +88,18 @@ const LEGEND_CONFIG: Record<string, { stops: typeof WIND_STOPS; unit: string; la
   swell: { stops: SWELL_STOPS, unit: 'm', label: 'Swell Height' },
 };
 
-export default function WeatherLegend({ mode, timelineVisible = false }: WeatherLegendProps) {
+export default function WeatherLegend({ mode, timelineVisible = false, dataRange }: WeatherLegendProps) {
   const config = LEGEND_CONFIG[mode] || LEGEND_CONFIG.wind;
   const { stops, unit, label } = config;
   const gradient = buildGradient(stops);
+
+  // SST auto-range: remap stop labels to actual data bounds
+  const displayStops = (mode === 'sst' && dataRange && dataRange.max > dataRange.min)
+    ? stops.map(s => {
+        const t = (s.value - stops[0].value) / (stops[stops.length - 1].value - stops[0].value);
+        return { ...s, displayValue: Math.round((dataRange.min + t * (dataRange.max - dataRange.min)) * 10) / 10 };
+      })
+    : stops.map(s => ({ ...s, displayValue: s.value }));
 
   return (
     <div className={`absolute right-4 bg-maritime-dark/90 backdrop-blur-sm rounded-lg p-3 z-[1000] min-w-[180px] transition-all ${timelineVisible ? 'bottom-20' : 'bottom-4'}`}>
@@ -102,9 +111,9 @@ export default function WeatherLegend({ mode, timelineVisible = false }: Weather
         style={{ background: gradient }}
       />
       <div className="flex justify-between mt-1">
-        {stops.map((s) => (
-          <span key={s.value} className="text-[10px] text-gray-300">
-            {s.value}
+        {displayStops.map((s, i) => (
+          <span key={i} className="text-[10px] text-gray-300">
+            {s.displayValue}
           </span>
         ))}
       </div>

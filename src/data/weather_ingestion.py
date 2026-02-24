@@ -44,6 +44,12 @@ class WeatherIngestionService:
     CMEMS_DEFAULT_LAT_MAX = 60.0
     CMEMS_DEFAULT_LON_MIN = -20.0
     CMEMS_DEFAULT_LON_MAX = 40.0
+    # SST is a single variable (thetao), subsampled to ~0.25° at download.
+    # Wider than CMEMS_DEFAULT to cover Nordic waters + full Med.
+    SST_DEFAULT_LAT_MIN = 20.0
+    SST_DEFAULT_LAT_MAX = 65.0
+    SST_DEFAULT_LON_MIN = -30.0
+    SST_DEFAULT_LON_MAX = 45.0
     # Ice needs high-latitude bounds (but narrower longitude span)
     ICE_DEFAULT_LAT_MIN = 55.0
     ICE_DEFAULT_LAT_MAX = 75.0
@@ -72,6 +78,10 @@ class WeatherIngestionService:
         _ice_lat_max = lat_max if lat_max is not None else self.ICE_DEFAULT_LAT_MAX
         _ice_lon_min = lon_min if lon_min is not None else self.ICE_DEFAULT_LON_MIN
         _ice_lon_max = lon_max if lon_max is not None else self.ICE_DEFAULT_LON_MAX
+        _sst_lat_min = lat_min if lat_min is not None else self.SST_DEFAULT_LAT_MIN
+        _sst_lat_max = lat_max if lat_max is not None else self.SST_DEFAULT_LAT_MAX
+        _sst_lon_min = lon_min if lon_min is not None else self.SST_DEFAULT_LON_MIN
+        _sst_lon_max = lon_max if lon_max is not None else self.SST_DEFAULT_LON_MAX
 
         logger.info(f"Starting weather ingestion cycle (force={force})")
         self.ingest_wind(force=force)
@@ -81,8 +91,8 @@ class WeatherIngestionService:
                              lon_min=_lon_min, lon_max=_lon_max)
         self.ingest_ice(force=force, lat_min=_ice_lat_min, lat_max=_ice_lat_max,
                         lon_min=_ice_lon_min, lon_max=_ice_lon_max)
-        self.ingest_sst(force=force, lat_min=_lat_min, lat_max=_lat_max,
-                        lon_min=_lon_min, lon_max=_lon_max)
+        self.ingest_sst(force=force, lat_min=_sst_lat_min, lat_max=_sst_lat_max,
+                        lon_min=_sst_lon_min, lon_max=_sst_lon_max)
         self.ingest_visibility(force=force)
         self._supersede_old_runs()
         self.cleanup_orphaned_grid_data()
@@ -665,10 +675,10 @@ class WeatherIngestionService:
             logger.debug("Skipping SST ingestion — multi-timestep run exists in DB")
             return
 
-        _lat_min = lat_min if lat_min is not None else self.CMEMS_DEFAULT_LAT_MIN
-        _lat_max = lat_max if lat_max is not None else self.CMEMS_DEFAULT_LAT_MAX
-        _lon_min = lon_min if lon_min is not None else self.CMEMS_DEFAULT_LON_MIN
-        _lon_max = lon_max if lon_max is not None else self.CMEMS_DEFAULT_LON_MAX
+        _lat_min = lat_min if lat_min is not None else self.SST_DEFAULT_LAT_MIN
+        _lat_max = lat_max if lat_max is not None else self.SST_DEFAULT_LAT_MAX
+        _lon_min = lon_min if lon_min is not None else self.SST_DEFAULT_LON_MIN
+        _lon_max = lon_max if lon_max is not None else self.SST_DEFAULT_LON_MAX
 
         logger.info("CMEMS SST forecast ingestion starting")
         try:
