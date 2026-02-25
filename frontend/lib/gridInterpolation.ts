@@ -13,10 +13,10 @@ export function bilinearInterpolate(
   ny: number,
   nx: number,
 ): number {
-  const i0 = Math.min(latIdx, ny - 1);
-  const i1 = Math.min(latIdx + 1, ny - 1);
-  const j0 = Math.min(lonIdx, nx - 1);
-  const j1 = Math.min(lonIdx + 1, nx - 1);
+  const i0 = Math.max(0, Math.min(latIdx, ny - 1));
+  const i1 = Math.max(0, Math.min(latIdx + 1, ny - 1));
+  const j0 = Math.max(0, Math.min(lonIdx, nx - 1));
+  const j1 = Math.max(0, Math.min(lonIdx + 1, nx - 1));
 
   const v00 = data[i0]?.[j0] ?? 0;
   const v01 = data[i0]?.[j1] ?? 0;
@@ -38,10 +38,10 @@ export function bilinearOcean(
   ny: number,
   nx: number,
 ): number {
-  const i0 = Math.min(latIdx, ny - 1);
-  const i1 = Math.min(latIdx + 1, ny - 1);
-  const j0 = Math.min(lonIdx, nx - 1);
-  const j1 = Math.min(lonIdx + 1, nx - 1);
+  const i0 = Math.max(0, Math.min(latIdx, ny - 1));
+  const i1 = Math.max(0, Math.min(latIdx + 1, ny - 1));
+  const j0 = Math.max(0, Math.min(lonIdx, nx - 1));
+  const j1 = Math.max(0, Math.min(lonIdx + 1, nx - 1));
 
   const v00 = mask[i0]?.[j0] ? 1 : 0;
   const v01 = mask[i0]?.[j1] ? 1 : 0;
@@ -62,11 +62,13 @@ export function getGridIndices(
 ): { latIdx: number; lonIdx: number; latFrac: number; lonFrac: number } | null {
   const ny = lats.length;
   const nx = lons.length;
+  if (ny < 2 || nx < 2) return null;
   const latMin = lats[0];
   const latMax = lats[ny - 1];
   const lonMin = lons[0];
   const lonMax = lons[nx - 1];
 
+  if (latMax === latMin || lonMax === lonMin) return null;
   if (lat < latMin || lat > latMax || lon < lonMin || lon > lonMax) return null;
 
   const latFracIdx = ((lat - latMin) / (latMax - latMin)) * (ny - 1);
