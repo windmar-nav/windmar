@@ -361,13 +361,6 @@ function WeatherGridLayerInner({
               if (currentMode === 'ice') color = iceColor(val);
               else if (currentMode === 'visibility') color = visibilityColor(val);
               else if (currentMode === 'sst') {
-                // Backend uses nan_fill=-999 for SST no-data pixels.
-                // Filter those out without eliminating cold water near 0°C.
-                if (val < -100) {
-                  const idx = (py * DS + px) * 4;
-                  pixels[idx + 3] = 0;
-                  continue;
-                }
                 // Auto-scale: map [data_min, data_max] → [-2, 32] so the full
                 // color ramp is utilized and frame-to-frame changes are visible.
                 if (sstScale && sstScale.dMax > sstScale.dMin) {

@@ -32,6 +32,7 @@ from api.state import get_app_state
 from api.weather_fields import (
     WEATHER_FIELDS, FIELD_NAMES, LAYER_TO_SOURCE,
     get_field, validate_field_name, FieldConfig,
+    CACHE_SCHEMA_VERSION,
 )
 from api.weather_service import (
     get_wind_field, get_wave_field, get_current_field,
@@ -345,15 +346,20 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
 
     elif cfg.components == "scalar":
         param = cfg.parameters[0]
+        expected_ny = len(lats_full[::S_STEP])
+        expected_nx = len(lons_full[::S_STEP])
         for fh in sorted(hours):
             if fh not in grids.get(param, {}):
                 continue
             _, _, d = grids[param][fh]
             clean = np.nan_to_num(d[::S_STEP, ::S_STEP], nan=cfg.nan_fill)
+            if clean.shape[0] != expected_ny or clean.shape[1] != expected_nx:
+                logger.error(f"{field_name} fh={fh} shape mismatch: data={clean.shape} expected=({expected_ny},{expected_nx})")
             frames[str(fh)] = {"data": np.round(clean, cfg.decimals).tolist()}
 
     # Build cache data envelope
     cache_data = {
+        "_schema_version": CACHE_SCHEMA_VERSION,
         "run_time": run_time.isoformat() if run_time else "",
         "total_hours": len(frames),
         "cached_hours": len(frames),
@@ -586,6 +592,7 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
 
     # Build cache envelope
     cache_data = {
+        "_schema_version": CACHE_SCHEMA_VERSION,
         "run_time": first_wd.time.isoformat() if first_wd.time else "",
         "total_hours": len(frames),
         "cached_hours": len(frames),
@@ -713,6 +720,7 @@ def _build_wind_frames(lat_min, lat_max, lon_min, lon_max, run_date, run_hour):
         ]
 
     result = {
+        "_schema_version": CACHE_SCHEMA_VERSION,
         "run_date": run_date,
         "run_hour": run_hour,
         "run_time": run_time.isoformat(),
@@ -1106,6 +1114,132 @@ async def _compat_vis_frames(
 
 
 # ============================================================================
+# Debug endpoint — lightweight diagnostics for cached layer data
+# ============================================================================
+
+@router.get("/api/weather/{field}/debug")
+async def api_get_field_debug(
+    field: str,
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
+):
+    """Return lightweight diagnostics for a layer's cached data.
+
+    No full payload — just shapes, coordinate ranges, and validation checks.
+    Use this to verify backend data integrity before touching the browser.
+    """
+    if field not in WEATHER_FIELDS:
+        raise HTTPException(status_code=400,
+                            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}")
+
+    cfg = get_field(field)
+    mgr = _get_layer_manager(field)
+    lat_min, lat_max, lon_min, lon_max = _clamp_bbox(lat_min, lat_max, lon_min, lon_max)
+    cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
+    cached = mgr.cache_get(cache_key)
+
+    if not cached:
+        return {"field": field, "status": "no_cache", "cache_key": cache_key}
+
+    frames = cached.get("frames", {})
+    frame_hours = sorted(frames.keys(), key=lambda h: int(h) if h.lstrip('-').isdigit() else 0)
+
+    lats = cached.get("lats", [])
+    lons = cached.get("lons", [])
+    ny = cached.get("ny", 0)
+    nx = cached.get("nx", 0)
+
+    # Sample the first frame to check data shape
+    sample_frame = frames.get(frame_hours[0]) if frame_hours else None
+    sample_rows = 0
+    sample_cols = 0
+    if sample_frame is not None:
+        if isinstance(sample_frame, dict) and "data" in sample_frame:
+            data_arr = sample_frame["data"]
+            if isinstance(data_arr, list):
+                sample_rows = len(data_arr)
+                sample_cols = len(data_arr[0]) if data_arr else 0
+        elif isinstance(sample_frame, list) and sample_frame:
+            # Wind leaflet-velocity format: list of {header, data}
+            header = sample_frame[0].get("header", {})
+            sample_rows = header.get("ny", 0)
+            sample_cols = header.get("nx", 0)
+        elif isinstance(sample_frame, dict):
+            # Vector (currents): check 'u' array
+            u_arr = sample_frame.get("u")
+            if isinstance(u_arr, list):
+                sample_rows = len(u_arr)
+                sample_cols = len(u_arr[0]) if u_arr else 0
+
+    ocean_mask = cached.get("ocean_mask")
+    ocean_mask_lats = cached.get("ocean_mask_lats", [])
+    ocean_mask_lons = cached.get("ocean_mask_lons", [])
+    colorscale = cached.get("colorscale")
+
+    # Validation checks
+    checks = []
+    if field != "wind":
+        checks.append({"check": "ny == len(lats)", "pass": ny == len(lats),
+                        "detail": f"ny={ny}, len(lats)={len(lats)}"})
+        checks.append({"check": "nx == len(lons)", "pass": nx == len(lons),
+                        "detail": f"nx={nx}, len(lons)={len(lons)}"})
+        if sample_rows > 0:
+            checks.append({"check": "frame_data_rows == ny", "pass": sample_rows == ny,
+                            "detail": f"sample_rows={sample_rows}, ny={ny}"})
+            checks.append({"check": "frame_data_cols == nx", "pass": sample_cols == nx,
+                            "detail": f"sample_cols={sample_cols}, nx={nx}"})
+    else:
+        if sample_rows > 0:
+            checks.append({"check": "wind header ny/nx consistent",
+                            "pass": sample_rows > 0 and sample_cols > 0,
+                            "detail": f"header ny={sample_rows}, nx={sample_cols}"})
+
+    if ocean_mask is not None:
+        mask_rows = len(ocean_mask) if isinstance(ocean_mask, list) else 0
+        mask_cols = len(ocean_mask[0]) if mask_rows > 0 else 0
+        checks.append({"check": "ocean_mask rows == mask_lats",
+                        "pass": mask_rows == len(ocean_mask_lats),
+                        "detail": f"mask_rows={mask_rows}, mask_lats={len(ocean_mask_lats)}"})
+        checks.append({"check": "ocean_mask cols == mask_lons",
+                        "pass": mask_cols == len(ocean_mask_lons),
+                        "detail": f"mask_cols={mask_cols}, mask_lons={len(ocean_mask_lons)}"})
+
+    schema_version = cached.get("_schema_version", 0)
+    checks.append({"check": "schema_version current",
+                    "pass": schema_version == CACHE_SCHEMA_VERSION,
+                    "detail": f"cached={schema_version}, current={CACHE_SCHEMA_VERSION}"})
+
+    all_pass = all(c["pass"] for c in checks)
+
+    return {
+        "field": field,
+        "source": cached.get("source", ""),
+        "run_time": cached.get("run_time", ""),
+        "schema_version": schema_version,
+        "frame_count": len(frames),
+        "frame_hours": frame_hours[:5] + (["..."] if len(frame_hours) > 5 else []),
+        "lats_len": len(lats),
+        "lats_first": round(lats[0], 4) if lats else None,
+        "lats_last": round(lats[-1], 4) if lats else None,
+        "lons_len": len(lons),
+        "lons_first": round(lons[0], 4) if lons else None,
+        "lons_last": round(lons[-1], 4) if lons else None,
+        "ny": ny,
+        "nx": nx,
+        "sample_frame_data_rows": sample_rows,
+        "sample_frame_data_cols": sample_cols,
+        "has_ocean_mask": ocean_mask is not None,
+        "ocean_mask_shape": f"{len(ocean_mask)}x{len(ocean_mask[0]) if ocean_mask else 0}" if ocean_mask else None,
+        "has_colorscale": colorscale is not None,
+        "colorscale_keys": list(colorscale.keys()) if isinstance(colorscale, dict) else None,
+        "checks": checks,
+        "all_checks_pass": all_pass,
+    }
+
+
+# ============================================================================
 # Generic API Endpoints (parameterized by {field})
 # ============================================================================
 
@@ -1477,12 +1611,15 @@ async def api_get_field_frames(
     cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
     _is_demo_user = is_demo() and is_demo_user(request)
 
-    # Try file cache
-    if _is_demo_user:
-        cached = mgr.cache_get(cache_key)
-        if cached:
+    # Try file cache (discard stale schema versions)
+    cached = mgr.cache_get(cache_key)
+    if cached is not None and cached.get("_schema_version") != CACHE_SCHEMA_VERSION:
+        logger.info(f"{field} cache stale (schema {cached.get('_schema_version')} != {CACHE_SCHEMA_VERSION}), rebuilding")
+        cached = None  # fall through to DB rebuild
+    if cached is not None:
+        if _is_demo_user:
             return limit_demo_frames(cached)
-    else:
+        # Serve raw bytes for performance (same file, already validated)
         use_covering = field in ("sst", "visibility")
         raw = mgr.serve_frames_file(
             cache_key, lat_min, lat_max, lon_min, lon_max,
@@ -1490,6 +1627,7 @@ async def api_get_field_frames(
         )
         if raw is not None:
             return raw
+        return cached
 
     # Fallback: rebuild from PostgreSQL
     cached = await asyncio.to_thread(

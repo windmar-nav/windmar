@@ -11,6 +11,10 @@ from this registry instead of maintaining parallel per-field code paths.
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Tuple
 
+# Bump this when cache envelope shape/semantics change.
+# Stale caches with older versions are discarded on read.
+CACHE_SCHEMA_VERSION = 2
+
 
 @dataclass(frozen=True)
 class FieldConfig:
@@ -203,7 +207,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         default_bbox=_GLOBAL_BBOX,
         unit="km",
         needs_ocean_mask=True,
-        nan_fill=50.0,
+        nan_fill=-999.0,
         colorscale_min=0, colorscale_max=50,
         colorscale_colors=("#ff0000", "#ff8800", "#ffff00", "#88ff00", "#00ff00"),
         subsample_target=250,
@@ -224,7 +228,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         default_bbox=_ICE_BBOX,
         unit="fraction",
         needs_ocean_mask=True,
-        nan_fill=0.0,
+        nan_fill=-999.0,
         colorscale_min=0, colorscale_max=1,
         colorscale_colors=("#ffffff", "#ccddff", "#6688ff", "#0033cc", "#001166"),
         subsample_target=250,
