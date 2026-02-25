@@ -96,6 +96,7 @@ for _fn in FIELD_NAMES:
 # ============================================================================
 
 _OVERLAY_MAX_DIM = 500
+_FRAMES_MAX_DIM = 100  # tighter cap for multi-frame timeline (keeps total < 4 MB)
 
 # Maximum bbox span for CMEMS/GFS downloads — prevents OOM.
 # Wave forecast at 30×70° ≈ 400 MB (8 params × 41 steps × ~304K grid points).
@@ -223,7 +224,7 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
 
     first_fh = min(grids[primary_param].keys())
     lats_full, lons_full, _ = grids[primary_param][first_fh]
-    STEP = _overlay_step(lats_full, lons_full)
+    STEP = max(1, math.ceil(max(len(lats_full), len(lons_full)) / _FRAMES_MAX_DIM))
     shared_lats = lats_full[::STEP]
     shared_lons = lons_full[::STEP]
 
@@ -256,26 +257,30 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
             _, _, v_data = grids[v_param][fh]
 
             if field_name == "wind":
-                # Wind uses leaflet-velocity format
-                u_masked, v_masked = _apply_ocean_mask_velocity(u_data, v_data, lats_full, lons_full)
-                actual_dx = abs(float(lons_full[1] - lons_full[0])) if len(lons_full) > 1 else 0.25
-                actual_dy = abs(float(lats_full[1] - lats_full[0])) if len(lats_full) > 1 else 0.25
-                if len(lats_full) > 1 and lats_full[1] > lats_full[0]:
+                # Wind uses leaflet-velocity format — subsample to _FRAMES_MAX_DIM
+                u_sub = u_data[::STEP, ::STEP]
+                v_sub = v_data[::STEP, ::STEP]
+                wind_lats = lats_full[::STEP]
+                wind_lons = lons_full[::STEP]
+                u_masked, v_masked = _apply_ocean_mask_velocity(u_sub, v_sub, wind_lats, wind_lons)
+                actual_dx = abs(float(wind_lons[1] - wind_lons[0])) if len(wind_lons) > 1 else 0.25
+                actual_dy = abs(float(wind_lats[1] - wind_lats[0])) if len(wind_lats) > 1 else 0.25
+                if len(wind_lats) > 1 and wind_lats[1] > wind_lats[0]:
                     u_ordered = u_masked[::-1]
                     v_ordered = v_masked[::-1]
-                    lat_north = float(lats_full[-1])
-                    lat_south = float(lats_full[0])
+                    lat_north = float(wind_lats[-1])
+                    lat_south = float(wind_lats[0])
                 else:
                     u_ordered = u_masked
                     v_ordered = v_masked
-                    lat_north = float(lats_full[0])
-                    lat_south = float(lats_full[-1])
+                    lat_north = float(wind_lats[0])
+                    lat_south = float(wind_lats[-1])
                 header = {
                     "parameterCategory": 2, "parameterNumber": 2,
-                    "lo1": float(lons_full[0]), "la1": lat_north,
-                    "lo2": float(lons_full[-1]), "la2": lat_south,
+                    "lo1": float(wind_lons[0]), "la1": lat_north,
+                    "lo2": float(wind_lons[-1]), "la2": lat_south,
                     "dx": actual_dx, "dy": actual_dy,
-                    "nx": len(lons_full), "ny": len(lats_full),
+                    "nx": len(wind_lons), "ny": len(wind_lats),
                     "refTime": run_time.isoformat() if run_time else "",
                     "forecastHour": fh,
                 }
@@ -602,6 +607,7 @@ def _build_wind_frames(lat_min, lat_max, lon_min, lon_max, run_date, run_hour):
 
     mgr = _get_layer_manager("wind")
     frames = {}
+    step = None  # computed once from first frame
     for h_info in hours_status:
         if not h_info["cached"]:
             continue
@@ -614,8 +620,16 @@ def _build_wind_frames(lat_min, lat_max, lon_min, lon_max, run_date, run_hour):
             wind_data.u_component, wind_data.v_component,
             wind_data.lats, wind_data.lons,
         )
-        actual_lats = wind_data.lats
-        actual_lons = wind_data.lons
+
+        # Subsample to keep payload manageable for the browser
+        if step is None:
+            step = max(1, math.ceil(max(len(wind_data.lats), len(wind_data.lons)) / _FRAMES_MAX_DIM))
+
+        actual_lats = wind_data.lats[::step]
+        actual_lons = wind_data.lons[::step]
+        u_masked = u_masked[::step, ::step]
+        v_masked = v_masked[::step, ::step]
+
         actual_dx = abs(float(actual_lons[1] - actual_lons[0])) if len(actual_lons) > 1 else 0.25
         actual_dy = abs(float(actual_lats[1] - actual_lats[0])) if len(actual_lats) > 1 else 0.25
 
