@@ -2,40 +2,52 @@
 
 Technical reference for the WindMar weather ingestion, storage, caching, visualization, and downsampling pipeline.
 
-Last updated: 2026-02-24 (v0.1.2 — CMEMS bbox cap 55×130, coordinate clamping, stale-data guard)
+Last updated: 2026-02-25 (v0.1.2 — data-derived ocean mask, higher resolution grids, wider bboxes, cache versioning)
 
 ---
 
 ## 1. Data Sources
 
-| Source Key | Label | Provider | Native Resolution | Grid Size (global) | Forecast Range | Frames |
-|---|---|---|---|---|---|---|
-| `gfs` | Wind (U/V) | NOAA GFS via NOMADS | 0.50° | 361 × 720 (~260K pts) | 0–120 h, 3 h step | 41 |
-| `gfs_visibility` | Visibility | NOAA GFS via NOMADS | 0.25° | 681 × 1439 (~980K pts) | 0–120 h, 3 h step | 41 |
-| `cmems_wave` | Waves + Swell | Copernicus Marine | 0.083° | 2041 × 4320 (~8.8M pts) | 0–120 h, 3 h step | 41 |
-| `cmems_current` | Currents (U/V) | Copernicus Marine | 0.083° | 2041 × 4320 (~8.8M pts) | 0–120 h, 3 h step | 41 |
-| `cmems_ice` | Ice concentration | Copernicus Marine | 0.083° | ~360 × 720 (polar only) | 0–216 h, 24 h step | 10 |
-| ~~`cmems_sst`~~ | ~~Sea Surface Temp~~ | ~~Copernicus Marine~~ | ~~0.083°~~ | ~~2041 × 4320~~ | ~~Disabled~~ | ~~—~~ |
+| Source Key | Label | Provider | Native Resolution | Forecast Range | Frames |
+|---|---|---|---|---|---|
+| `gfs` | Wind (U/V) | NOAA GFS via NOMADS | 0.50° | 0–120 h, 3 h step | 41 |
+| `gfs_visibility` | Visibility | NOAA GFS via NOMADS | 0.50° | 0–120 h, 3 h step | 41 |
+| `cmems_wave` | Waves + Swell | Copernicus Marine | 0.083° | 0–120 h, 3 h step | 41 |
+| `cmems_current` | Currents (U/V) | Copernicus Marine | 0.083° | 0–120 h, 3 h step | 41 |
+| `cmems_sst` | Sea Surface Temp | Copernicus Marine | 0.083° | 0–120 h, 3 h step | 41 |
+| `cmems_ice` | Ice concentration | Copernicus Marine | ~1.3° lat × ~0.29° lon | 0–216 h, 24 h step | 9 |
 
-**SST (`cmems_sst`) is disabled** — global 0.083° download exceeds 4 GB and requires `copernicusmarine.subset()` + h5py, which proved unreliable in production. Code is preserved but commented out.
+**Note on ice resolution:** CMEMS advertises the ice product as 0.083° but delivers a coarser native grid (~19×280 for the Arctic region 55–80°N). This is the actual data resolution from the provider, not a bug in Windmar.
 
-### Dataset Size Estimates (single timestep)
+### Field Registry
 
-| Source | Params | Bytes/Point | Per-Frame (global) | All Frames (global) |
-|---|---|---|---|---|
-| GFS Wind | 2 (u, v) | 8 B (float32 × 2) | ~2 MB | ~82 MB (41 frames) |
-| GFS Visibility | 1 | 4 B | ~3.9 MB | ~160 MB (41 frames) |
-| CMEMS Wave | 9 (Hs, Tp, dir, swell Hs/Tp/dir, windsea Hs/Tp/dir) | 36 B | ~317 MB | ~13 GB (41 frames) |
-| CMEMS Current | 2 (u, v) | 8 B | ~70 MB | ~2.9 GB (41 frames) |
-| CMEMS Ice | 1 | 4 B | ~1 MB (polar) | ~10 MB (10 frames) |
+All weather layers are defined in `api/weather_fields.py` as `FieldConfig` dataclass instances. This single file is the source of truth for: source key, DB parameters, component type, resolution, forecast hours, default bounding box, colorscale, NaN sentinel, subsampling target, and cache/fetch/ingest method names.
 
-These are theoretical maximums at full global resolution. In practice, all CMEMS data is fetched for a **viewport-bounded region** (see Section 5), reducing sizes by 10–50×.
+```python
+WEATHER_FIELDS = {
+    "wind":       FieldConfig(source="gfs",           components="vector",     ...),
+    "waves":      FieldConfig(source="cmems_wave",     components="wave_decomp",...),
+    "swell":      FieldConfig(source="cmems_wave",     components="wave_decomp",...),
+    "currents":   FieldConfig(source="cmems_current",  components="vector",     ...),
+    "sst":        FieldConfig(source="cmems_sst",      components="scalar",     ...),
+    "visibility": FieldConfig(source="gfs_visibility", components="scalar",     ...),
+    "ice":        FieldConfig(source="cmems_ice",      components="scalar",     ...),
+}
+```
+
+### Cache Schema Versioning
+
+`CACHE_SCHEMA_VERSION` (currently **5**) is stamped into every cached frame envelope. When the API reads a cache file, it compares the stamped version to the current code version. Stale caches are auto-discarded and rebuilt from PostgreSQL. Bump this version whenever:
+- Grid subsampling parameters change
+- NaN sentinel values change
+- Bounding box defaults change
+- Ocean mask derivation method changes
 
 ---
 
 ## 2. Architecture Overview
 
-The pipeline uses a **user-triggered overlay model**: no background ingestion loops, no startup health gates. Weather data loads on demand when the user activates a layer, and fresh data is fetched only when the user explicitly requests it via the Resync button.
+The pipeline uses a **user-triggered overlay model**: no background ingestion loops, no startup health gates. Weather data loads on demand when the user activates a layer.
 
 **Data flow:**
 1. User clicks a weather layer button (Wind, Waves, etc.)
@@ -49,35 +61,16 @@ The pipeline uses a **user-triggered overlay model**: no background ingestion lo
 
 ## 3. Source Independence — Architectural Decision
 
-The 6 weather sources (gfs, cmems_wave, cmems_current, cmems_ice, gfs_visibility, cmems_sst) are **logically independent within a shared database**.
+The 7 weather sources are **logically independent within a shared database**.
 
-### Design Choice: Shared Tables, Scoped Operations
-
-All sources share two PostgreSQL tables (`weather_forecast_runs` + `weather_grid_data`), discriminated by a `source` column. This was chosen over 6 separate databases because:
-
-1. **No cross-source JOINs exist.** Every DB query is scoped to a single source via `WHERE source = %s`. The `_find_latest_run(source)` method resolves each source independently.
-
-2. **Routing merges in-memory, not in SQL.** `RouteWeatherAssessment.provision()` issues 3 separate `get_grids_for_timeline()` calls (wind, wave, current), then combines results into a `TemporalGridWeatherProvider`. No query ever joins wind rows with wave rows.
-
-3. **Partial availability is handled gracefully.** The provisioner succeeds if at least wind or wave is available. Missing wind triggers a live GFS supplement. Missing current means currents are ignored. Each source failing does not block the others.
-
-4. **6 separate databases would add complexity for no functional gain.** Connection pooling ×6, health checks ×6, VACUUM scheduling ×6 — all for data that's already logically isolated by a column value.
-
-### Isolation Guarantees
+All sources share two PostgreSQL tables (`weather_forecast_runs` + `weather_grid_data`), discriminated by a `source` column. Every DB query is scoped to a single source via `WHERE source = %s`. No cross-source JOINs exist anywhere in the codebase.
 
 | Operation | Scope | Cross-source impact |
 |---|---|---|
-| `ingest_wind(force=True)` | Supersedes only `gfs` runs | None — other sources untouched |
-| `POST /api/weather/wind/resync` | Supersedes + cleans only `gfs` | None — scoped `source` param |
-| `_supersede_old_runs(source)` | Marks old runs for given source | None — `WHERE source = %s` |
-| `cleanup_orphaned_grid_data(source)` | Deletes dead data for given source | None — `WHERE source = %s` |
-| Layer toggle (frontend) | Queries only relevant source | None — each endpoint hits one source |
-| Voyage calculation | Queries 3 sources independently | None — separate DB calls merged in-memory |
-
-### What Is NOT Independent
-
-- **VACUUM FULL** requires a table-wide lock — cannot vacuum one source's TOAST data without locking all sources' data. Autovacuum handles this incrementally without user impact.
-- **File cache cleanup** (`_cleanup_stale_caches()`) operates globally on `/tmp/windmar_cache/` — but only removes files older than 12h, which is safe regardless of source.
+| `ingest_wind(force=True)` | Supersedes only `gfs` runs | None |
+| `POST /api/weather/wind/resync` | Supersedes + cleans only `gfs` | None |
+| `_supersede_old_runs(source)` | Marks old runs for given source | None |
+| `cleanup_orphaned_grid_data(source)` | Deletes dead data for given source | None |
 
 ---
 
@@ -85,384 +78,225 @@ All sources share two PostgreSQL tables (`weather_forecast_runs` + `weather_grid
 
 ### Tier 1 — PostgreSQL (persistent, authoritative)
 
-**Tables:**
-- `weather_forecast_runs` — one row per source per ingestion cycle (metadata: source, run_time, status, bounds, forecast_hours array, `ingested_at`)
-- `weather_grid_data` — one row per (run, forecast_hour, parameter), storing compressed grid arrays
-
-**Source column:** All queries include `WHERE source = %s` to ensure per-source isolation. No cross-source JOINs exist anywhere in the codebase.
-
-**Compression:** All grid data stored as zlib-compressed float32 numpy arrays in `bytea` columns. Coordinate arrays (lats, lons) stored separately per row. Data lives in PostgreSQL TOAST storage (out-of-line).
+- `weather_forecast_runs` — one row per source per ingestion cycle
+- `weather_grid_data` — one row per (run, forecast_hour, parameter), zlib-compressed float32 arrays
 
 ### Tier 2 — File Cache (ephemeral, fast reads)
 
-**Location:** `/tmp/windmar_cache/{wind,wave,current,ice,sst,vis}/`
+- **Location:** `/tmp/windmar_cache/{wind,wave,current,ice,sst,vis}/`
+- **Format:** JSON keyed by padded viewport: `{layer}_{lat_min}_{lat_max}_{lon_min}_{lon_max}.json`
+- **TTL:** 12 hours + auto-invalidated by `CACHE_SCHEMA_VERSION`
 
-**Format:** JSON files keyed by padded viewport bounds: `{layer}_{lat_min}_{lat_max}_{lon_min}_{lon_max}.json`
+### Tier 3 — Redis (shared in-memory cache)
 
-**Contents:** Pre-assembled forecast frame responses (all timesteps for a given layer and viewport). These are what the frontend timeline directly consumes.
-
-**TTL:** 12 hours (cleaned by `_cleanup_stale_caches()` during per-layer resync)
-
-### Tier 3 — Redis (shared in-memory cache, hot path)
-
-**Scope:** Individual weather snapshots (single timestep, single layer) for map overlay rendering.
-
-**TTL:** 60 minutes
-
-**Key pattern:** `weather:{layer}:{bounds_hash}:{hour}`
+- Single-timestep snapshots for map overlay rendering
+- TTL: 60 minutes
 
 ### Tier 4 — Raw Download Cache
 
-| Cache | Location | TTL | Contents |
-|---|---|---|---|
-| CMEMS NetCDF | `data/copernicus_cache/*.nc` | 24 hours | Raw downloads before ingestion |
-| GFS GRIB2 | `data/gfs_cache/*.grib2` | 48 hours | Raw downloads before ingestion |
+| Cache | Location | TTL |
+|---|---|---|
+| CMEMS NetCDF | `data/copernicus_cache/*.nc` | 24 hours |
+| GFS GRIB2 | `data/gfs_cache/*.grib2` | 48 hours |
 
 ---
 
-## 5. Ingestion Model
+## 5. Bounding Boxes & OOM Protection
 
-### On-Demand (DB-first with API fallback)
+### Default Bounding Boxes (ingestion when no viewport provided)
 
-When a user activates a weather layer:
-1. Backend queries `weather_forecast_runs` for the latest `complete` run for that source
-2. If found → decompress grid data, return with `ingested_at` from the run
-3. If not found → call external API (GFS/CMEMS), ingest into DB, return with `ingested_at = now()`
-
-### Per-Layer Resync (user-triggered, viewport-aware)
-
-**Endpoint:** `POST /api/weather/{layer}/resync?lat_min=...&lat_max=...&lon_min=...&lon_max=...`
-
-Layers: `wind`, `waves`, `currents`, `ice`, `visibility`, `swell`
-
-**Viewport-aware bbox:** The frontend passes its current map viewport bounds as query parameters. For CMEMS layers (waves, currents, swell, ice), these bounds determine which geographic region is downloaded from Copernicus. GFS layers (wind, visibility) are global and ignore the bbox.
-
-**CMEMS bbox cap (OOM protection):** The viewport bbox is capped to a maximum of **55° latitude × 130° longitude**, centered on the viewport midpoint. This prevents OOM kills in the API container — the `copernicusmarine` Python client downloads data at **full native 0.083° resolution regardless of any post-download subsampling** (`isel`, stride, etc.), so the bbox is the only mechanism to control download size and memory usage.
-
-**Why 55° × 130°:** This covers the demo viewport (NE Atlantic + Mediterranean: lat ~12.5°–67.5°, lon ~−55°–75°) with margin. It produces a ~660 × 1560 grid per timestep at 0.083° resolution, which results in approximately 700 MB download and ~2 GB peak RAM for wave data (9 parameters × 41 timesteps).
-
-**Critical constraint — `copernicusmarine` native resolution:** The Copernicus Marine client (`copernicusmarine.open_dataset()`) always downloads the full native-resolution data within the requested bbox. Post-download operations like `ds.isel(latitude=slice(None, None, 3))` only discard data *after* it has been fetched and loaded into memory. This means subsampling does NOT reduce download time, network bandwidth, or peak memory during ingestion. The bbox cap is the **sole** protection against OOM.
-
-| Viewport Size | Grid Points (0.083°) | Estimated RAM (waves) | Status |
-|---|---|---|---|
-| 35° × 60° (default) | ~420 × 720 | ~1.5 GB | Safe |
-| 55° × 130° (max cap) | ~660 × 1560 | ~2 GB | Safe |
-| 65° × 150° (uncapped) | ~780 × 1800 | ~5 GB | Risky |
-| 78° × 207° (full viewport) | ~940 × 2490 | ~10+ GB | **OOM kill** |
-
-**Behavior:**
-1. Cap bbox to 55° × 130° centered on viewport midpoint
-2. Clamp all coordinates to valid geographic range (lat ≤ 89.9°, lon ≤ 180°)
-3. Call the layer's ingest function with `force=True` (bypasses freshness checks)
-4. Supersede old runs **for this source only** (`_supersede_old_runs(source)`)
-5. Clean up orphaned grid data **for this source only** (`cleanup_orphaned_grid_data(source)`)
-6. Clear the layer's frame cache + stale file caches
-7. Return `{ "status": "complete", "ingested_at": "<ISO>" }`
-
-**Source isolation:** Resyncing Wind never touches Wave/Current/Ice data. The `source` parameter scopes both supersede and cleanup operations to the specific DB source (`gfs`, `cmems_wave`, etc.).
-
-**Coordinate clamping:** Both the backend bbox cap and the frontend `paddedBounds()` clamp coordinates to safe ranges. See Section 13 (Coordinate Clamping) for the full defense-in-depth strategy.
-
-**Timeout:** 30–120s for CMEMS layers depending on bbox size and Copernicus server load.
-
-### Default Ingestion Bounds
-
-When no viewport bbox is provided (e.g., first-time ingestion from DB-empty state):
-
-| Source | Default Bounds | Rationale |
+| Source | Default Bbox | Rationale |
 |---|---|---|
-| `gfs` (wind) | Global | GFS at 0.5° is lightweight (~2 MB/frame) |
-| `gfs_visibility` | Global | GFS at 0.25° is manageable (~4 MB/frame) |
-| `cmems_wave` | lat [25, 60] lon [−20, 40] | North Atlantic + Med — safe download size |
-| `cmems_current` | lat [25, 60] lon [−20, 40] | Same as wave |
-| `cmems_ice` | lat [55, 75] lon [−20, 40] | High-latitude North Atlantic |
+| `gfs` (wind) | Global (−85 to 85°N, −180 to 180°E) | GFS at 0.5° is lightweight |
+| `gfs_visibility` | Global | Same as wind |
+| `cmems_wave` | 20–65°N, −35 to 45°E | NE Atlantic + Med + Nordic |
+| `cmems_current` | 20–65°N, −35 to 45°E | Same as wave |
+| `cmems_sst` | 20–65°N, −35 to 45°E | Same as wave |
+| `cmems_ice` | 55–80°N, −35 to 45°E | Arctic — wider for high latitudes |
 
-### Deferred Supersede Logic
+### Bbox Clamping (`_clamp_bbox`)
 
-When a new run is ingested for a source:
-1. New frames are inserted with `status = 'ingesting'`
-2. The count of new forecast hours is compared against existing best run
-3. Old runs are only superseded **if the new run has ≥ hours** — this prevents data loss when NOMADS/CMEMS is still publishing a cycle
-4. After resync, `_supersede_old_runs(source)` + `cleanup_orphaned_grid_data(source)` clean up
+Both the backend and frontend enforce maximum bbox spans to prevent OOM:
 
-### What Gets Cleaned and When
+| Parameter | Value | Location |
+|---|---|---|
+| `_MAX_LAT_SPAN` | **50°** | `api/routers/weather.py` |
+| `_MAX_LON_SPAN` | **80°** | `api/routers/weather.py` |
+| `MAX_LAT_SPAN` | **50** | `frontend/components/ForecastTimeline.tsx` |
+| `MAX_LON_SPAN` | **80** | `frontend/components/ForecastTimeline.tsx` |
 
-| Event | DB Runs | DB Grid Data | File Cache | Redis | Raw Downloads |
+The clamping is centered on the viewport midpoint. If the viewport exceeds the span limit, the bbox is symmetrically shrunk.
+
+### Coordinate Clamping (3-layer defense)
+
+1. **Frontend `paddedBounds()`** — clamps lat to ±89.9°, lon to ±180° after 10° grid-snapping
+2. **Backend `_clamp_bbox()`** — clamps after centering/capping
+3. **`build_ocean_mask()`** — last-resort clamp before any mask computation
+
+---
+
+## 6. Timeline Frame Subsampling
+
+### Subsampling Caps
+
+Timeline frames are subsampled server-side to keep payloads within browser limits. Three caps handle different data densities:
+
+| Cap Constant | Value | Used By | Rationale |
+|---|---|---|---|
+| `_FRAMES_MAX_DIM` | **200** | Wind, Currents (2 arrays/frame) | ~5 MB per layer |
+| `_WAVE_DECOMP_MAX_DIM` | **60** | Waves, Swell (8 arrays/frame) | ~4.5 MB per layer |
+| `_SCALAR_FRAMES_MAX_DIM` | **350** | SST, Visibility, Ice (1 array/frame) | ~17 MB per layer |
+| `_OVERLAY_MAX_DIM` | **500** | Single-frame overlays | ~5 MB per request |
+
+The subsample step is: `STEP = ceil(max(len(lats), len(lons)) / MAX_DIM)`
+
+### Actual Layer Sizes (for default bbox 20–65°N, −35 to 45°E)
+
+| Layer | Raw Grid (from DB) | Step | Subsampled Grid | API Response | Frames |
 |---|---|---|---|---|---|
-| **Per-layer resync** | Old runs superseded (scoped) | Orphans cleaned (scoped) | Layer cache wiped + stale removed | Untouched | Stale files removed |
-| **Container restart** | Persisted | Persisted | **Lost** (`/tmp/`) | Persisted (Redis volume) | Persisted (`data/` volume) |
+| **Wind** | 101 × 161 (GFS 0.5°) | 1 | 101 × 161 | ~14 MB | 41 |
+| **Waves** | ~542 × 964 (CMEMS 0.083°) | 17 | 32 × 57 | ~3.3 MB | 41 |
+| **Swell** | (shares wave data) | 17 | 32 × 57 | ~3.3 MB | 41 |
+| **Currents** | ~542 × 964 | 5 | 109 × 193 | ~9.5 MB | 41 |
+| **SST** | ~542 × 964 | 3 | 181 × 321 | ~17 MB | 41 |
+| **Visibility** | ~91 × 161 (GFS 0.5°) | 1 | 91 × 161 | ~14 MB | 41 |
+| **Ice** | 19 × 280 (native coarse) | 1 | 19 × 280 | ~0.3 MB | 9 |
+
+**Total if all layers loaded:** ~61 MB. In practice, only 1–2 layers are active at a time.
+
+### Memory Management on Layer Switch
+
+When the user switches weather layers, the frontend:
+1. Nulls `extendedWeatherData` (single-frame overlay data) immediately
+2. Clears all 6 frame data stores and their refs in ForecastTimeline
+3. Then loads the new layer's data
+
+This ensures only **one layer's data** exists in browser memory at any time, preventing the cumulative ~61 MB worst case.
 
 ---
 
-## 6. Overlay Grid Subsampling
+## 7. Ocean Mask
 
-### Problem
+### Data-Derived Mask (current approach, since `CACHE_SCHEMA_VERSION=5`)
 
-CMEMS native resolution is 0.083° (~9 km). For a 40° × 60° viewport, that produces grids of ~480 × 720 = **346K points**. Sending this as JSON to the browser for a single overlay frame is workable, but larger viewports or multiple parameters push into multi-MB responses that cause:
+The ocean mask is derived from the **actual weather data**, not from an external land/sea database. For each grid cell, if ANY forecast frame has a valid (non-NaN, finite) value, the cell is marked as ocean.
 
-1. **Browser memory pressure** — the JSON response is parsed into JavaScript objects, each grid point becoming a heap allocation
-2. **Canvas rendering load** — the heatmap renderer must iterate every grid point per frame
-3. **Network transfer time** — uncompressed JSON for 500K+ points exceeds 5 MB per overlay request
-
-### Solution: Server-Side Subsampling
-
-Three helper functions in `api/main.py` cap overlay grid dimensions:
-
-```
-_OVERLAY_MAX_DIM = 500  # max grid points per axis
-
-_overlay_step(lats, lons)     → math.ceil(max(len(lats), len(lons)) / 500)
-_sub2d(arr, step, decimals)   → arr[::step, ::step] rounded to N decimals
-_dynamic_mask_step(bbox)      → ocean mask step scaled to viewport span
-```
-
-### Which Endpoints Are Subsampled (and Why)
-
-| Endpoint | Subsampled | Reason |
-|---|---|---|
-| `GET /api/weather/waves` | Yes | CMEMS 0.083° — up to 660 × 1560 grid at 55° × 130° |
-| `GET /api/weather/swell` | Yes | Same CMEMS wave data (swell decomposition) |
-| `GET /api/weather/currents` | Yes | CMEMS 0.083° — same grid dimensions |
-| `GET /api/weather/currents/velocity` | Yes | CMEMS 0.083° — velocity format for particle animation |
-| `GET /api/weather/sst` | Yes | CMEMS 0.083° (disabled but code preserved) |
-| `GET /api/weather/visibility` | Yes | GFS 0.25° — 681 × 1439 global grid |
-| `GET /api/weather/ice` | **No** | Ice grids are polar-only (~360 × 720) — always under 500/axis for typical viewports |
-| `GET /api/weather/wind` | **No** | GFS 0.5° — 361 × 720 global grid, already under browser limits |
-| `GET /api/weather/wind/velocity` | **No** | Same GFS 0.5° data in velocity format |
-
-### Subsampling in Practice
-
-| Viewport | Layer | Native Grid | Step | Subsampled Grid | Reduction |
-|---|---|---|---|---|---|
-| 55° × 130° (NE Atlantic + Med) | Waves | 660 × 1560 | 4 | 165 × 390 | 16× fewer points |
-| 55° × 130° | Currents | 660 × 1560 | 4 | 165 × 390 | 16× fewer points |
-| 40° × 60° (North Atlantic) | Waves | 480 × 720 | 2 | 240 × 360 | 4× fewer points |
-| 30° × 40° (Indian Ocean) | Ice | 360 × 480 | 1 | 360 × 480 | None (under cap) |
-| Global (uncapped) | Visibility | 681 × 1439 | 3 | 227 × 480 | 9× fewer points |
-
-### Ocean Mask Subsampling
-
-The ocean mask (land/sea bitmap) uses a separate dynamic step:
-
-```
-_dynamic_mask_step(lat_min, lat_max, lon_min, lon_max)
-    → max(0.05, viewport_span / 500) degrees
+```python
+data_ocean = np.zeros((len(lats_full), len(lons_full)), dtype=bool)
+for fh in sorted(hours):
+    _, _, d = grids[primary_param][fh]
+    data_ocean |= np.isfinite(d)
+ocean_mask_data = data_ocean[::mask_step, ::mask_step].tolist()
 ```
 
-For small viewports (< 25°), the mask stays at 0.05° (~5.5 km). For large viewports, it coarsens proportionally. This keeps the ocean mask grid under ~500 × 500 regardless of zoom level.
+**Why not `global_land_mask`?** The previous approach used the `global_land_mask` Python library, which has a fixed 1km raster. At coastlines, this library incorrectly marks valid CMEMS ocean grid cells as land, creating black holes in SST, wave, and current visualizations — particularly visible in the Mediterranean, English Channel, and North Sea. The data-derived mask eliminates these artifacts because CMEMS itself knows exactly where its ocean grid points are.
 
-### Rounding
+**Exception — wind:** Wind uses `_apply_ocean_mask_velocity()` with `global_land_mask` to zero out U/V over land (GFS provides wind data globally including land; zeroing land prevents arrows over continents). This is kept because wind data has no NaN over land to derive a mask from.
 
-Subsampled values are rounded to reduce JSON payload size:
+### Frontend Mask Usage
 
-| Data Type | Decimals | Rationale |
+In `WeatherGridLayer.tsx`, for each pixel the renderer checks `oceanMask[latIdx][lonIdx]`. If `false` (land), the pixel is set to transparent. The mask grid coordinates are interpolated to the pixel position using linear index mapping.
+
+---
+
+## 8. NaN Sentinel Strategy
+
+All scalar layers use a consistent NaN fill value of **`-999.0`**. This is applied server-side when building frames:
+
+```python
+clean = np.nan_to_num(vals[::S_STEP, ::S_STEP], nan=cfg.nan_fill)  # nan_fill = -999.0
+```
+
+The frontend filters these with a generic check: `if (val < -100) continue;` — this catches all sentinel values without per-layer special cases.
+
+| Layer | `nan_fill` | Frontend filter |
 |---|---|---|
-| Wave height, current speed | 2 | 0.01 m precision is sufficient for visualization |
-| Wave period, direction | 1 | 0.1 s / 0.1° is sufficient |
-| Ice concentration | 4 | Fraction 0.0000–1.0000 |
-| SST | 2 | 0.01 °C precision |
-| Visibility | 1 | 0.1 km precision |
-
-### What Is NOT Subsampled
-
-- **Timeline frames** (`/api/weather/forecast/*/frames`) — these have their own subsampling logic with `STEP = max(1, round(max_dim / 250))`, applied at cache-build time. Timeline frames are pre-assembled and served from file cache.
-- **Wind overlay** — GFS 0.5° grids are already coarse enough for browser rendering.
-- **Wind velocity** — Same as wind overlay.
-- **Ice overlay** — Polar-only extent means grids stay small.
+| SST | −999.0 | `val < -100` |
+| Visibility | −999.0 | `val < -100` |
+| Ice | −999.0 | `val < -100` |
 
 ---
 
-## 7. Frontend Data Flow
+## 9. Debug Endpoint
 
-### App Startup
+`GET /api/weather/{field}/debug?lat_min=...&lat_max=...&lon_min=...&lon_max=...`
 
-No startup gate. The app loads immediately with a clean map — no background health checks, no ensure-all polling, no readiness state.
+Returns lightweight diagnostics for any layer's cached data WITHOUT the full frame payload:
 
-### Layer Activation (user clicks a weather button)
+```json
+{
+  "field": "sst",
+  "source": "cmems",
+  "run_time": "2026-02-25T19:57:25+00:00",
+  "schema_version": 5,
+  "frame_count": 41,
+  "lats_len": 181, "lats_first": 20.0, "lats_last": 65.0,
+  "lons_len": 321, "lons_first": -35.0, "lons_last": 45.0,
+  "ny": 181, "nx": 321,
+  "sample_frame_data_rows": 181, "sample_frame_data_cols": 321,
+  "has_ocean_mask": true, "ocean_mask_shape": "181x321",
+  "checks": [
+    {"check": "ny == len(lats)", "pass": true},
+    {"check": "nx == len(lons)", "pass": true},
+    {"check": "frame_data_rows == ny", "pass": true},
+    {"check": "frame_data_cols == nx", "pass": true},
+    {"check": "ocean_mask rows == mask_lats", "pass": true},
+    {"check": "ocean_mask cols == mask_lons", "pass": true},
+    {"check": "schema_version current", "pass": true}
+  ],
+  "all_checks_pass": true
+}
+```
 
-1. Frontend calls the layer's grid endpoint (e.g., `GET /api/weather/wind?lat_min=...`)
-2. Backend: try DB first → if empty, fetch from API → return JSON with `ingested_at`
-3. Frontend renders the grid on the Leaflet map
-4. Staleness indicator updates from the `ingested_at` field in the response
-
-### Staleness Indicator
-
-Displayed in the map overlay controls when a layer is active:
-- **Green** (`<1h` / `<4h ago`): Data is current
-- **Yellow** (`<12h ago`): Data is aging
-- **Red** (`>=12h ago` / `Xd ago`): Data is stale
-
-Computed client-side from the `ingested_at` timestamp in each weather response.
-
-### Resync (user clicks Resync button)
-
-1. Frontend calls `POST /api/weather/{activeLayer}/resync` **with current viewport bounds**
-2. Backend caps bbox to 55° × 130° (CMEMS layers), clamps coordinates to valid range, then re-ingests
-3. Shows spinning indicator while waiting (can take 30–120s)
-4. On success, updates `layerIngestedAt` and reloads the layer data
-5. Staleness indicator resets to "< 1h ago"
-
-Only available when a layer is active (button hidden when `weatherLayer === 'none'`).
-
-### Timeline Activation (user clicks Timeline button)
-
-1. Frontend calls the layer's `/frames` endpoint (e.g., `GET /api/weather/forecast/frames?lat_min=...`)
-2. Backend reads ALL forecast frames from file cache (Tier 2) or rebuilds from DB (Tier 1)
-3. Entire multi-frame response loaded into browser memory
-4. User scrubs the timeline slider — frame switching is instant (client-side)
-5. Slider auto-positions to the forecast hour nearest to "now" based on the model run time (see stale-data guard below)
-
-**All 7 layers use the same direct-load pattern:**
-- Check client-side cache (React ref) first — if frames exist, restore UI instantly with no network call
-- If cache miss, call `loadXxxFrames()` which hits the `/frames` endpoint
-- Backend serves from file cache if available, otherwise rebuilds from PostgreSQL (~3s for wind, up to ~50s for large viewports)
-- No prefetch/polling — a single request-response cycle
-
-**Stale-data guard (`nearestHourToNow`):**
-- When the timeline opens, the slider positions to the frame closest to "now" relative to the forecast model run time
-- If the forecast is fully expired (elapsed hours > max available hour), the slider starts at T+0 instead of pinning to the last frame — this prevents a confusing state where the timeline displays a date far in the past
-- An amber "Forecast expired — resync for latest data" warning appears below the timestamp when data is stale
-- The `isStale` flag is computed client-side: `(Date.now() - runTime) / 3600000 > maxAvailableHour`
-
-**Viewport bounds and the MAX_SPAN cap:**
-- When the timeline opens, the current viewport bounds are padded to 10-degree grid cell edges
-- A MAX_SPAN cap (120 degrees per axis) prevents requests for near-global grids that would produce multi-hundred-MB responses
-- Pan/zoom after timeline open does NOT trigger re-fetch — data stays fixed to the bounds captured at load time
-- To get data for a different region: click Resync with the desired region visible, then re-open the timeline
-
-**refTime consistency:**
-- All frames in a single response share the same `refTime` (the GFS/CMEMS model run time), not the per-frame valid time
-- This prevents the frontend's wind field cache from thrashing (rebuilding 180K-point 2D arrays on every frame change)
-
-### This is NOT Windy.com
-
-WindMar is a **local-first** application. Unlike Windy.com which serves pre-rendered tiles from a global CDN:
-
-- **All data is fetched on demand** from NOAA GFS / Copernicus Marine, ingested into a local PostgreSQL, and served from a local API container
-- **The full forecast dataset lives in the browser** — all 41 frames (wind) or 10 frames (ice) are loaded into JavaScript heap memory at once. There is no streaming or tile-based progressive loading.
-- **The heatmap overlay and wind particles are rendered client-side** using Canvas 2D. The browser must decompress, parse, and render the full grid for each frame.
-- **Viewport-based fetching means data stops at the grid edges.** If the user pans beyond the loaded bounds, the overlay is truncated. This is by design — fetching global data would exceed browser memory.
+Use to verify data integrity after any backend change: `curl -s localhost:8003/api/weather/sst/debug | python3 -m json.tool`
 
 ---
 
-## 8. Browser Memory Limits
-
-The frontend loads ALL timeline frames into JavaScript heap at once. For wave data (9 parameters, 41 frames), this can consume several hundred MB of browser memory for large viewports.
-
-**Practical browser limits observed during testing (Chrome 141, 16 GB RAM system):**
-
-| Viewport Span | Grid Points (0.25°) | JSON Response | Browser Behavior |
-|---|---|---|---|
-| 30° × 55° (Europe) | ~26K per component | ~24 MB | Loads in ~3s, smooth animation |
-| 80° × 80° (Indian Ocean) | ~103K per component | ~129 MB | Loads in ~50s, smooth animation |
-| 120° × 120° (max cap) | ~231K per component | ~290 MB (est.) | At browser memory limit |
-| 160° × 260° (uncapped) | ~601K per component | ~627 MB | **Browser OOM crash** |
-
-The MAX_SPAN cap at 120 degrees is a pragmatic limit. Users needing global coverage should zoom to the region of interest before opening the timeline.
-
-### Overlay vs. Timeline Memory
-
-| Concern | Overlay (single frame) | Timeline (all frames) |
-|---|---|---|
-| Data in browser | 1 grid per active layer | 41 grids × all params |
-| Typical memory | 1–5 MB | 50–300 MB |
-| OOM risk | Low (subsampled to ≤500/axis) | Medium–High (capped at 120° span) |
-| Mitigation | Server-side subsampling | MAX_SPAN cap, viewport padding |
-
----
-
-## 9. `ingested_at` Propagation
-
-Every weather endpoint now returns an `ingested_at` ISO timestamp alongside the grid data.
-
-**Backend path:**
-1. `db_weather_provider._find_latest_run()` returns `(run_id, ingested_at)` tuple
-2. Each `get_*_from_db()` method returns `(data, ingested_at)` or `(None, None)`
-3. Endpoints include `ingested_at` in JSON response
-
-**Frontend path:**
-1. `loadWeatherData()` extracts `ingested_at` from each response
-2. Stored in `layerIngestedAt` state
-3. Passed to `MapOverlayControls` as a prop
-4. `computeStaleness()` calculates age and color
-
----
-
-## 10. API Container Memory
-
-Grids are **fully decompressed in process memory** for each request. They are NOT streamed.
-
-**Per-request memory estimates (single frame, viewport-cropped to 55° × 130°):**
-
-| Layer | Cropped Grid Size | Params | Memory per Frame |
-|---|---|---|---|
-| Wind (GFS 0.5°) | 111 × 261 | 2 (u, v) | ~0.23 MB |
-| Wave (CMEMS 0.083°) | 660 × 1560 | 9 | ~37 MB |
-| Current (CMEMS 0.083°) | 660 × 1560 | 2 | ~8.2 MB |
-| Ice (CMEMS 0.083°) | 240 × 1560 | 1 | ~1.5 MB |
-| Visibility (GFS 0.25°) | 221 × 521 | 1 | ~0.46 MB |
-
-**Timeline rebuild (all frames from DB):**
-
-| Layer | Frames | Estimated RAM (55° × 130° cap) |
-|---|---|---|
-| Wind | 41 | ~10 MB |
-| Wave | 41 | ~1.5 GB |
-| Current | 41 | ~340 MB |
-| Ice | 10 | ~15 MB |
-| Visibility | 41 | ~19 MB |
-
-Wave timeline rebuild is the most expensive operation. At the 55° × 130° cap, it requires ~1.5 GB. The API container should have at least **3 GB of available RAM** (wave rebuild + overhead + concurrent requests).
-
-**CMEMS ingestion (download + xarray load):**
-
-| Viewport | Estimated RAM (wave ingestion) | Status |
-|---|---|---|
-| 35° × 60° | ~1.5 GB | Safe |
-| 55° × 130° (cap) | ~2 GB | Safe |
-| 65° × 150° | ~5 GB | Risky |
-| 78° × 207° (uncapped) | ~10+ GB | **OOM kill** |
-
-The 55° × 130° cap in the resync endpoint prevents the most dangerous case. See Section 5 for why `isel` subsampling cannot replace the bbox cap.
-
----
-
-## 11. API Endpoints (Weather Pipeline)
+## 10. API Endpoints (Weather Pipeline)
 
 | Endpoint | Method | Purpose |
 |---|---|---|
-| `/api/weather/health` | GET | Per-source health check (present/complete/fresh) |
-| `/api/weather/{layer}/resync` | POST | Per-layer re-ingest (accepts viewport bbox) |
-| `/api/weather/wind` | GET | Wind grid data (DB-first, API fallback) |
-| `/api/weather/wind/velocity` | GET | Wind velocity data for particle animation |
-| `/api/weather/waves` | GET | Wave grid data (subsampled) |
-| `/api/weather/currents` | GET | Current grid data (subsampled) |
-| `/api/weather/currents/velocity` | GET | Current velocity for particle animation (subsampled) |
-| `/api/weather/ice` | GET | Ice concentration grid (full resolution) |
-| `/api/weather/visibility` | GET | Visibility grid (subsampled) |
-| `/api/weather/sst` | GET | SST grid (disabled, subsampled) |
-| `/api/weather/swell` | GET | Swell decomposition grid (subsampled) |
+| `/api/weather/{field}` | GET | Single-frame grid data (DB-first, API fallback) |
+| `/api/weather/{field}/debug` | GET | Lightweight diagnostics (shapes, checks) |
+| `/api/weather/{field}/resync` | POST | Per-layer re-ingest (accepts viewport bbox) |
+| `/api/weather/{field}/frames` | GET | Generic: all forecast frames for any field |
+| `/api/weather/forecast/frames` | GET | Compat: wind timeline frames |
+| `/api/weather/forecast/wave/frames` | GET | Compat: wave timeline frames |
+| `/api/weather/forecast/current/frames` | GET | Compat: current timeline frames |
+| `/api/weather/forecast/ice/frames` | GET | Compat: ice timeline frames |
+| `/api/weather/forecast/sst/frames` | GET | Compat: SST timeline frames |
+| `/api/weather/forecast/visibility/frames` | GET | Compat: visibility timeline frames |
+| `/api/weather/wind/velocity` | GET | Wind velocity for particle animation |
+| `/api/weather/currents/velocity` | GET | Current velocity for particle animation |
 | `/api/weather/forecast/prefetch` | POST | Trigger wind forecast file cache build |
 | `/api/weather/forecast/status` | GET | Wind prefetch progress |
-| `/api/weather/forecast/frames` | GET | All wind timeline frames |
-| `/api/weather/forecast/wave/frames` | GET | All wave timeline frames |
-| `/api/weather/forecast/current/frames` | GET | All current timeline frames |
-| `/api/weather/forecast/ice/frames` | GET | All ice timeline frames |
-| `/api/weather/forecast/sst/frames` | GET | All SST timeline frames |
-| `/api/weather/forecast/visibility/frames` | GET | All visibility timeline frames |
+| `/api/weather/health` | GET | Per-source health check |
 
-### Removed Endpoints
+---
 
-The following endpoints were removed in the user-triggered overlay refactor:
+## 11. Frontend Data Flow
 
-| Endpoint | Reason |
-|---|---|
-| `POST /api/weather/ensure-all` | No startup gate — layers load on demand |
-| `GET /api/weather/sync-status` | No viewport sync tracking |
-| `POST /api/weather/resync` | Replaced by per-layer `/api/weather/{layer}/resync` |
-| `GET /api/weather/resync/status` | Resync is now synchronous (blocks until complete) |
-| `POST /api/weather/ingest` | No manual ingestion trigger — use per-layer resync |
-| `GET /api/weather/ingest/status` | No ingestion status polling |
+### Layer Activation
+1. Frontend calls the layer's grid endpoint
+2. Backend: DB first → if empty, fetch from API → return JSON with `ingested_at`
+3. Frontend renders grid on Leaflet map via `WeatherGridLayer` (Canvas 2D)
+
+### Timeline Activation
+1. Frontend calls the layer's `/frames` endpoint with `paddedBounds()`
+2. Backend serves from file cache (schema version validated) or rebuilds from DB
+3. All frames loaded into browser memory — scrubbing is instant (client-side)
+4. Slider auto-positions to nearest-to-now forecast hour
+
+### Race Condition Guard
+When the forecast timeline is active (`forecastEnabled`), single-frame auto-reload on layer change is **skipped**. Without this guard, the async single-frame response arrives ~300ms later and overwrites the timeline's frame data.
+
+### This is NOT Windy.com
+
+WindMar is a **local-first** application:
+- All data fetched on demand from NOAA GFS / Copernicus Marine into local PostgreSQL
+- Full forecast dataset lives in browser memory (no tile streaming)
+- Heatmap + particles rendered client-side via Canvas 2D
+- Data stops at grid edges when panning — by design (no global pre-rendered tiles)
 
 ---
 
@@ -471,98 +305,28 @@ The following endpoints were removed in the user-triggered overlay refactor:
 | Limitation | Impact | Severity |
 |---|---|---|
 | **First-time CMEMS layer load takes 30–120s** | User waits on first activation if DB empty | Medium |
-| **No SST in DB** (cmems_sst disabled) | SST layer unavailable | Medium |
-| **CMEMS resync capped at 55° × 130°** | Users viewing regions beyond this span get data centered on viewport, not full extent. Wave coverage may not match wind (GFS is global) for very wide viewports. | Medium |
-| **`copernicusmarine` downloads at full resolution** | `isel` / stride subsampling does NOT reduce download size or peak memory — the bbox cap is the only OOM protection | High |
-| **Full grid decompression in memory** | Memory spikes on concurrent large requests — wave rebuild at cap size requires ~1.5 GB | Medium |
-| **All timeline frames loaded to browser** | Browser memory pressure on large viewports — capped at 120° per axis | Medium |
-| **Overlay subsampled to ≤500 pts/axis** | Slight resolution loss on CMEMS layers at wide zoom — not applied to ice or wind | Low |
-| **Pan/zoom does not auto-refetch timeline** | Heatmap truncated at grid edges when panning beyond loaded bounds — user must Resync + reopen timeline | By design |
-| **Wind particles may extend beyond heatmap** | leaflet-velocity extrapolates particles past grid edges — cosmetic only | Low |
-| **No per-request memory limit** | Theoretical OOM risk under concurrent load | Low |
-| **Redis not invalidated on resync** | Up to 60 min stale data after resync | Low |
+| **CMEMS bbox capped at 50° × 80°** | Data centered on viewport, may not cover full screen for very wide views | Medium |
+| **Ice resolution coarse (1.3° lat)** | Only ~19 latitude points for Arctic region — sparse visualization | Low |
+| **Wave/swell grid coarse (32×57)** | 8 arrays/frame limits subsampling target to 60 | Medium |
+| **SST/visibility payloads ~17 MB** | Noticeable load time on slow connections | Low |
+| **Pan/zoom does not auto-refetch timeline** | Overlay truncated at grid edges — user must Resync + reopen | By design |
+| **Wind arrows over narrow straits** | `global_land_mask` zeroing may hide valid coastal wind | Low |
 | **GFS publishes progressively** | Wind may have <41 frames for recent model runs | Informational |
-| **SST/Visibility refTime uses valid_time** | Initial slider position may be off by one frame for SST and Visibility layers | Low |
-| **Stale data on hard refresh** | If data in DB is >48h old, timeline slider starts at T+0 with amber warning — user must Resync | Low |
 
 ---
 
-## 13. Coordinate Clamping — Defense in Depth
+## 13. File Reference
 
-The `global_land_mask.globe.is_ocean()` function used for ocean masks rejects latitude values at exactly ±90° with `ValueError: latitude must be <= 90`. The `paddedBounds()` function on the frontend rounds viewport edges to 10° grid cells, which can produce exactly 90° (e.g., `ceil(80.85 / 10) * 10 = 90`). To prevent 500 errors, coordinates are clamped at three independent layers:
-
-### Layer 1 — Frontend: `paddedBounds()` (`ForecastTimeline.tsx`)
-
-```
-lat_min = Math.max(-89.9, lat_min);
-lat_max = Math.min(89.9, lat_max);
-lon_min = Math.max(-180, lon_min);
-lon_max = Math.min(180, lon_max);
-```
-
-Applied after 10° grid-snapping and MAX_SPAN capping. Prevents the frontend from ever sending lat=±90 to the API.
-
-### Layer 2 — Backend: CMEMS bbox cap (`api/routers/weather.py`)
-
-```python
-lat_min = max(-89.9, lat_center - lat_half)
-lat_max = min(89.9, lat_center + lat_half)
-lon_min = max(-180.0, lon_center - lon_half)
-lon_max = min(180.0, lon_center + lon_half)
-```
-
-Applied after centering and capping the bbox to 55° × 130°. Prevents any API request from producing extreme coordinates after arithmetic.
-
-### Layer 3 — Backend: `build_ocean_mask()` (`api/weather_service.py`)
-
-```python
-lat_min = max(-89.99, lat_min)
-lat_max = min(89.99, lat_max)
-lon_min = max(-180.0, lon_min)
-lon_max = min(180.0, lon_max)
-```
-
-Applied at the point of use, immediately before `globe.is_ocean()` is called. This is the last-resort clamp — even if both upstream layers are bypassed (e.g., by a direct API call), the ocean mask builder will not crash.
-
-### Why Three Layers
-
-Each layer operates independently. If a future code change removes or breaks one clamping point, the others still protect against the `ValueError`. The cost is negligible (4 comparisons per call).
-
----
-
-## 14. Stability Guarantees & Known Failure Modes
-
-### What Makes the Wave Pipeline Stable
-
-1. **Bbox cap is mandatory.** The 55° × 130° cap in the resync endpoint (`_CMEMS_MAX_LAT_SPAN`, `_CMEMS_MAX_LON_SPAN`) ensures that `copernicusmarine` never downloads more than ~2 GB of wave data. This is the single most important stability mechanism.
-
-2. **Coordinate clamping is three-deep.** See Section 13. No combination of viewport geometry can produce invalid coordinates that crash `global_land_mask`.
-
-3. **Source isolation prevents cascade failures.** A wave resync failure does not affect wind, currents, or ice. Each source is scoped by the `source` column in PostgreSQL. See Section 3.
-
-4. **DB-first architecture provides resilience.** Once wave data is ingested, it survives container restarts (PostgreSQL volume). Only the file cache (`/tmp/windmar_cache/`) is lost on restart, and it rebuilds lazily from DB.
-
-5. **Stale-data guard prevents confusing UI.** When forecast data is fully expired (elapsed > max hour), the timeline slider starts at T+0 with an amber warning instead of pinning to a date far in the past.
-
-### Known Failure Modes
-
-| Failure | Cause | Symptom | Recovery |
-|---|---|---|---|
-| **Wave resync OOM** | Bbox cap removed or increased beyond 55° × 130° | API container killed by kernel OOM killer | Restore bbox cap, restart API container |
-| **`latitude must be <= 90`** | Coordinate clamp removed from all three layers | 500 error on wave/overlay endpoints | Re-add clamp to `build_ocean_mask()` at minimum |
-| **Partial wave coverage** | Bbox cap too small for the visible viewport | Waves stop at a geographic boundary while wind covers the full view | Increase `_CMEMS_MAX_LAT_SPAN` / `_CMEMS_MAX_LON_SPAN` (test memory first) |
-| **Copernicus server timeout** | CMEMS API slow or unavailable | Resync hangs for 120s then fails | Retry later; DB retains last successful ingestion |
-| **Stale data after hard refresh** | No resync triggered, DB contains old forecast run | Amber "Forecast expired" warning, timeline stuck at T+0 | Click Resync to fetch fresh data |
-| **Frame cache mismatch** | Container rebuilt without volume clear | Timeline shows data for wrong region | Delete file cache files or resync the layer |
-
-### Adjusting the Bbox Cap
-
-If the demo viewport is changed (e.g., to cover the Indian Ocean or Pacific), the bbox cap must be adjusted:
-
-1. Calculate the required lat/lon span from the new viewport bounds
-2. Estimate memory: `grid_lat × grid_lon × 9_params × 4_bytes × 41_frames` for waves
-3. Ensure the API container has 2× the estimated memory available
-4. Update `_CMEMS_MAX_LAT_SPAN` and `_CMEMS_MAX_LON_SPAN` in `api/routers/weather.py`
-5. Test with a full resync cycle — monitor container memory via `docker stats`
-
-**Rule of thumb:** Every 10° of additional longitude at 0.083° adds ~120 columns to the grid. Every 10° of additional latitude adds ~120 rows. Memory scales quadratically with both dimensions.
+| File | Role |
+|---|---|
+| `api/weather_fields.py` | Field registry: all layer configs, CACHE_SCHEMA_VERSION |
+| `api/routers/weather.py` | All weather API endpoints, frame builders, debug endpoint, resync |
+| `api/forecast_layer_manager.py` | File cache management (read/write/serve) |
+| `api/weather_service.py` | Ocean mask builder, velocity masking |
+| `src/data/copernicus.py` | CMEMS data provider (waves, currents, SST, ice) |
+| `src/data/gfs_provider.py` | GFS GRIB data provider (wind, visibility) |
+| `src/data/weather_ingestion.py` | DB ingestion (all sources) |
+| `src/data/db_weather_provider.py` | DB query layer (grids, timeline, latest run) |
+| `frontend/components/WeatherGridLayer.tsx` | Canvas tile renderer for all weather layers |
+| `frontend/components/ForecastTimeline.tsx` | Timeline component, paddedBounds, frame loading |
+| `frontend/hooks/useWeatherDisplay.ts` | Layer state, auto-reload, forecast handlers |
