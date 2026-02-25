@@ -133,9 +133,27 @@ export default function ForecastTimeline({
   const availableHoursRef = useRef<number[]>([]);
   useEffect(() => { availableHoursRef.current = availableHours; }, [availableHours]);
 
-  // Reset available hours when layer changes so stale data from a previous layer doesn't persist
-  // Stop playback when switching to SST (auto-play disabled for slow-changing field)
-  useEffect(() => { setAvailableHours([]); setCurrentHour(0); if (layerType === 'sst') setIsPlaying(false); }, [layerType]);
+  // Reset state and free previous layer's frame data when switching layers.
+  // This prevents two large datasets coexisting in memory during transitions.
+  useEffect(() => {
+    setAvailableHours([]);
+    setCurrentHour(0);
+    setPrefetchComplete(false);
+    if (layerType === 'sst') setIsPlaying(false);
+    // Free previous layer frame data
+    setWindFrames({});
+    windFramesRef.current = {};
+    setWaveFrameData(null);
+    waveFrameDataRef.current = null;
+    setCurrentFrameData(null);
+    currentFrameDataRef.current = null;
+    setIceFrameData(null);
+    iceFrameDataRef.current = null;
+    setSstFrameData(null);
+    sstFrameDataRef.current = null;
+    setVisFrameData(null);
+    visFrameDataRef.current = null;
+  }, [layerType]);
 
   // Invalidate all cached frames when data timestamp changes (e.g., after resync)
   const prevTimestampRef = useRef(dataTimestamp);

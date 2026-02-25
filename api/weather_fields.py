@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Tuple
 
 # Bump this when cache envelope shape/semantics change.
 # Stale caches with older versions are discarded on read.
-CACHE_SCHEMA_VERSION = 3
+CACHE_SCHEMA_VERSION = 5
 
 
 @dataclass(frozen=True)

@@ -244,10 +244,12 @@ export function useWeatherDisplay(
   }, []);
 
   // ---- Auto-reload on layer change ----
+  // Clear previous layer data immediately to free memory before loading new layer.
   // Skip single-frame load when forecast timeline is active — the timeline
   // manages extendedWeatherData directly and would be overwritten by the
   // single-frame response arriving after the timeline restores its frames.
   useEffect(() => {
+    setExtendedWeatherData(null);
     if (viewport && weatherLayer !== 'none' && !forecastEnabled) {
       loadWeatherData(viewport, weatherLayer);
     }

@@ -97,9 +97,9 @@ for _fn in FIELD_NAMES:
 # ============================================================================
 
 _OVERLAY_MAX_DIM = 500
-_FRAMES_MAX_DIM = 100  # tighter cap for multi-frame timeline (keeps total < 4 MB)
-_WAVE_DECOMP_MAX_DIM = 35  # wave decomp has 8 arrays/frame — keep payload under 3 MB
-_SCALAR_FRAMES_MAX_DIM = 200  # scalar layers (1 array/frame) can afford higher resolution
+_FRAMES_MAX_DIM = 200  # vector timeline (wind/currents): ~5 MB per layer
+_WAVE_DECOMP_MAX_DIM = 60  # wave decomp (8 arrays/frame): ~4.5 MB per layer
+_SCALAR_FRAMES_MAX_DIM = 350  # scalar (sst/vis/ice, 1 array/frame): ~18 MB per layer
 
 # Maximum bbox span for CMEMS/GFS downloads — prevents OOM.
 # Wave forecast at 45×80° ≈ 530 MB peak (8 params × 41 steps × ~522K grid points).
@@ -239,7 +239,9 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
     shared_lats = lats_full[::STEP]
     shared_lons = lons_full[::STEP]
 
-    # Build ocean mask at output resolution
+    # Build ocean mask from actual data: a cell is ocean if ANY frame has valid
+    # (non-NaN) data.  This is more accurate than global_land_mask at coastlines
+    # where the external library marks valid CMEMS ocean cells as land.
     ocean_mask_data = None
     if cfg.needs_ocean_mask:
         if cfg.components == "wave_decomp":
@@ -250,12 +252,12 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
             mask_step = STEP
         mask_lats = lats_full[::mask_step]
         mask_lons = lons_full[::mask_step]
-        try:
-            from global_land_mask import globe
-            lon_grid, lat_grid = np.meshgrid(mask_lons, mask_lats)
-            ocean_mask_data = globe.is_ocean(lat_grid, lon_grid).tolist()
-        except ImportError:
-            ocean_mask_data = None
+        data_ocean = np.zeros((len(lats_full), len(lons_full)), dtype=bool)
+        for fh in sorted(hours):
+            if primary_param in grids and fh in grids[primary_param]:
+                _, _, d = grids[primary_param][fh]
+                data_ocean |= np.isfinite(d)
+        ocean_mask_data = data_ocean[::mask_step, ::mask_step].tolist()
 
     def _sub(arr, dec=cfg.decimals):
         if arr is None:
@@ -507,19 +509,32 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
     env_lats = first_wd.lats[::env_step]
     env_lons = first_wd.lons[::env_step]
 
-    # Build ocean mask at envelope resolution
+    # Build ocean mask from actual data: a cell is ocean if ANY frame has valid
+    # (non-NaN) data.  More accurate than global_land_mask at coastlines.
     ocean_mask_data = None
     mask_lats_list = None
     mask_lons_list = None
     if cfg.needs_ocean_mask:
-        try:
-            from global_land_mask import globe
-            lon_grid, lat_grid = np.meshgrid(env_lons, env_lats)
-            ocean_mask_data = globe.is_ocean(lat_grid, lon_grid).tolist()
-            mask_lats_list = env_lats.tolist() if hasattr(env_lats, 'tolist') else list(env_lats)
-            mask_lons_list = env_lons.tolist() if hasattr(env_lons, 'tolist') else list(env_lons)
-        except ImportError:
-            pass
+        data_ocean = np.zeros((len(first_wd.lats), len(first_wd.lons)), dtype=bool)
+        for fh, wd in result.items():
+            raw = None
+            if cfg.components == "vector":
+                raw = wd.u_component
+            elif cfg.components == "wave_decomp":
+                raw = wd.values
+            elif cfg.components == "scalar":
+                raw = getattr(wd, field_name, None) or wd.values
+                if field_name == "ice" and wd.ice_concentration is not None:
+                    raw = wd.ice_concentration
+                elif field_name == "visibility" and wd.visibility is not None:
+                    raw = wd.visibility
+                elif field_name == "sst" and wd.sst is not None:
+                    raw = wd.sst
+            if raw is not None:
+                data_ocean |= np.isfinite(raw)
+        ocean_mask_data = data_ocean[::env_step, ::env_step].tolist()
+        mask_lats_list = env_lats.tolist() if hasattr(env_lats, 'tolist') else list(env_lats)
+        mask_lons_list = env_lons.tolist() if hasattr(env_lons, 'tolist') else list(env_lons)
 
     def _subsample_round(arr, dec=cfg.decimals):
         if arr is None:
