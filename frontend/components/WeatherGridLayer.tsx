@@ -361,10 +361,9 @@ function WeatherGridLayerInner({
               if (currentMode === 'ice') color = iceColor(val);
               else if (currentMode === 'visibility') color = visibilityColor(val);
               else if (currentMode === 'sst') {
-                // CMEMS SST uses fill values (0.0 or near-zero) for land pixels.
-                // Real ocean temps are never exactly 0.0 C after interpolation,
-                // so treat |val| < 0.01 as no-data to eliminate black holes.
-                if (Math.abs(val) < 0.01) {
+                // Backend uses nan_fill=-999 for SST no-data pixels.
+                // Filter those out without eliminating cold water near 0°C.
+                if (val < -100) {
                   const idx = (py * DS + px) * 4;
                   pixels[idx + 3] = 0;
                   continue;

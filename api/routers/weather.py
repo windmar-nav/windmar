@@ -97,7 +97,8 @@ for _fn in FIELD_NAMES:
 
 _OVERLAY_MAX_DIM = 500
 _FRAMES_MAX_DIM = 100  # tighter cap for multi-frame timeline (keeps total < 4 MB)
-_WAVE_DECOMP_MAX_DIM = 50  # wave decomp has 8 arrays/frame vs 2 for wind — halve grid
+_WAVE_DECOMP_MAX_DIM = 35  # wave decomp has 8 arrays/frame — keep payload under 3 MB
+_SCALAR_FRAMES_MAX_DIM = 200  # scalar layers (1 array/frame) can afford higher resolution
 
 # Maximum bbox span for CMEMS/GFS downloads — prevents OOM.
 # Wave forecast at 30×70° ≈ 400 MB (8 params × 41 steps × ~304K grid points).
@@ -230,15 +231,22 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
 
     first_fh = min(grids[primary_param].keys())
     lats_full, lons_full, _ = grids[primary_param][first_fh]
-    STEP = max(1, math.ceil(max(len(lats_full), len(lons_full)) / _FRAMES_MAX_DIM))
-    W_STEP = max(1, math.ceil(max(len(lats_full), len(lons_full)) / _WAVE_DECOMP_MAX_DIM))
+    max_dim = max(len(lats_full), len(lons_full))
+    STEP = max(1, math.ceil(max_dim / _FRAMES_MAX_DIM))
+    W_STEP = max(1, math.ceil(max_dim / _WAVE_DECOMP_MAX_DIM))
+    S_STEP = max(1, math.ceil(max_dim / _SCALAR_FRAMES_MAX_DIM))
     shared_lats = lats_full[::STEP]
     shared_lons = lons_full[::STEP]
 
-    # Build ocean mask at data resolution
+    # Build ocean mask at output resolution
     ocean_mask_data = None
     if cfg.needs_ocean_mask:
-        mask_step = max(STEP, 1)
+        if cfg.components == "wave_decomp":
+            mask_step = W_STEP
+        elif cfg.components == "scalar":
+            mask_step = S_STEP
+        else:
+            mask_step = STEP
         mask_lats = lats_full[::mask_step]
         mask_lons = lons_full[::mask_step]
         try:
@@ -341,7 +349,7 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
             if fh not in grids.get(param, {}):
                 continue
             _, _, d = grids[param][fh]
-            clean = np.nan_to_num(d[::STEP, ::STEP], nan=cfg.nan_fill)
+            clean = np.nan_to_num(d[::S_STEP, ::S_STEP], nan=cfg.nan_fill)
             frames[str(fh)] = {"data": np.round(clean, cfg.decimals).tolist()}
 
     # Build cache data envelope
@@ -362,10 +370,13 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
         cache_data["run_hour"] = run_hour_str
         cache_data["total_hours"] = len(GFSDataProvider.FORECAST_HOURS)
     else:
-        # Wave decomp uses tighter grid — report matching lats/lons
+        # Use matching grid step for each component type
         if cfg.components == "wave_decomp":
             out_lats = lats_full[::W_STEP]
             out_lons = lons_full[::W_STEP]
+        elif cfg.components == "scalar":
+            out_lats = lats_full[::S_STEP]
+            out_lons = lons_full[::S_STEP]
         else:
             out_lats = shared_lats
             out_lons = shared_lons
@@ -472,22 +483,35 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
             return
 
     first_wd = next(iter(result.values()))
-    STEP = _frames_step(first_wd.lats, first_wd.lons)
-    logger.info(f"{field_name} forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
+    max_dim = max(len(first_wd.lats), len(first_wd.lons))
+    STEP = max(1, math.ceil(max_dim / _FRAMES_MAX_DIM))
+    W_STEP = max(1, math.ceil(max_dim / _WAVE_DECOMP_MAX_DIM))
+    S_STEP = max(1, math.ceil(max_dim / _SCALAR_FRAMES_MAX_DIM))
+    logger.info(f"{field_name} forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}, W_STEP={W_STEP}, S_STEP={S_STEP}")
     sub_lats = first_wd.lats[::STEP]
     sub_lons = first_wd.lons[::STEP]
 
-    # Build ocean mask at DATA resolution (not a separate high-res mask)
+    # Pick the effective step for cache envelope lats/lons
+    if cfg.components == "wave_decomp":
+        env_step = W_STEP
+    elif cfg.components == "scalar":
+        env_step = S_STEP
+    else:
+        env_step = STEP
+    env_lats = first_wd.lats[::env_step]
+    env_lons = first_wd.lons[::env_step]
+
+    # Build ocean mask at envelope resolution
     ocean_mask_data = None
     mask_lats_list = None
     mask_lons_list = None
     if cfg.needs_ocean_mask:
         try:
             from global_land_mask import globe
-            lon_grid, lat_grid = np.meshgrid(sub_lons, sub_lats)
+            lon_grid, lat_grid = np.meshgrid(env_lons, env_lats)
             ocean_mask_data = globe.is_ocean(lat_grid, lon_grid).tolist()
-            mask_lats_list = sub_lats.tolist() if hasattr(sub_lats, 'tolist') else list(sub_lats)
-            mask_lons_list = sub_lons.tolist() if hasattr(sub_lons, 'tolist') else list(sub_lons)
+            mask_lats_list = env_lats.tolist() if hasattr(env_lats, 'tolist') else list(env_lats)
+            mask_lons_list = env_lons.tolist() if hasattr(env_lons, 'tolist') else list(env_lons)
         except ImportError:
             pass
 
@@ -495,6 +519,16 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
         if arr is None:
             return None
         return np.round(arr[::STEP, ::STEP], dec).tolist()
+
+    def _wsubsample_round(arr, dec=cfg.decimals):
+        if arr is None:
+            return None
+        return np.round(arr[::W_STEP, ::W_STEP], dec).tolist()
+
+    def _ssubsample_round(arr, dec=cfg.decimals):
+        if arr is None:
+            return None
+        return np.round(arr[::S_STEP, ::S_STEP], dec).tolist()
 
     frames = {}
 
@@ -512,20 +546,20 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
 
     elif cfg.components == "wave_decomp":
         for fh, wd in sorted(result.items()):
-            frame = {"data": _subsample_round(wd.values)}
+            frame = {"data": _wsubsample_round(wd.values)}
             if wd.wave_direction is not None:
-                frame["direction"] = _subsample_round(wd.wave_direction)
+                frame["direction"] = _wsubsample_round(wd.wave_direction)
             has_decomp = wd.windwave_height is not None and wd.swell_height is not None
             if has_decomp:
                 frame["windwave"] = {
-                    "height": _subsample_round(wd.windwave_height),
-                    "period": _subsample_round(wd.windwave_period),
-                    "direction": _subsample_round(wd.windwave_direction),
+                    "height": _wsubsample_round(wd.windwave_height),
+                    "period": _wsubsample_round(wd.windwave_period),
+                    "direction": _wsubsample_round(wd.windwave_direction),
                 }
                 frame["swell"] = {
-                    "height": _subsample_round(wd.swell_height),
-                    "period": _subsample_round(wd.swell_period),
-                    "direction": _subsample_round(wd.swell_direction),
+                    "height": _wsubsample_round(wd.swell_height),
+                    "period": _wsubsample_round(wd.swell_period),
+                    "direction": _wsubsample_round(wd.swell_direction),
                 }
             frames[str(fh)] = frame
 
@@ -542,7 +576,7 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
             if field_name == "sst" and wd.sst is not None:
                 vals = wd.sst
             if vals is not None:
-                clean = np.nan_to_num(vals[::STEP, ::STEP], nan=cfg.nan_fill)
+                clean = np.nan_to_num(vals[::S_STEP, ::S_STEP], nan=cfg.nan_fill)
                 if field_name == "sst":
                     valid = clean[clean > -100]
                     if valid.size > 0:
@@ -557,10 +591,10 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
         "cached_hours": len(frames),
         "source": cfg.source.split("_")[0],
         "field": field_name,
-        "lats": sub_lats.tolist() if hasattr(sub_lats, 'tolist') else list(sub_lats),
-        "lons": sub_lons.tolist() if hasattr(sub_lons, 'tolist') else list(sub_lons),
-        "ny": len(sub_lats),
-        "nx": len(sub_lons),
+        "lats": env_lats.tolist() if hasattr(env_lats, 'tolist') else list(env_lats),
+        "lons": env_lons.tolist() if hasattr(env_lons, 'tolist') else list(env_lons),
+        "ny": len(env_lats),
+        "nx": len(env_lons),
         "frames": frames,
     }
 
