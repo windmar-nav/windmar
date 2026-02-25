@@ -309,7 +309,11 @@ function WeatherGridLayerInner({
 
         // Detect 0..360 longitude convention so that the Mercator-derived lng
         // (always in -180..180) can be normalised into the dataset's domain.
+        // lonWraps360: lons extend past 360° (GFS GRIB for regions that cross
+        // the antimeridian, e.g. lons = [330,…,400] for Europe in 0..360 form).
+        // In that case pixels at positive lng like 0..40 also need +360.
         const lonIs360 = lonMin >= 0 && lonMax > 180;
+        const lonWraps360 = lonMax > 360;
 
         // Create offscreen canvas at downsampled resolution
         const offscreen = document.createElement('canvas');
@@ -337,8 +341,14 @@ function WeatherGridLayerInner({
             );
             const lat = (latRad * 180) / Math.PI;
 
-            // Normalise into dataset longitude convention (0..360 or -180..180)
-            const normLng = lonIs360 && lng < 0 ? lng + 360 : lng;
+            // Normalise into dataset longitude convention (0..360 or -180..180).
+            // If lons extend past 360 (wrap case), pixels at small positive lng
+            // also need +360 so they map into the [lonMin, lonMax] range.
+            let normLng = lng;
+            if (lonIs360) {
+              if (lng < 0) normLng = lng + 360;
+              else if (lonWraps360 && lng < lonMin && lng + 360 <= lonMax) normLng = lng + 360;
+            }
 
             if (lat < latMin || lat > latMax || normLng < lonMin || normLng > lonMax) {
               const idx = (py * DS + px) * 4;
@@ -451,7 +461,11 @@ function WeatherGridLayerInner({
               );
               const aLat = (latRad * 180) / Math.PI;
 
-              const normLngA = lonIs360 && lng < 0 ? lng + 360 : lng;
+              let normLngA = lng;
+              if (lonIs360) {
+                if (lng < 0) normLngA = lng + 360;
+                else if (lonWraps360 && lng < lonMin && lng + 360 <= lonMax) normLngA = lng + 360;
+              }
               if (aLat < latMin || aLat > latMax || normLngA < lonMin || normLngA > lonMax) continue;
 
               const latFracRawA = ((aLat - latStart) / (latEnd - latStart)) * (ny - 1);
@@ -569,7 +583,11 @@ function WeatherGridLayerInner({
                 Math.sinh(Math.PI * (1 - (2 * globalY) / (Math.pow(2, zoom) * tileSize)))
               );
               const aLat = (latRad * 180) / Math.PI;
-              const normLngW = lonIs360 && lng < 0 ? lng + 360 : lng;
+              let normLngW = lng;
+              if (lonIs360) {
+                if (lng < 0) normLngW = lng + 360;
+                else if (lonWraps360 && lng < lonMin && lng + 360 <= lonMax) normLngW = lng + 360;
+              }
               if (aLat < latMin || aLat > latMax || normLngW < lonMin || normLngW > lonMax) continue;
 
               const latFracRawW = ((aLat - latStart) / (latEnd - latStart)) * (ny - 1);
@@ -636,7 +654,11 @@ function WeatherGridLayerInner({
                   Math.sinh(Math.PI * (1 - (2 * globalY) / (Math.pow(2, zoom) * tileSize)))
                 );
                 const aLat = (latRad * 180) / Math.PI;
-                const normLngS = lonIs360 && lng < 0 ? lng + 360 : lng;
+                let normLngS = lng;
+                if (lonIs360) {
+                  if (lng < 0) normLngS = lng + 360;
+                  else if (lonWraps360 && lng < lonMin && lng + 360 <= lonMax) normLngS = lng + 360;
+                }
                 if (aLat < latMin || aLat > latMax || normLngS < lonMin || normLngS > lonMax) continue;
 
                 const latFracRawS = ((aLat - latStart) / (latEnd - latStart)) * (ny - 1);

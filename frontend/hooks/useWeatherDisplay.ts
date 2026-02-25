@@ -163,11 +163,14 @@ export function useWeatherDisplay(
     const requestId = ++loadRequestRef.current;
     const isStale = () => loadRequestRef.current !== requestId;
 
+    // Pad bounds by 2° so the rendered overlay always slightly overshoots the
+    // visible tile edges, eliminating blank edge strips at the boundary.
+    const PAD = 2;
     const params: WeatherFetchParams = {
-      lat_min: v.bounds.lat_min,
-      lat_max: v.bounds.lat_max,
-      lon_min: v.bounds.lon_min,
-      lon_max: v.bounds.lon_max,
+      lat_min: Math.max(-89.9, v.bounds.lat_min - PAD),
+      lat_max: Math.min(89.9, v.bounds.lat_max + PAD),
+      lon_min: Math.max(-180, v.bounds.lon_min - PAD),
+      lon_max: Math.min(180, v.bounds.lon_max + PAD),
       resolution: getResolutionForZoom(v.zoom),
     };
 
@@ -252,6 +255,31 @@ export function useWeatherDisplay(
       setLayerIngestedAt(null);
     }
   }, [weatherLayer]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // ---- Reload base data when viewport changes significantly ----
+  // Only fires when the forecast timeline is NOT active, so we don't
+  // overwrite frame data that the timeline handler just set.
+  // Threshold: map centre has shifted more than 40 % of the visible span.
+  const lastLoadedViewportRef = useRef<ViewportState | null>(null);
+  useEffect(() => {
+    if (!viewport || weatherLayer === 'none' || forecastEnabled) return;
+    const prev = lastLoadedViewportRef.current;
+    lastLoadedViewportRef.current = viewport;
+    if (!prev) return; // initial load is handled by the weatherLayer effect
+    const latSpan = viewport.bounds.lat_max - viewport.bounds.lat_min;
+    const lonSpan = viewport.bounds.lon_max - viewport.bounds.lon_min;
+    const dLat = Math.abs(
+      (viewport.bounds.lat_min + viewport.bounds.lat_max) / 2 -
+      (prev.bounds.lat_min + prev.bounds.lat_max) / 2
+    );
+    const dLon = Math.abs(
+      (viewport.bounds.lon_min + viewport.bounds.lon_max) / 2 -
+      (prev.bounds.lon_min + prev.bounds.lon_max) / 2
+    );
+    if (dLat > latSpan * 0.4 || dLon > lonSpan * 0.4) {
+      loadWeatherData(viewport, weatherLayer);
+    }
+  }, [viewport]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- Auto-load wind when route has 2+ waypoints ----
   useEffect(() => {
@@ -408,7 +436,9 @@ export function useWeatherDisplay(
     const nx = lons.length;
     const uFlat: number[] = [];
     const vFlat: number[] = [];
-    for (let j = 0; j < ny; j++) {
+    // leaflet-velocity expects the flat data array to start at la1 (northernmost row)
+    // and scan south.  CMEMS lats are ascending (south→north), so iterate in reverse.
+    for (let j = ny - 1; j >= 0; j--) {
       for (let i = 0; i < nx; i++) {
         uFlat.push(frame.u[j]?.[i] ?? 0);
         vFlat.push(frame.v[j]?.[i] ?? 0);
@@ -418,9 +448,9 @@ export function useWeatherDisplay(
       parameterCategory: 2,
       parameterNumber: 2,
       lo1: lons[0],
-      la1: lats[ny - 1],
+      la1: lats[ny - 1],   // northernmost lat (GFS GRIB convention: la1 = top)
       lo2: lons[nx - 1],
-      la2: lats[0],
+      la2: lats[0],        // southernmost lat
       dx: lons.length > 1 ? Math.abs(lons[1] - lons[0]) : 1,
       dy: lats.length > 1 ? Math.abs(lats[1] - lats[0]) : 1,
       nx, ny,

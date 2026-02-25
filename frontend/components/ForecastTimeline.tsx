@@ -49,14 +49,19 @@ function deriveHoursFromFrames(frames: Record<string, unknown>): number[] {
   return hours.length > 0 ? hours : [];
 }
 
-/** Extract hours that contain actual swell decomposition data (not just wave_hs). */
+/** Extract hours that contain actual swell decomposition data (not just wave_hs).
+ *  Falls back to ALL wave frame hours so the slider always has full scrub range —
+ *  the handler falls back to total wave height when swell decomposition is absent. */
 function deriveSwellHoursFromFrames(frames: Record<string, WaveForecastFrame>): number[] {
-  const hours = Object.entries(frames)
+  const allHours = deriveHoursFromFrames(frames);
+  const swellHours = Object.entries(frames)
     .filter(([, frame]) => frame.swell != null)
     .map(([key]) => Number(key))
     .filter(n => !isNaN(n))
     .sort((a, b) => a - b);
-  return hours.length > 0 ? hours : deriveHoursFromFrames(frames);
+  // Use swell-decomposed hours when we have a good set; otherwise use all hours
+  // so the slider is never stuck on a single frame.
+  return swellHours.length > 1 ? swellHours : allHours;
 }
 
 /** Find the forecast hour closest to "now" given a run time and available frame keys.
