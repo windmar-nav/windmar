@@ -6,15 +6,14 @@ import Header from '@/components/Header';
 import MapOverlayControls from '@/components/MapOverlayControls';
 import AnalysisPanel from '@/components/AnalysisPanel';
 import { useVoyage } from '@/components/VoyageContext';
-import { apiClient, Position, WindFieldData, WaveFieldData, VelocityData, OptimizationResponse, ParetoSolution, CreateZoneRequest, WaveForecastFrames, IceForecastFrames, SstForecastFrames, VisForecastFrames, OptimizedRouteKey, AllOptimizationResults, EMPTY_ALL_RESULTS } from '@/lib/api';
+import { apiClient, Position, OptimizationResponse, ParetoSolution, CreateZoneRequest, OptimizedRouteKey, AllOptimizationResults, EMPTY_ALL_RESULTS } from '@/lib/api';
 import { getAnalyses, saveAnalysis, deleteAnalysis, updateAnalysisMonteCarlo, updateAnalysisOptimizations, AnalysisEntry } from '@/lib/analysisStorage';
 import { debugLog } from '@/lib/debugLog';
 import DebugConsole from '@/components/DebugConsole';
 import { useToast } from '@/components/Toast';
+import { useWeatherDisplay } from '@/hooks/useWeatherDisplay';
 
 const MapComponent = dynamic(() => import('@/components/MapComponent'), { ssr: false });
-
-type WeatherLayer = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
 
 export default function HomePage() {
   // Voyage context (shared with header dropdowns, persisted across navigation)
@@ -41,22 +40,6 @@ export default function HomePage() {
   const [paretoFront, setParetoFront] = useState<ParetoSolution[] | null>(null);
   const [isRunningPareto, setIsRunningPareto] = useState(false);
 
-  // Per-layer staleness indicator (ISO timestamp from backend)
-  const [layerIngestedAt, setLayerIngestedAt] = useState<string | null>(null);
-  const [resyncRunning, setResyncRunning] = useState(false);
-  const resyncRunningRef = useRef(false);
-
-  // Weather visualization (layer selection persisted in VoyageContext)
-  const [windData, setWindData] = useState<WindFieldData | null>(null);
-  const windDataBaseRef = useRef<WindFieldData | null>(null); // preserve ocean mask for forecast
-  const windFieldCacheRef = useRef<Record<string, WindFieldData>>({}); // per-frame cache
-  const windFieldCacheVersionRef = useRef<string>(''); // invalidated on new GFS run
-  const [waveData, setWaveData] = useState<WaveFieldData | null>(null);
-  const [windVelocityData, setWindVelocityData] = useState<VelocityData[] | null>(null);
-  const [currentVelocityData, setCurrentVelocityData] = useState<VelocityData[] | null>(null);
-  const [extendedWeatherData, setExtendedWeatherData] = useState<any>(null);
-  const [isLoadingWeather, setIsLoadingWeather] = useState(false);
-
   // Viewport state (init from context for cross-navigation persistence)
   const [viewport, setViewportLocal] = useState<{
     bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number };
@@ -67,9 +50,8 @@ export default function HomePage() {
     if (vp) setLastViewport(vp);
   }, [setLastViewport]);
 
-  // Forecast timeline state
-  const [forecastEnabled, setForecastEnabled] = useState(false);
-  const [forecastHour, setForecastHour] = useState(0);
+  // Weather display (all state + handlers encapsulated in hook)
+  const weather = useWeatherDisplay(weatherLayer, setWeatherLayer, viewport, waypoints.length);
 
   // Zone state
   const [zoneKey, setZoneKey] = useState(0);
@@ -95,440 +77,6 @@ export default function HomePage() {
       .filter(([, visible]) => visible)
       .map(([type]) => type);
   }, [zoneVisibility]);
-
-  // Derive weather resolution from zoom level
-  const getResolutionForZoom = (zoom: number): number => {
-    if (zoom <= 4) return 2.0;
-    if (zoom <= 6) return 1.0;
-    return 0.5;
-  };
-
-  // Keep stable refs so callbacks don't need these as deps
-  const viewportRef = useRef(viewport);
-  useEffect(() => { viewportRef.current = viewport; }, [viewport]);
-
-  const weatherLayerRef = useRef(weatherLayer);
-  useEffect(() => { weatherLayerRef.current = weatherLayer; }, [weatherLayer]);
-
-
-
-  const waypointsRef = useRef(waypoints);
-  useEffect(() => { waypointsRef.current = waypoints; }, [waypoints]);
-
-  // Load weather data
-  const loadWeatherData = useCallback(async (vp?: typeof viewport, layer?: WeatherLayer) => {
-    const v = vp || viewportRef.current;
-    const activeLayer = layer ?? weatherLayerRef.current;
-    if (!v || activeLayer === 'none') return;
-
-    // Weather viewer uses viewport only — route analysis endpoints
-    // fetch their own weather server-side with route-corridor bounds.
-    const params = {
-      lat_min: v.bounds.lat_min,
-      lat_max: v.bounds.lat_max,
-      lon_min: v.bounds.lon_min,
-      lon_max: v.bounds.lon_max,
-      resolution: getResolutionForZoom(v.zoom),
-    };
-
-    // NOTE: Do NOT clear extended data here — keep old data visible
-    // while the new viewport's data loads (avoids 2-6s blank flash).
-
-    setIsLoadingWeather(true);
-    const t0 = performance.now();
-    debugLog('info', 'API', `Loading ${activeLayer} weather: zoom=${v.zoom}, bbox=[${params.lat_min.toFixed(1)},${params.lat_max.toFixed(1)},${params.lon_min.toFixed(1)},${params.lon_max.toFixed(1)}]`);
-    // Helper: treat empty 204 responses as null
-    const orNull = <T,>(v: T): T | null => (v && typeof v === 'object' ? v : null);
-    try {
-      if (activeLayer === 'wind') {
-        const [wind, windVel] = await Promise.all([
-          apiClient.getWindField(params).then(orNull),
-          apiClient.getWindVelocity(params).then(orNull),
-        ]);
-        const dt = (performance.now() - t0).toFixed(0);
-        debugLog('info', 'API', `Wind loaded in ${dt}ms: grid=${wind?.ny}x${wind?.nx}`);
-        if (wind) { setWindData(wind); windDataBaseRef.current = wind; }
-        if (windVel) setWindVelocityData(windVel);
-        if (wind?.ingested_at && !resyncRunningRef.current) setLayerIngestedAt(wind.ingested_at);
-        // Background prefetch waves for instant layer switching
-        apiClient.getWaveField(params).then(orNull).then(w => {
-          if (w) setWaveData(w);
-        }).catch(() => {});
-      } else if (activeLayer === 'waves') {
-        const waves = await apiClient.getWaveField(params).then(orNull);
-        const dt = (performance.now() - t0).toFixed(0);
-        debugLog('info', 'API', `Waves loaded in ${dt}ms: grid=${waves?.ny}x${waves?.nx}`);
-        if (waves) setWaveData(waves);
-        if (waves?.ingested_at && !resyncRunningRef.current) setLayerIngestedAt(waves.ingested_at);
-      } else if (activeLayer === 'currents') {
-        const [currentVel, currentGrid] = await Promise.all([
-          apiClient.getCurrentVelocity(params).then(orNull).catch(() => null),
-          apiClient.getCurrentField(params).then(orNull).catch(() => null),
-        ]);
-        const dt = (performance.now() - t0).toFixed(0);
-        debugLog('info', 'API', `Currents loaded in ${dt}ms: ${currentVel ? 'yes' : 'no data'}`);
-        setCurrentVelocityData(currentVel);
-        if (currentGrid) setExtendedWeatherData(currentGrid);
-        if (currentGrid?.ingested_at && !resyncRunningRef.current) setLayerIngestedAt(currentGrid.ingested_at);
-      } else if (activeLayer === 'ice') {
-        const data = await apiClient.getIceField(params).then(orNull);
-        const dt = (performance.now() - t0).toFixed(0);
-        debugLog('info', 'API', `Ice loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
-        if (data) setExtendedWeatherData(data);
-        if (data?.ingested_at && !resyncRunningRef.current) setLayerIngestedAt(data.ingested_at);
-      } else if (activeLayer === 'visibility') {
-        const data = await apiClient.getVisibilityField(params).then(orNull);
-        const dt = (performance.now() - t0).toFixed(0);
-        debugLog('info', 'API', `Visibility loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
-        if (data) setExtendedWeatherData(data);
-        if (data?.ingested_at && !resyncRunningRef.current) setLayerIngestedAt(data.ingested_at);
-      } else if (activeLayer === 'sst') {
-        const data = await apiClient.getSstField(params).then(orNull);
-        const dt = (performance.now() - t0).toFixed(0);
-        debugLog('info', 'API', `SST loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
-        if (data) setExtendedWeatherData(data);
-        if (data?.ingested_at && !resyncRunningRef.current) setLayerIngestedAt(data.ingested_at);
-      } else if (activeLayer === 'swell') {
-        const data = await apiClient.getSwellField(params).then(orNull);
-        const dt = (performance.now() - t0).toFixed(0);
-        debugLog('info', 'API', `Swell loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
-        if (data) setExtendedWeatherData(data);
-        if (data?.ingested_at && !resyncRunningRef.current) setLayerIngestedAt(data.ingested_at);
-      }
-    } catch (error) {
-      debugLog('error', 'API', `Weather load failed: ${error}`);
-    } finally {
-      setIsLoadingWeather(false);
-    }
-  }, []);
-
-  // Reload weather when layer changes
-  useEffect(() => {
-    if (viewport && weatherLayer !== 'none') {
-      loadWeatherData(viewport, weatherLayer);
-    }
-    if (weatherLayer === 'none') {
-      setLayerIngestedAt(null);
-    }
-  }, [weatherLayer]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Auto-load wind when route has 2+ waypoints and no layer is active
-  useEffect(() => {
-    if (waypoints.length >= 2 && weatherLayer === 'none') {
-      setWeatherLayer('wind');
-    }
-  }, [waypoints.length]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Handle wind forecast hour change from timeline
-  const handleForecastHourChange = useCallback((hour: number, data: VelocityData[] | null) => {
-    setForecastHour(hour);
-    if (data && data.length >= 2) {
-      setWindVelocityData(data);
-
-      // Lazy-cache: build WindFieldData once per (run, hour), reuse on loops
-      const hdr = data[0].header;
-      const version = hdr.refTime || '';
-      if (version !== windFieldCacheVersionRef.current) {
-        windFieldCacheRef.current = {};
-        windFieldCacheVersionRef.current = version;
-      }
-      const key = String(hour);
-      let field = windFieldCacheRef.current[key];
-      if (!field) {
-        const nx = hdr.nx;
-        const ny = hdr.ny;
-        const flatU = data[0].data;
-        const flatV = data[1].data;
-        // Guard: skip if grid dimensions don't match data length (stale frame during pan)
-        if (!nx || !ny || flatU.length < nx * ny || flatV.length < nx * ny) return;
-        const lats = Array.from({ length: ny }, (_, j) => hdr.la1 - j * hdr.dy);
-        const lons = Array.from({ length: nx }, (_, i) => hdr.lo1 + i * hdr.dx);
-        const u2d = Array.from({ length: ny }, (_, j) => {
-          const off = j * nx;
-          return Array.from({ length: nx }, (_, i) => flatU[off + i] ?? 0);
-        });
-        const v2d = Array.from({ length: ny }, (_, j) => {
-          const off = j * nx;
-          return Array.from({ length: nx }, (_, i) => flatV[off + i] ?? 0);
-        });
-        const base = windDataBaseRef.current;
-        field = {
-          parameter: 'wind',
-          time: version,
-          bbox: {
-            lat_min: Math.min(hdr.la1, hdr.la2),
-            lat_max: Math.max(hdr.la1, hdr.la2),
-            lon_min: hdr.lo1,
-            lon_max: hdr.lo2,
-          },
-          resolution: hdr.dx,
-          nx, ny, lats, lons,
-          u: u2d, v: v2d,
-          ocean_mask: base?.ocean_mask,
-          ocean_mask_lats: base?.ocean_mask_lats,
-          ocean_mask_lons: base?.ocean_mask_lons,
-        };
-        windFieldCacheRef.current[key] = field;
-      }
-      setWindData(field);
-    } else if (hour === 0) {
-      loadWeatherData();
-    }
-  }, [loadWeatherData]);
-
-  // Handle wave forecast hour change
-  const handleWaveForecastHourChange = useCallback((hour: number, allFrames: WaveForecastFrames | null) => {
-    setForecastHour(hour);
-    if (!allFrames) {
-      debugLog('warn', 'WAVE', `Hour ${hour}: no frame data available`);
-      if (hour === 0) loadWeatherData();
-      return;
-    }
-    const frame = allFrames.frames[String(hour)];
-    if (!frame) {
-      debugLog('warn', 'WAVE', `Hour ${hour}: frame not found in ${Object.keys(allFrames.frames).length} frames`);
-      return;
-    }
-
-    const midRow = Math.floor((frame.data?.length || 0) / 2);
-    const sample = frame.data?.[midRow]?.[0]?.toFixed(2) ?? 'null';
-    debugLog('info', 'WAVE', `Frame T+${hour}h: sample=${sample}, grid=${allFrames.ny}x${allFrames.nx}`);
-
-    const synth: WaveFieldData = {
-      parameter: 'wave_height',
-      time: allFrames.run_time,
-      bbox: {
-        lat_min: allFrames.lats[0],
-        lat_max: allFrames.lats[allFrames.lats.length - 1],
-        lon_min: allFrames.lons[0],
-        lon_max: allFrames.lons[allFrames.lons.length - 1],
-      },
-      resolution: allFrames.lats.length > 1 ? Math.abs(allFrames.lats[1] - allFrames.lats[0]) : 1,
-      nx: allFrames.nx,
-      ny: allFrames.ny,
-      lats: allFrames.lats,
-      lons: allFrames.lons,
-      data: frame.data,
-      unit: 'm',
-      direction: frame.direction,
-      has_decomposition: !!frame.windwave && !!frame.swell,
-      windwave: frame.windwave,
-      swell: frame.swell,
-      ocean_mask: allFrames.ocean_mask,
-      ocean_mask_lats: allFrames.ocean_mask_lats,
-      ocean_mask_lons: allFrames.ocean_mask_lons,
-      colorscale: allFrames.colorscale,
-    };
-    setWaveData(synth);
-  }, [loadWeatherData]);
-
-  // Handle ice forecast hour change
-  const handleIceForecastHourChange = useCallback((hour: number, allFrames: IceForecastFrames | null) => {
-    setForecastHour(hour);
-    if (!allFrames) {
-      debugLog('warn', 'ICE', `Hour ${hour}: no frame data available`);
-      if (hour === 0) loadWeatherData();
-      return;
-    }
-    const frame = allFrames.frames?.[String(hour)];
-    if (!frame || !frame.data) {
-      debugLog('warn', 'ICE', `Hour ${hour}: frame not found in ${Object.keys(allFrames.frames).length} frames`);
-      return;
-    }
-    debugLog('info', 'ICE', `Frame Day ${hour / 24}: grid=${allFrames.ny}x${allFrames.nx}`);
-
-    setExtendedWeatherData({
-      parameter: 'ice_concentration',
-      time: allFrames.run_time,
-      bbox: {
-        lat_min: allFrames.lats[0],
-        lat_max: allFrames.lats[allFrames.lats.length - 1],
-        lon_min: allFrames.lons[0],
-        lon_max: allFrames.lons[allFrames.lons.length - 1],
-      },
-      resolution: allFrames.lats.length > 1 ? Math.abs(allFrames.lats[1] - allFrames.lats[0]) : 1,
-      nx: allFrames.nx,
-      ny: allFrames.ny,
-      lats: allFrames.lats,
-      lons: allFrames.lons,
-      data: frame.data,
-      unit: 'fraction',
-      ocean_mask: allFrames.ocean_mask,
-      ocean_mask_lats: allFrames.ocean_mask_lats,
-      ocean_mask_lons: allFrames.ocean_mask_lons,
-    });
-  }, [loadWeatherData]);
-
-  // Handle swell forecast hour change (extracts swell decomposition from wave frames)
-  const handleSwellForecastHourChange = useCallback((hour: number, allFrames: WaveForecastFrames | null) => {
-    setForecastHour(hour);
-    if (!allFrames) {
-      debugLog('warn', 'SWELL', `Hour ${hour}: no frame data available`);
-      if (hour === 0) loadWeatherData();
-      return;
-    }
-    const frame = allFrames.frames[String(hour)];
-    if (!frame) {
-      debugLog('warn', 'SWELL', `Hour ${hour}: frame not found in ${Object.keys(allFrames.frames).length} frames`);
-      return;
-    }
-
-    // Use swell decomposition height if available, fall back to total Hs
-    const swellData = frame.swell?.height ?? frame.data;
-    debugLog('info', 'SWELL', `Frame T+${hour}h: hasSwell=${!!frame.swell}, grid=${allFrames.ny}x${allFrames.nx}`);
-
-    setExtendedWeatherData({
-      parameter: 'swell',
-      time: allFrames.run_time,
-      bbox: {
-        lat_min: allFrames.lats[0],
-        lat_max: allFrames.lats[allFrames.lats.length - 1],
-        lon_min: allFrames.lons[0],
-        lon_max: allFrames.lons[allFrames.lons.length - 1],
-      },
-      resolution: allFrames.lats.length > 1 ? Math.abs(allFrames.lats[1] - allFrames.lats[0]) : 1,
-      nx: allFrames.nx,
-      ny: allFrames.ny,
-      lats: allFrames.lats,
-      lons: allFrames.lons,
-      data: swellData,
-      unit: 'm',
-      has_decomposition: !!frame.swell,
-      total_hs: frame.data,
-      swell_hs: frame.swell?.height ?? null,
-      swell_tp: frame.swell?.period ?? null,
-      swell_dir: frame.swell?.direction ?? null,
-      windsea_hs: frame.windwave?.height ?? null,
-      windsea_tp: frame.windwave?.period ?? null,
-      windsea_dir: frame.windwave?.direction ?? null,
-      ocean_mask: allFrames.ocean_mask,
-      ocean_mask_lats: allFrames.ocean_mask_lats,
-      ocean_mask_lons: allFrames.ocean_mask_lons,
-      colorscale: allFrames.colorscale,
-    });
-  }, [loadWeatherData]);
-
-  // Handle SST forecast hour change
-  const handleSstForecastHourChange = useCallback((hour: number, allFrames: SstForecastFrames | null) => {
-    setForecastHour(hour);
-    if (!allFrames) {
-      debugLog('warn', 'SST', `Hour ${hour}: no frame data available`);
-      if (hour === 0) loadWeatherData();
-      return;
-    }
-    const frame = allFrames.frames?.[String(hour)];
-    if (!frame || !frame.data) {
-      debugLog('warn', 'SST', `Hour ${hour}: frame not found in ${Object.keys(allFrames.frames).length} frames`);
-      return;
-    }
-    debugLog('info', 'SST', `Frame T+${hour}h: grid=${allFrames.ny}x${allFrames.nx}`);
-
-    setExtendedWeatherData({
-      parameter: 'sst',
-      time: allFrames.run_time,
-      bbox: {
-        lat_min: allFrames.lats[0],
-        lat_max: allFrames.lats[allFrames.lats.length - 1],
-        lon_min: allFrames.lons[0],
-        lon_max: allFrames.lons[allFrames.lons.length - 1],
-      },
-      resolution: allFrames.lats.length > 1 ? Math.abs(allFrames.lats[1] - allFrames.lats[0]) : 1,
-      nx: allFrames.nx,
-      ny: allFrames.ny,
-      lats: allFrames.lats,
-      lons: allFrames.lons,
-      data: frame.data,
-      unit: '°C',
-      ocean_mask: allFrames.ocean_mask,
-      ocean_mask_lats: allFrames.ocean_mask_lats,
-      ocean_mask_lons: allFrames.ocean_mask_lons,
-      colorscale: allFrames.colorscale,
-    });
-  }, [loadWeatherData]);
-
-  // Handle visibility forecast hour change
-  const handleVisForecastHourChange = useCallback((hour: number, allFrames: VisForecastFrames | null) => {
-    setForecastHour(hour);
-    if (!allFrames) {
-      debugLog('warn', 'VIS', `Hour ${hour}: no frame data available`);
-      if (hour === 0) loadWeatherData();
-      return;
-    }
-    const frame = allFrames.frames?.[String(hour)];
-    if (!frame || !frame.data) {
-      debugLog('warn', 'VIS', `Hour ${hour}: frame not found in ${Object.keys(allFrames.frames).length} frames`);
-      return;
-    }
-    debugLog('info', 'VIS', `Frame T+${hour}h: grid=${allFrames.ny}x${allFrames.nx}`);
-
-    setExtendedWeatherData({
-      parameter: 'visibility',
-      time: allFrames.run_time,
-      bbox: {
-        lat_min: allFrames.lats[0],
-        lat_max: allFrames.lats[allFrames.lats.length - 1],
-        lon_min: allFrames.lons[0],
-        lon_max: allFrames.lons[allFrames.lons.length - 1],
-      },
-      resolution: allFrames.lats.length > 1 ? Math.abs(allFrames.lats[1] - allFrames.lats[0]) : 1,
-      nx: allFrames.nx,
-      ny: allFrames.ny,
-      lats: allFrames.lats,
-      lons: allFrames.lons,
-      data: frame.data,
-      unit: 'km',
-      ocean_mask: allFrames.ocean_mask,
-      ocean_mask_lats: allFrames.ocean_mask_lats,
-      ocean_mask_lons: allFrames.ocean_mask_lons,
-      colorscale: allFrames.colorscale,
-    });
-  }, [loadWeatherData]);
-
-  // Handle current forecast hour change
-  const handleCurrentForecastHourChange = useCallback((hour: number, allFrames: any | null) => {
-    setForecastHour(hour);
-    if (!allFrames) {
-      debugLog('warn', 'CURRENT', `Hour ${hour}: no frame data available`);
-      if (hour === 0) loadWeatherData();
-      return;
-    }
-    const frame = allFrames.frames?.[String(hour)];
-    if (!frame || !frame.u || !frame.v) {
-      debugLog('warn', 'CURRENT', `Hour ${hour}: frame not found or missing u/v`);
-      return;
-    }
-    debugLog('info', 'CURRENT', `Frame T+${hour}h: u_sample=${frame.u?.[Math.floor(frame.u.length/2)]?.[0]?.toFixed(3)}`);
-
-    const lats = allFrames.lats as number[];
-    const lons = allFrames.lons as number[];
-    const ny = lats.length;
-    const nx = lons.length;
-    const uFlat: number[] = [];
-    const vFlat: number[] = [];
-    for (let j = 0; j < ny; j++) {
-      for (let i = 0; i < nx; i++) {
-        uFlat.push(frame.u[j]?.[i] ?? 0);
-        vFlat.push(frame.v[j]?.[i] ?? 0);
-      }
-    }
-    const header = {
-      parameterCategory: 2,
-      parameterNumber: 2,
-      lo1: lons[0],
-      la1: lats[ny - 1],
-      lo2: lons[nx - 1],
-      la2: lats[0],
-      dx: lons.length > 1 ? Math.abs(lons[1] - lons[0]) : 1,
-      dy: lats.length > 1 ? Math.abs(lats[1] - lats[0]) : 1,
-      nx,
-      ny,
-      refTime: allFrames.run_time || '',
-    };
-    setCurrentVelocityData([
-      { header: { ...header, parameterNumber: 2 }, data: uFlat },
-      { header: { ...header, parameterNumber: 3 }, data: vFlat },
-    ]);
-  }, [loadWeatherData]);
 
   // Handle RTZ import
   const handleRouteImport = (importedWaypoints: Position[], name: string) => {
@@ -794,7 +342,7 @@ export default function HomePage() {
   // Route coverage warning: warn when waypoints extend beyond forecast viewport
   const lastWarnedRouteRef = useRef<string>('');
   useEffect(() => {
-    if (!forecastEnabled || !viewport || waypoints.length < 2) return;
+    if (!weather.forecastEnabled || !viewport || waypoints.length < 2) return;
     const routeHash = waypoints.map(w => `${w.lat.toFixed(3)},${w.lon.toFixed(3)}`).join(';');
     if (routeHash === lastWarnedRouteRef.current) return;
 
@@ -817,7 +365,7 @@ export default function HomePage() {
       );
       lastWarnedRouteRef.current = routeHash;
     }
-  }, [waypoints, viewport, forecastEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [waypoints, viewport, weather.forecastEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Calculate total distance
   const totalDistance = waypoints.reduce((sum, wp, i) => {
@@ -835,19 +383,6 @@ export default function HomePage() {
     return sum + R * c;
   }, 0);
 
-  // Derive weather model label for map watermark
-  const weatherModelLabel = useMemo(() => {
-    if (weatherLayer === 'none') return undefined;
-    if (weatherLayer === 'wind') return 'NOAA GFS 0.25\u00B0';
-    if (weatherLayer === 'waves') return 'CMEMS WAV 1/12\u00B0';
-    if (weatherLayer === 'currents') return 'CMEMS PHY 1/12\u00B0';
-    if (weatherLayer === 'ice') return 'CMEMS ICE';
-    if (weatherLayer === 'visibility') return 'NOAA GFS';
-    if (weatherLayer === 'sst') return 'CMEMS PHY';
-    if (weatherLayer === 'swell') return 'CMEMS WAV';
-    return undefined;
-  }, [weatherLayer]);
-
   return (
     <div className="min-h-screen bg-gradient-maritime">
       <Header onFitRoute={handleFitRoute} />
@@ -862,30 +397,30 @@ export default function HomePage() {
             allResults={allResults}
             routeVisibility={routeVisibility}
             weatherLayer={weatherLayer}
-            windData={windData}
-            waveData={waveData}
-            windVelocityData={windVelocityData}
-            currentVelocityData={currentVelocityData}
+            windData={weather.windData}
+            waveData={weather.waveData}
+            windVelocityData={weather.windVelocityData}
+            currentVelocityData={weather.currentVelocityData}
             showZones={visibleZoneTypes.length > 0}
             visibleZoneTypes={visibleZoneTypes}
             zoneKey={zoneKey}
             isDrawingZone={isDrawingZone}
             onSaveZone={handleSaveZone}
             onCancelZone={() => setIsDrawingZone(false)}
-            forecastEnabled={forecastEnabled}
-            dataTimestamp={layerIngestedAt}
-            onForecastClose={() => setForecastEnabled(false)}
-            onForecastHourChange={handleForecastHourChange}
-            onWaveForecastHourChange={handleWaveForecastHourChange}
-            onCurrentForecastHourChange={handleCurrentForecastHourChange}
-            onIceForecastHourChange={handleIceForecastHourChange}
-            onSwellForecastHourChange={handleSwellForecastHourChange}
-            onSstForecastHourChange={handleSstForecastHourChange}
-            onVisForecastHourChange={handleVisForecastHourChange}
+            forecastEnabled={weather.forecastEnabled}
+            dataTimestamp={weather.layerIngestedAt}
+            onForecastClose={() => weather.setForecastEnabled(false)}
+            onForecastHourChange={weather.handleForecastHourChange}
+            onWaveForecastHourChange={weather.handleWaveForecastHourChange}
+            onCurrentForecastHourChange={weather.handleCurrentForecastHourChange}
+            onIceForecastHourChange={weather.handleIceForecastHourChange}
+            onSwellForecastHourChange={weather.handleSwellForecastHourChange}
+            onSstForecastHourChange={weather.handleSstForecastHourChange}
+            onVisForecastHourChange={weather.handleVisForecastHourChange}
             onViewportChange={setViewport}
             viewportBounds={viewport?.bounds ?? null}
-            weatherModelLabel={weatherModelLabel}
-            extendedWeatherData={extendedWeatherData}
+            weatherModelLabel={weather.weatherModelLabel}
+            extendedWeatherData={weather.extendedWeatherData}
             fitBounds={fitBounds}
             fitKey={fitKey}
           >
@@ -893,30 +428,12 @@ export default function HomePage() {
             <MapOverlayControls
               weatherLayer={weatherLayer}
               onWeatherLayerChange={setWeatherLayer}
-              forecastEnabled={forecastEnabled}
-              onForecastToggle={() => setForecastEnabled(!forecastEnabled)}
-              isLoadingWeather={isLoadingWeather}
-              layerIngestedAt={layerIngestedAt}
-              resyncRunning={resyncRunning}
-              onResync={async () => {
-                if (weatherLayer === 'none') return;
-                debugLog('info', 'WEATHER', `Resync: re-fetching ${weatherLayer}...`);
-                setResyncRunning(true);
-                resyncRunningRef.current = true;
-                try {
-                  await apiClient.resyncWeatherLayer(weatherLayer, viewportRef.current?.bounds);
-                  // Force a unique timestamp so dataTimestamp always changes,
-                  // even when the same GFS model run is re-ingested.
-                  setLayerIngestedAt(new Date().toISOString());
-                  // Reload overlay grid (skip ingested_at overwrite via ref guard)
-                  await loadWeatherData(viewportRef.current ?? undefined, weatherLayer);
-                } catch (error) {
-                  debugLog('error', 'WEATHER', `Resync failed: ${error}`);
-                } finally {
-                  resyncRunningRef.current = false;
-                  setResyncRunning(false);
-                }
-              }}
+              forecastEnabled={weather.forecastEnabled}
+              onForecastToggle={() => weather.setForecastEnabled(!weather.forecastEnabled)}
+              isLoadingWeather={weather.isLoadingWeather}
+              layerIngestedAt={weather.layerIngestedAt}
+              resyncRunning={weather.resyncRunning}
+              onResync={weather.handleResync}
             />
 
             {/* Analysis mode: left panel */}

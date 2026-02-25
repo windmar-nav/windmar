@@ -127,12 +127,13 @@ function windColor(speed: number): [number, number, number, number] {
 
 // Wave color scale: meters → RGBA (Windy-inspired 8-stop vibrant ramp)
 function waveColor(height: number): [number, number, number, number] {
-  // 0→deep blue, 0.5→blue, 1→cyan-green, 1.5→green-yellow,
+  // Brighter ramp: calm seas must be visible against the dark basemap.
+  // 0→blue, 0.5→sky blue, 1→cyan-green, 1.5→green-yellow,
   // 2→yellow, 3→orange, 4→red-magenta, 6+→purple
   const stops: [number, number, number, number][] = [
-    [0,    30,  60, 180],  // 0m   - deep blue (calm)
-    [0.5,   0, 140, 220],  // 0.5m - blue
-    [1,     0, 200, 160],  // 1m   - cyan-green
+    [0,    60, 110, 220],  // 0m   - medium blue (calm — visible on dark bg)
+    [0.5,  30, 160, 240],  // 0.5m - sky blue
+    [1,     0, 200, 170],  // 1m   - cyan-green
     [1.5, 120, 220,  40],  // 1.5m - green-yellow
     [2,   240, 220,   0],  // 2m   - yellow
     [3,   240, 130,   0],  // 3m   - orange
@@ -140,9 +141,9 @@ function waveColor(height: number): [number, number, number, number] {
     [6,   160,   0, 180],  // 6m+  - purple
   ];
 
-  if (height <= stops[0][0]) return [stops[0][1], stops[0][2], stops[0][3], 140];
+  if (height <= stops[0][0]) return [stops[0][1], stops[0][2], stops[0][3], 170];
   if (height >= stops[stops.length - 1][0])
-    return [stops[stops.length - 1][1], stops[stops.length - 1][2], stops[stops.length - 1][3], 180];
+    return [stops[stops.length - 1][1], stops[stops.length - 1][2], stops[stops.length - 1][3], 190];
 
   for (let i = 0; i < stops.length - 1; i++) {
     if (height >= stops[i][0] && height < stops[i + 1][0]) {
@@ -151,11 +152,11 @@ function waveColor(height: number): [number, number, number, number] {
         Math.round(stops[i][1] + t * (stops[i + 1][1] - stops[i][1])),
         Math.round(stops[i][2] + t * (stops[i + 1][2] - stops[i][2])),
         Math.round(stops[i][3] + t * (stops[i + 1][3] - stops[i][3])),
-        155,
+        175,
       ];
     }
   }
-  return [160, 0, 180, 180];
+  return [160, 0, 180, 190];
 }
 
 // Ice concentration color scale: fraction (0-1) → RGBA (WMO/TD-No. 1215)
@@ -344,6 +345,11 @@ function WeatherGridLayerInner({
               color = windColor(speed);
             } else if (waveValues) {
               const h = bilinearInterpolate(waveValues, latIdx, lonIdx, latFrac, lonFrac, ny, nx);
+              if (Number.isNaN(h)) {
+                const idx = (py * DS + px) * 4;
+                pixels[idx + 3] = 0;
+                continue;
+              }
               color = waveColor(h);
             } else if (extValues) {
               const val = bilinearInterpolate(extValues, latIdx, lonIdx, latFrac, lonFrac, ny, nx);
@@ -355,6 +361,14 @@ function WeatherGridLayerInner({
               if (currentMode === 'ice') color = iceColor(val);
               else if (currentMode === 'visibility') color = visibilityColor(val);
               else if (currentMode === 'sst') {
+                // CMEMS SST uses fill values (0.0 or near-zero) for land pixels.
+                // Real ocean temps are never exactly 0.0 C after interpolation,
+                // so treat |val| < 0.01 as no-data to eliminate black holes.
+                if (Math.abs(val) < 0.01) {
+                  const idx = (py * DS + px) * 4;
+                  pixels[idx + 3] = 0;
+                  continue;
+                }
                 // Auto-scale: map [data_min, data_max] → [-2, 32] so the full
                 // color ramp is utilized and frame-to-frame changes are visible.
                 if (sstScale && sstScale.dMax > sstScale.dMin) {

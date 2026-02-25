@@ -97,10 +97,11 @@ for _fn in FIELD_NAMES:
 
 _OVERLAY_MAX_DIM = 500
 _FRAMES_MAX_DIM = 100  # tighter cap for multi-frame timeline (keeps total < 4 MB)
+_WAVE_DECOMP_MAX_DIM = 50  # wave decomp has 8 arrays/frame vs 2 for wind — halve grid
 
 # Maximum bbox span for CMEMS/GFS downloads — prevents OOM.
 # Wave forecast at 30×70° ≈ 400 MB (8 params × 41 steps × ~304K grid points).
-_MAX_LAT_SPAN = 30.0
+_MAX_LAT_SPAN = 50.0
 _MAX_LON_SPAN = 70.0
 
 
@@ -123,6 +124,11 @@ def _clamp_bbox(lat_min, lat_max, lon_min, lon_max):
 def _overlay_step(lats, lons):
     """Compute subsample step for overlay grids exceeding target size."""
     return max(1, math.ceil(max(len(lats), len(lons)) / _OVERLAY_MAX_DIM))
+
+
+def _frames_step(lats, lons):
+    """Compute subsample step for multi-frame timeline grids (tighter cap)."""
+    return max(1, math.ceil(max(len(lats), len(lons)) / _FRAMES_MAX_DIM))
 
 
 def _sub2d(arr, step, decimals=2, nan_fill=0.0):
@@ -225,6 +231,7 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
     first_fh = min(grids[primary_param].keys())
     lats_full, lons_full, _ = grids[primary_param][first_fh]
     STEP = max(1, math.ceil(max(len(lats_full), len(lons_full)) / _FRAMES_MAX_DIM))
+    W_STEP = max(1, math.ceil(max(len(lats_full), len(lons_full)) / _WAVE_DECOMP_MAX_DIM))
     shared_lats = lats_full[::STEP]
     shared_lons = lons_full[::STEP]
 
@@ -299,14 +306,19 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
                 }
 
     elif cfg.components == "wave_decomp":
+        # Wave decomp sends 8 arrays/frame — use tighter grid to avoid browser OOM
+        def _wsub(arr, dec=cfg.decimals):
+            if arr is None:
+                return None
+            return np.round(arr[::W_STEP, ::W_STEP], dec).tolist()
         for fh in sorted(hours):
             frame = {}
             if "wave_hs" in grids and fh in grids["wave_hs"]:
                 _, _, d = grids["wave_hs"][fh]
-                frame["data"] = _sub(d)
+                frame["data"] = _wsub(d)
             if "wave_dir" in grids and fh in grids["wave_dir"]:
                 _, _, d = grids["wave_dir"][fh]
-                frame["direction"] = _sub(d)
+                frame["direction"] = _wsub(d)
             has_decomp = (fh in grids.get("windwave_hs", {}) and
                           fh in grids.get("swell_hs", {}))
             if has_decomp:
@@ -314,12 +326,12 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
                 for p, k in [("windwave_hs", "height"), ("windwave_tp", "period"), ("windwave_dir", "direction")]:
                     if fh in grids.get(p, {}):
                         _, _, d = grids[p][fh]
-                        frame["windwave"][k] = _sub(d)
+                        frame["windwave"][k] = _wsub(d)
                 frame["swell"] = {}
                 for p, k in [("swell_hs", "height"), ("swell_tp", "period"), ("swell_dir", "direction")]:
                     if fh in grids.get(p, {}):
                         _, _, d = grids[p][fh]
-                        frame["swell"][k] = _sub(d)
+                        frame["swell"][k] = _wsub(d)
             if frame:
                 frames[str(fh)] = frame
 
@@ -350,10 +362,17 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
         cache_data["run_hour"] = run_hour_str
         cache_data["total_hours"] = len(GFSDataProvider.FORECAST_HOURS)
     else:
-        cache_data["lats"] = shared_lats.tolist() if hasattr(shared_lats, 'tolist') else list(shared_lats)
-        cache_data["lons"] = shared_lons.tolist() if hasattr(shared_lons, 'tolist') else list(shared_lons)
-        cache_data["ny"] = len(shared_lats)
-        cache_data["nx"] = len(shared_lons)
+        # Wave decomp uses tighter grid — report matching lats/lons
+        if cfg.components == "wave_decomp":
+            out_lats = lats_full[::W_STEP]
+            out_lons = lons_full[::W_STEP]
+        else:
+            out_lats = shared_lats
+            out_lons = shared_lons
+        cache_data["lats"] = out_lats.tolist() if hasattr(out_lats, 'tolist') else list(out_lats)
+        cache_data["lons"] = out_lons.tolist() if hasattr(out_lons, 'tolist') else list(out_lons)
+        cache_data["ny"] = len(out_lats)
+        cache_data["nx"] = len(out_lons)
 
         if ocean_mask_data is not None:
             cache_data["ocean_mask"] = ocean_mask_data
@@ -413,7 +432,7 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
 
     # Try rebuild from DB first
     db_weather = _db_weather()
-    if db_weather is not None and field_name != "wind":
+    if db_weather is not None:
         rebuilt = _rebuild_frames_from_db(field_name, cache_key, lat_min, lat_max, lon_min, lon_max)
         if rebuilt and len(rebuilt.get("frames", {})) >= min_frames:
             if cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
@@ -453,7 +472,7 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
             return
 
     first_wd = next(iter(result.values()))
-    STEP = _overlay_step(first_wd.lats, first_wd.lons)
+    STEP = _frames_step(first_wd.lats, first_wd.lons)
     logger.info(f"{field_name} forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}")
     sub_lats = first_wd.lats[::STEP]
     sub_lons = first_wd.lons[::STEP]
