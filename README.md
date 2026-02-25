@@ -4,7 +4,7 @@
 
 A weather routing and performance analytics platform for merchant ships. Optimizes fuel consumption through weather-aware A\* routing, physics-based vessel modeling, engine log analytics, and real-time sensor fusion. Ships with a default MR Product Tanker configuration; all vessel parameters are fully configurable.
 
-**Live demo**: [demo-windmar.slmar.co](https://demo-windmar.slmar.co) | **Documentation**: [windmar-nav.github.io](https://windmar-nav.github.io)
+**Live demo**: Coming in March 2026 | **Documentation**: [windmar-nav.github.io](https://windmar-nav.github.io)
 
 ## Features
 
