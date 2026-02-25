@@ -13,7 +13,7 @@ from typing import Dict, List, Optional, Tuple
 
 # Bump this when cache envelope shape/semantics change.
 # Stale caches with older versions are discarded on read.
-CACHE_SCHEMA_VERSION = 2
+CACHE_SCHEMA_VERSION = 3
 
 
 @dataclass(frozen=True)
@@ -82,9 +82,9 @@ _ICE_HOURS = tuple(range(0, 217, 24))       # 0, 24, 48, ..., 216 → 10 frames
 # Default bounding boxes
 # ---------------------------------------------------------------------------
 _GLOBAL_BBOX = (-85.0, 85.0, -179.75, 179.75)
-_CMEMS_BBOX = (25.0, 60.0, -20.0, 40.0)   # NE Atlantic + Med
-_SST_BBOX = (20.0, 65.0, -30.0, 45.0)     # Wider for Nordic + Med
-_ICE_BBOX = (55.0, 75.0, -20.0, 40.0)     # High latitude
+_CMEMS_BBOX = (20.0, 65.0, -35.0, 45.0)   # NE Atlantic + Med + Nordic
+_SST_BBOX = (20.0, 65.0, -35.0, 45.0)     # Same as CMEMS
+_ICE_BBOX = (55.0, 80.0, -35.0, 45.0)     # High latitude — wider for Arctic
 
 # ---------------------------------------------------------------------------
 # Field definitions

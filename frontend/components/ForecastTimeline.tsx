@@ -214,9 +214,9 @@ export default function ForecastTimeline({
 
   // Pad viewport bounds OUT to grid cell edges so fetched data always covers the
   // full grid cell.  This prevents truncated overlays when panning within a cell.
-  // Cap must match backend _CMEMS_MAX_LAT/LON_SPAN (30°/70°) to avoid OOM.
-  const MAX_LAT_SPAN = 30; // degrees — matches backend resync cap
-  const MAX_LON_SPAN = 70; // degrees — matches backend resync cap
+  // Cap must match backend _MAX_LAT_SPAN/_MAX_LON_SPAN to avoid OOM.
+  const MAX_LAT_SPAN = 50; // degrees — matches backend _MAX_LAT_SPAN
+  const MAX_LON_SPAN = 80; // degrees — matches backend _MAX_LON_SPAN
   const paddedBounds = () => {
     const b = boundsRef.current;
     if (!b) return undefined;

@@ -244,14 +244,17 @@ export function useWeatherDisplay(
   }, []);
 
   // ---- Auto-reload on layer change ----
+  // Skip single-frame load when forecast timeline is active — the timeline
+  // manages extendedWeatherData directly and would be overwritten by the
+  // single-frame response arriving after the timeline restores its frames.
   useEffect(() => {
-    if (viewport && weatherLayer !== 'none') {
+    if (viewport && weatherLayer !== 'none' && !forecastEnabled) {
       loadWeatherData(viewport, weatherLayer);
     }
     if (weatherLayer === 'none') {
       setLayerIngestedAt(null);
     }
-  }, [weatherLayer]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [weatherLayer, forecastEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- Auto-load wind when route has 2+ waypoints ----
   useEffect(() => {

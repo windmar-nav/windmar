@@ -102,9 +102,9 @@ _WAVE_DECOMP_MAX_DIM = 35  # wave decomp has 8 arrays/frame — keep payload und
 _SCALAR_FRAMES_MAX_DIM = 200  # scalar layers (1 array/frame) can afford higher resolution
 
 # Maximum bbox span for CMEMS/GFS downloads — prevents OOM.
-# Wave forecast at 30×70° ≈ 400 MB (8 params × 41 steps × ~304K grid points).
+# Wave forecast at 45×80° ≈ 530 MB peak (8 params × 41 steps × ~522K grid points).
 _MAX_LAT_SPAN = 50.0
-_MAX_LON_SPAN = 70.0
+_MAX_LON_SPAN = 80.0
 
 
 def _clamp_bbox(lat_min, lat_max, lon_min, lon_max):
