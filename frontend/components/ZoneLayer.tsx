@@ -13,9 +13,8 @@ const ZONE_COLORS: Record<ZoneInteraction, string> = {
   advisory: '#6b7280',   // Gray
 };
 
-const ZONE_TYPE_COLORS: Record<ZoneType, string> = {
+const ZONE_TYPE_COLORS: Record<string, string> = {
   eca: '#22c55e',        // Green (emission control)
-  seca: '#eab308',       // Yellow (sulfur emission control)
   hra: '#ef4444',        // Red (danger)
   tss: '#3b82f6',        // Blue (navigation)
   vts: '#3b82f6',

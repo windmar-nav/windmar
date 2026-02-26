@@ -4,7 +4,7 @@ import { createContext, useContext, useState, useEffect, useCallback, ReactNode 
 import type { Position, AllOptimizationResults, RouteVisibility } from '@/lib/api';
 import { EMPTY_ALL_RESULTS, DEFAULT_ROUTE_VISIBILITY, apiClient } from '@/lib/api';
 
-const ZONE_TYPES = ['eca', 'seca', 'hra', 'tss', 'vts', 'ice', 'canal', 'environmental', 'exclusion'] as const;
+const ZONE_TYPES = ['eca', 'hra', 'tss', 'vts', 'ice', 'canal', 'environmental', 'exclusion'] as const;
 
 type WeatherLayerType = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
 

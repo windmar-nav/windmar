@@ -19,7 +19,7 @@ jest.mock('@/components/VoyageContext', () => ({
     isDrawingZone: false,
     setIsDrawingZone: jest.fn(),
   }),
-  ZONE_TYPES: ['eca', 'seca', 'hra', 'tss', 'vts', 'ice', 'canal', 'environmental', 'exclusion'],
+  ZONE_TYPES: ['eca', 'hra', 'tss', 'vts', 'ice', 'canal', 'environmental', 'exclusion'],
 }));
 
 describe('Header', () => {

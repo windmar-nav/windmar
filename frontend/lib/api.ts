@@ -770,7 +770,7 @@ export interface VesselSpecs {
 }
 
 // Zone types
-export type ZoneType = 'eca' | 'seca' | 'hra' | 'tss' | 'vts' | 'exclusion' | 'environmental' | 'ice' | 'canal' | 'custom';
+export type ZoneType = 'eca' | 'hra' | 'tss' | 'vts' | 'exclusion' | 'environmental' | 'ice' | 'canal' | 'custom';
 export type ZoneInteraction = 'mandatory' | 'exclusion' | 'penalty' | 'advisory';
 
 export interface ZoneCoordinate {
