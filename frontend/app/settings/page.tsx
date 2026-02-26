@@ -312,7 +312,9 @@ export default function SettingsPage() {
               <strong className="text-gray-300">If the app feels unresponsive:</strong> Check
               the API container logs (<code className="text-xs text-ocean-400 bg-white/5 px-1 py-0.5 rounded">docker
               logs windmar-api</code>) for download progress. The weather panel&apos;s
-              &ldquo;stale&rdquo; badge clears once fresh data is available.
+              &ldquo;stale&rdquo; badge clears once the startup prefetch completes. There
+              is no periodic refresh &mdash; after boot, weather data updates on demand when
+              you activate a layer or trigger a manual resync.
             </p>
           </div>
         </section>
