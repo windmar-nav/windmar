@@ -66,6 +66,10 @@ interface VoyageContextValue {
   variableSpeed: boolean;
   setVariableSpeed: (v: boolean) => void;
 
+  // Displayed analysis (persisted across navigation)
+  displayedAnalysisId: string | null;
+  setDisplayedAnalysisId: (v: string | null) => void;
+
   // Sync speed from backend vessel specs
   refreshSpecs: () => Promise<void>;
 }
@@ -89,6 +93,7 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
   const [variableResolution, setVariableResolution] = useState(true);
   const [paretoEnabled, setParetoEnabled] = useState(false);
   const [variableSpeed, setVariableSpeed] = useState(false);
+  const [displayedAnalysisId, setDisplayedAnalysisId] = useState<string | null>(null);
 
   // Route state (persisted)
   const [waypoints, setWaypoints] = useState<Position[]>([]);
@@ -150,6 +155,7 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
         variableResolution, setVariableResolution,
         paretoEnabled, setParetoEnabled,
         variableSpeed, setVariableSpeed,
+        displayedAnalysisId, setDisplayedAnalysisId,
         refreshSpecs,
       }}
     >

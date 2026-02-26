@@ -2,7 +2,7 @@
 
 import Header from '@/components/Header';
 import { useVoyage } from '@/components/VoyageContext';
-import { Settings, Grid3X3, TrendingUp, Compass, Gauge } from 'lucide-react';
+import { Settings, Grid3X3, TrendingUp, Compass, Gauge, Zap } from 'lucide-react';
 
 export default function SettingsPage() {
   const {
@@ -246,6 +246,74 @@ export default function SettingsPage() {
                 </div>
               </div>
             </div>
+          </div>
+        </section>
+
+        <hr className="border-white/10 mb-10" />
+
+        {/* ── E. Startup Procedure ── */}
+        <section className="mb-10">
+          <div className="flex items-center space-x-2 mb-4">
+            <Zap className="w-5 h-5 text-primary-400" />
+            <h2 className="text-xl font-semibold">Startup Procedure</h2>
+          </div>
+
+          <div className="text-sm text-gray-400 leading-relaxed space-y-3">
+            <p>
+              Windmar is designed as a <strong className="text-gray-300">local-first
+              application</strong>. All data processing, weather interpolation, and route
+              optimization run on your machine. This means the first launch after a fresh
+              install or container rebuild involves several one-time initialization steps
+              that add latency before the app is fully responsive.
+            </p>
+
+            <div className="bg-white/5 rounded-lg p-4 space-y-3">
+              <div className="text-gray-300 font-medium mb-2">What happens at boot</div>
+
+              <div>
+                <div className="text-gray-300 text-xs font-medium mb-0.5">1. Shoreline geometry download</div>
+                <p>
+                  The API server uses Cartopy for land-avoidance checks. On first boot,
+                  Cartopy downloads Natural Earth shoreline shapefiles (~30&ndash;60 s).
+                  Until this completes, route calculation requests will queue. Subsequent
+                  boots use the cached files and skip this step entirely.
+                </p>
+              </div>
+
+              <div>
+                <div className="text-gray-300 text-xs font-medium mb-0.5">2. Weather database initialization</div>
+                <p>
+                  The weather pipeline fetches global forecast data from NOAA GFS (wind)
+                  and Copernicus CMEMS (waves, currents, ice, SST, visibility). A full
+                  refresh downloads and processes ~2&ndash;5 GB of GRIB2/NetCDF data into
+                  the local database. The weather panel shows a
+                  &ldquo;stale&rdquo; indicator until the first successful refresh completes.
+                </p>
+              </div>
+
+              <div>
+                <div className="text-gray-300 text-xs font-medium mb-0.5">3. Map tile rendering</div>
+                <p>
+                  The frontend loads vector tiles from OpenStreetMap on first paint. Tile
+                  loading depends on your internet connection and the initial viewport size.
+                  Route drawing is available as soon as the map canvas is interactive.
+                </p>
+              </div>
+            </div>
+
+            <p>
+              <strong className="text-gray-300">Typical first-boot time:</strong> 30&ndash;90
+              seconds before the API is fully responsive, depending on network speed. After
+              the initial boot, restarts take only a few seconds because all downloaded data
+              is persisted in Docker volumes.
+            </p>
+
+            <p>
+              <strong className="text-gray-300">If the app feels unresponsive:</strong> Check
+              the API container logs (<code className="text-xs text-ocean-400 bg-white/5 px-1 py-0.5 rounded">docker
+              logs windmar-api</code>) for download progress. The weather panel&apos;s
+              &ldquo;stale&rdquo; badge clears once fresh data is available.
+            </p>
           </div>
         </section>
 

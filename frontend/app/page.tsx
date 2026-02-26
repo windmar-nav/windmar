@@ -29,6 +29,7 @@ export default function HomePage() {
     lastViewport, setLastViewport,
     gridResolution, variableResolution, paretoEnabled,
     variableSpeed,
+    displayedAnalysisId, setDisplayedAnalysisId,
   } = useVoyage();
 
   // Toast notifications
@@ -63,7 +64,6 @@ export default function HomePage() {
 
   // Analysis state
   const [analyses, setAnalyses] = useState<AnalysisEntry[]>([]);
-  const [displayedAnalysisId, setDisplayedAnalysisId] = useState<string | null>(null);
   const [simulatingId, setSimulatingId] = useState<string | null>(null);
 
   // Load analyses from localStorage on mount

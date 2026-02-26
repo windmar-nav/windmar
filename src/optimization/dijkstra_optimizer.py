@@ -94,7 +94,7 @@ class DijkstraOptimizer(BaseOptimizer):
     # Defaults
     DEFAULT_RESOLUTION_DEG = 0.25
     DEFAULT_TIME_STEP_HOURS = 3.0   # temporal resolution of the graph
-    DEFAULT_MAX_NODES = 350_000
+    DEFAULT_MAX_NODES = 150_000
     SPEED_RANGE_KTS = (10.0, 18.0)  # practical speed range for graph exploration
     SPEED_STEPS = 5                  # candidate speeds per edge
 
