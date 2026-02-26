@@ -297,6 +297,7 @@ export default function HomePage() {
   const handleShowOnMap = (id: string) => {
     if (displayedAnalysisId === id) {
       setDisplayedAnalysisId(null);
+      setIsEditing(true);
     } else {
       setDisplayedAnalysisId(id);
       const analysis = analyses.find(a => a.id === id);

@@ -54,6 +54,14 @@ function WaypointEditorInner({
   // Track previous waypoints for drag revert
   const waypointsBeforeDrag = useRef<Position[]>([]);
 
+  // Refs for latest values — prevents stale closures in async map handlers.
+  // The click handler awaits checkOcean(); without refs, rapid clicks would
+  // each capture an outdated waypoints array and overwrite each other.
+  const waypointsRef = useRef(waypoints);
+  const isEditingRef = useRef(isEditing);
+  waypointsRef.current = waypoints;
+  isEditingRef.current = isEditing;
+
   // Create numbered icon
   const createNumberedIcon = useCallback((index: number, total: number) => {
     const isFirst = index === 0;
@@ -83,31 +91,29 @@ function WaypointEditorInner({
     });
   }, [L]);
 
-  // Map click handler component — validates ocean before placing waypoint
-  function MapClickHandler() {
-    useMapEvents({
-      async click(e: any) {
-        if (!isEditing) return;
+  // Map click handler — registered directly (not via nested component) to
+  // avoid unmount/remount on every render which caused lost clicks.
+  useMapEvents({
+    async click(e: any) {
+      if (!isEditingRef.current) return;
 
-        const lat = e.latlng.lat;
-        const lon = wrapLng(e.latlng.lng);
+      const lat = e.latlng.lat;
+      const lon = wrapLng(e.latlng.lng);
 
-        try {
-          const isOcean = await apiClient.checkOcean(lat, lon);
-          if (!isOcean) {
-            toast.warning('Waypoint on land', 'Waypoints can only be placed on water.');
-            return;
-          }
-        } catch {
-          // If the check fails (e.g. network error), allow placement
+      try {
+        const isOcean = await apiClient.checkOcean(lat, lon);
+        if (!isOcean) {
+          toast.warning('Waypoint on land', 'Waypoints can only be placed on water.');
+          return;
         }
+      } catch {
+        // If the check fails (e.g. network error), allow placement
+      }
 
-        const newWaypoint: Position = { lat, lon };
-        onWaypointsChange([...waypoints, newWaypoint]);
-      },
-    });
-    return null;
-  }
+      const newWaypoint: Position = { lat, lon };
+      onWaypointsChange([...waypointsRef.current, newWaypoint]);
+    },
+  });
 
   // Handle waypoint drag — validates ocean and reverts if on land
   const handleDrag = useCallback(
@@ -132,20 +138,20 @@ function WaypointEditorInner({
         // If the check fails, allow the move
       }
 
-      const newWaypoints = [...waypoints];
+      const newWaypoints = [...waypointsRef.current];
       newWaypoints[index] = { lat, lon };
       onWaypointsChange(newWaypoints);
     },
-    [waypoints, onWaypointsChange, toast]
+    [onWaypointsChange, toast]
   );
 
   // Handle waypoint deletion
   const handleDelete = useCallback(
     (index: number) => {
-      const newWaypoints = waypoints.filter((_, i) => i !== index);
+      const newWaypoints = waypointsRef.current.filter((_, i) => i !== index);
       onWaypointsChange(newWaypoints);
     },
-    [waypoints, onWaypointsChange]
+    [onWaypointsChange]
   );
 
   // Calculate route line positions
@@ -153,8 +159,6 @@ function WaypointEditorInner({
 
   return (
     <>
-      <MapClickHandler />
-
       {/* Route polyline */}
       {routePositions.length >= 2 && (
         <Polyline
