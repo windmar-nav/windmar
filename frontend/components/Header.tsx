@@ -1,14 +1,13 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Ship, Compass, Shield, Map, LogOut, Cloud, BarChart3, ScrollText, ExternalLink, Info, BookOpen } from 'lucide-react';
+import { Ship, Shield, Map, LogOut, Cloud, BarChart3, ScrollText, ExternalLink, Info, BookOpen } from 'lucide-react';
 import Link from 'next/link';
-import VoyageDropdown from '@/components/VoyageDropdown';
 import RegulationsDropdown from '@/components/RegulationsDropdown';
 import { useVoyage } from '@/components/VoyageContext';
 import { DEMO_TOOLTIP, isDemoUser } from '@/lib/demoMode';
 
-type DropdownId = 'voyage' | 'regulations' | null;
+type DropdownId = 'regulations' | null;
 
 interface HeaderProps {
   onFitRoute?: () => void;
@@ -123,25 +122,6 @@ export default function Header({ onFitRoute }: HeaderProps) {
               <BookOpen className="w-5 h-5" />
               <span className="text-sm font-medium hidden sm:inline">Voyages</span>
             </Link>
-
-            {/* Voyage — dropdown */}
-            <div className="relative">
-              <button
-                onClick={() => toggle('voyage')}
-                className={`flex items-center space-x-1.5 px-3 py-2 rounded-lg transition-all ${
-                  openDropdown === 'voyage'
-                    ? 'text-primary-400 bg-primary-500/10'
-                    : 'text-gray-400 hover:text-white hover:bg-white/5'
-                }`}
-                title="Route Setup"
-              >
-                <Compass className="w-5 h-5" />
-                <span className="text-sm font-medium hidden sm:inline">Route Setup</span>
-              </button>
-              {openDropdown === 'voyage' && (
-                <VoyageDropdown onFitRoute={onFitRoute} onClose={closeDropdown} />
-              )}
-            </div>
 
             {/* Regulations — dropdown */}
             <div className="relative">
