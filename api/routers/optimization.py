@@ -187,6 +187,9 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
 
         # A* engine accepts extra dev params; VISIR uses base interface
         if engine_name == "visir":
+            # VISIR needs a wider time budget than A* — its 3D graph
+            # (lat, lon, time) requires slack to explore alternate speeds.
+            visir_time_factor = max(request.max_time_factor, 1.30)
             result = active_optimizer.optimize_route(
                 origin=(request.origin.lat, request.origin.lon),
                 destination=(request.destination.lat, request.destination.lon),
@@ -194,7 +197,7 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
                 calm_speed_kts=request.calm_speed_kts,
                 is_laden=request.is_laden,
                 weather_provider=wx_provider,
-                max_time_factor=request.max_time_factor,
+                max_time_factor=visir_time_factor,
             )
         elif request.pareto:
             result = active_optimizer.optimize_route_pareto(

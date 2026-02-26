@@ -208,7 +208,8 @@ export default function HomePage() {
         try {
           const r = await apiClient.optimizeRoute({ ...baseRequest, engine, safety_weight: weight });
           results[key] = r as OptimizationResponse | null;
-        } catch {
+        } catch (err) {
+          debugLog('warn', 'ROUTE', `${engine} w=${weight} failed: ${err}`);
           results[key] = null;
         }
         // Progressive update — show each result as it arrives
@@ -218,6 +219,13 @@ export default function HomePage() {
       const dt = ((performance.now() - t0) / 1000).toFixed(1);
       const ok = Object.values(results).filter(Boolean).length;
       debugLog('info', 'ROUTE', `All-routes done in ${dt}s: ${ok}/6 succeeded`);
+
+      // Notify user if VISIR failed but A* succeeded
+      const astarOk = [results.astar_fuel, results.astar_balanced, results.astar_safety].some(Boolean);
+      const visirOk = [results.visir_fuel, results.visir_balanced, results.visir_safety].some(Boolean);
+      if (astarOk && !visirOk) {
+        toast.warning('VISIR routes unavailable', 'VISIR engine could not find routes for this voyage. A* routes are shown.');
+      }
 
       if (displayedAnalysisId && ok > 0) {
         updateAnalysisOptimizations(displayedAnalysisId, results);

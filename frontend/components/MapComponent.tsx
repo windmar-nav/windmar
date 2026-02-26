@@ -279,27 +279,31 @@ export default function MapComponent({
           const style = ROUTE_STYLES[key];
           const legs = result.legs;
 
-          // If legs with SOG data available, render per-leg colored segments
+          // If legs with SOG data available and meaningful speed variation,
+          // render per-leg colored segments. Skip gradient when spread < 1 kt
+          // (constant-speed optimized routes) to avoid invisible default colors.
           if (legs && legs.length > 0 && legs.some(l => l.sog_kts > 0)) {
             const sogValues = legs.map(l => l.sog_kts);
             const minSog = Math.min(...sogValues);
             const maxSog = Math.max(...sogValues);
-            return legs.map((leg, i) => (
-              <Polyline
-                key={`${key}-leg-${i}`}
-                positions={[
-                  [leg.from_lat, leg.from_lon] as [number, number],
-                  [leg.to_lat, leg.to_lon] as [number, number],
-                ]}
-                pathOptions={{
-                  color: sogToColor(leg.sog_kts, minSog, maxSog) ?? undefined,
-                  weight: 3,
-                  opacity: 0.9,
-                }}
-              >
-                <Tooltip sticky>{style.label}: {leg.sog_kts.toFixed(1)} kts</Tooltip>
-              </Polyline>
-            ));
+            if (maxSog - minSog >= 1.0) {
+              return legs.map((leg, i) => (
+                <Polyline
+                  key={`${key}-leg-${i}`}
+                  positions={[
+                    [leg.from_lat, leg.from_lon] as [number, number],
+                    [leg.to_lat, leg.to_lon] as [number, number],
+                  ]}
+                  pathOptions={{
+                    color: sogToColor(leg.sog_kts, minSog, maxSog) ?? style.color,
+                    weight: 3,
+                    opacity: 0.9,
+                  }}
+                >
+                  <Tooltip sticky>{style.label}: {leg.sog_kts.toFixed(1)} kts</Tooltip>
+                </Polyline>
+              ));
+            }
           }
 
           // Fallback: single polyline with route style

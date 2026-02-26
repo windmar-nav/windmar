@@ -95,9 +95,9 @@ class VisirOptimizer(BaseOptimizer):
     # Defaults
     DEFAULT_RESOLUTION_DEG = 0.25
     DEFAULT_TIME_STEP_HOURS = 3.0   # temporal resolution of the graph
-    DEFAULT_MAX_NODES = 200_000
+    DEFAULT_MAX_NODES = 350_000
     SPEED_RANGE_KTS = (10.0, 18.0)  # practical speed range for graph exploration
-    SPEED_STEPS = 3                  # candidate speeds per edge
+    SPEED_STEPS = 5                  # candidate speeds per edge
 
     # Time penalty weight: same as A* engine — allows weather-avoidance detours.
     TIME_PENALTY_WEIGHT = 0.3
