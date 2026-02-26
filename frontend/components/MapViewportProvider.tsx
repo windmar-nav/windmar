@@ -25,11 +25,11 @@ export default function MapViewportProvider({ onViewportChange }: MapViewportPro
     const b = map.getBounds();
     const latSpan = b.getNorth() - b.getSouth();
     const lngSpan = b.getEast() - b.getWest();
-    const margin = 0.35;
+    const margin = 0.5;
 
-    // Expand by margin, then cap to backend limits (40° lat × 80° lon)
-    const MAX_LAT_SPAN = 40;
-    const MAX_LON_SPAN = 80;
+    // Expand by margin, then cap to backend limits (45° lat × 90° lon)
+    const MAX_LAT_SPAN = 45;
+    const MAX_LON_SPAN = 90;
     let lat_min = Math.max(-85, b.getSouth() - latSpan * margin);
     let lat_max = Math.min(85, b.getNorth() + latSpan * margin);
     let lon_min = Math.max(-180, b.getWest() - lngSpan * margin);
