@@ -2,9 +2,9 @@
 
 > **Warning**: This project is under active development and is **not production-ready**. It is being built in public as a learning and portfolio project. APIs, data models, and features may change without notice. Do not use for actual voyage planning or navigation.
 
-A weather routing and performance analytics platform for merchant ships. Optimizes fuel consumption through weather-aware A\* routing, physics-based vessel modeling, engine log analytics, and real-time sensor fusion. Ships with a default MR Product Tanker configuration; all vessel parameters are fully configurable.
+A weather routing and performance analytics platform for merchant ships. Optimizes fuel consumption through weather-aware A\* and Dijkstra routing, physics-based vessel modeling, engine log analytics, and real-time sensor fusion. Ships with a default MR Product Tanker configuration; all vessel parameters are fully configurable.
 
-**Live demo**: Coming in March 2026 | **Documentation**: [windmar-nav.github.io](https://windmar-nav.github.io)
+**Live demo**: [demo-windmar.slmar.co](https://demo-windmar.slmar.co) | **Documentation**: [windmar-nav.github.io](https://windmar-nav.github.io)
 
 ## Features
 
@@ -26,9 +26,9 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 
 ### Route Optimization
 - **A\* grid search** (primary engine) with weather-aware cost function and 9 pre-validated strait shortcuts
-- **VISIR Dijkstra** (optional, off by default) — time-expanded graph with voluntary speed reduction
+- **Dijkstra** (time-expanded graph) — voluntary speed reduction in heavy weather, node-budget capped
 - 3 safety-weight variants per engine (fuel-optimal / balanced / safety-first) with progressive UI updates
-- A\* grid at 0.2 deg (~12nm) resolution; VISIR at 0.25 deg (~15nm) — aligned with professional routing software
+- A\* grid at 0.2 deg (~12nm) resolution; Dijkstra at 0.25 deg (~15nm) — aligned with professional routing software
 - **GSHHS coastline polygons** — sub-km vector land boundaries with cached shapefile loading
 - **Strait visibility graph** — 9 pre-validated commercial straits (Gibraltar EB/WB, Dover, Malacca, Hormuz, Bab el-Mandeb, Bosporus, Suez approach, Messina) with direct vertex-to-vertex edges
 - **Multi-objective Pareto front** — fuel vs. time tradeoff curve with interactive chart and smart default selection
@@ -36,6 +36,7 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 - **Safety fallback** — when severe weather blocks departure, automatic retry with relaxed hard limits (10x cost penalty instead of rejection); structured error diagnostics on complete failure
 - **Hard avoidance limits** — Hs >= 6m and wind >= 70 kts are instant rejection (no motion calculation)
 - **Seakeeping safety constraints** — graduated roll, pitch, acceleration limits with motion-based cost multipliers
+- **Variable speed voyage calculation** — per-leg speed optimization (fuel ~ speed³) with configurable time penalty
 - Variable speed optimization (10-16 knots per leg, 0.5 kt steps)
 - Turn-angle path smoothing to eliminate grid staircase artifacts
 - SOG profile analysis — estimated speed-over-ground per waypoint accounting for weather and current
@@ -88,7 +89,8 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 - Interactive Pareto front chart (fuel vs. time tradeoff) in analysis panel
 - Unified comparison table with fuel, distance, time, and waypoint counts for every route variant
 - Sequential optimization with progressive map updates (routes appear one by one)
-- Navigation persistence — waypoints, route name, and optimization results survive page navigation via React Context
+- **Session persistence** — waypoints, optimization results, viewport, and settings survive page navigation and full reloads (sessionStorage-backed React Context)
+- **Settings page** — dedicated optimization engine configuration with educational content on Pareto analysis, variable speed, and startup procedure
 - Voyage calculation with per-leg fuel, speed, and ETA breakdown
 - Consolidated vessel configuration, calibration, fuel analysis, and performance prediction page
 - Engine log upload, entries browser, and analytics dashboard
@@ -129,7 +131,7 @@ windmar/
 │   │   ├── vessel.py              # Vessel specs, calibration, noon reports, prediction
 │   │   ├── voyage.py              # Voyage calculation, Monte Carlo, weather-along-route
 │   │   ├── voyage_history.py      # Voyage history and reporting
-│   │   ├── optimization.py        # A* / VISIR route optimization with safety fallback
+│   │   ├── optimization.py        # A* / Dijkstra route optimization with safety fallback
 │   │   ├── engine_log.py          # Engine log upload, entries, summary, calibration
 │   │   ├── zones.py               # Regulatory zone CRUD and spatial queries
 │   │   ├── cii.py                 # CII compliance calculations and projections
@@ -158,7 +160,7 @@ windmar/
 │   │   ├── vessel_model.py        # Holtrop-Mennen + Kwon resistance, SFOC, performance predictor
 │   │   ├── base_optimizer.py      # Abstract base class for route optimizers
 │   │   ├── route_optimizer.py     # A* grid search with strait shortcuts + course-change penalty
-│   │   ├── visir_optimizer.py     # VISIR Dijkstra time-expanded graph (optional, 60s timeout)
+│   │   ├── dijkstra_optimizer.py   # Dijkstra time-expanded graph with node budget cap
 │   │   ├── routing_graph.py       # Shared routing graph utilities
 │   │   ├── router.py              # Engine dispatcher (A*/VISIR selection)
 │   │   ├── voyage.py              # Per-leg voyage calculator (LegWeather, VoyageResult)
@@ -353,7 +355,7 @@ See `WEATHER_PIPELINE.md` for full technical details on data acquisition, GRIB p
 - `POST /api/voyage/monte-carlo` - Parametric MC simulation (P10/P50/P90)
 
 ### Optimization
-- `POST /api/optimize/route` - Weather-optimal route finding (A\* or VISIR engine)
+- `POST /api/optimize/route` - Weather-optimal route finding (A\* or Dijkstra engine)
 - `POST /api/optimize/pareto` - Multi-objective Pareto front (fuel vs. time)
 - `GET /api/optimize/status` - Optimizer configuration and available targets
 
@@ -450,6 +452,38 @@ The system ships with a default MR Product Tanker configuration (all values conf
 
 ## Changelog
 
+### v0.1.2 — Settings Page, Variable Speed & Session Persistence
+
+**Settings & Documentation**
+
+- **Dedicated Settings page** (`/settings`) — optimization engine configuration (grid resolution, variable resolution, Pareto analysis, variable speed) with educational content explaining each feature, the optimization process, safety weights, and the local-first startup procedure
+- **VISIR renamed to Dijkstra** — all references across backend, frontend, API schemas, and documentation updated to reflect the actual algorithm
+- Settings link added to header navigation
+
+**Variable Speed Voyage Calculation**
+
+- **Per-leg speed optimization** — tests 13 candidate speeds from 60%-100% of calm speed per leg, selects minimum fuel+time score using fuel ~ speed³ relationship
+- **Time penalty tuning** — LAMBDA_TIME=1.5 MT-equivalent per hour prevents extreme slow-steaming in calm conditions
+- Speed profile bar chart in voyage summary shows per-leg speed variations
+- 8 new unit tests covering calm weather convergence, heavy weather savings, and speed profile bounds
+
+**Session Persistence**
+
+- All VoyageContext state backed by sessionStorage — waypoints, optimization results, route visibility, viewport, view mode, and settings survive full page reloads and hard navigations
+- Map viewport restored from persisted state on remount (no more reset to default view)
+- `displayedAnalysisId` moved from local page state to shared context for cross-navigation persistence
+
+**Dijkstra Performance**
+
+- Frontend optimization timeout increased from 180s to 600s for long routes on time-expanded graphs
+- Default node budget reduced from 350K to 150K to cap memory usage
+
+**Demo Mode Hardening**
+
+- File uploads (RTZ import, Load from File) hidden for demo users
+- Map viewport fully locked in demo mode — dragging, zoom, scroll, keyboard, and touch interactions disabled
+- Weather data: frozen snapshot (Feb 2025), forecast capped at 48h, Visibility/SST layers hidden, resync blocked
+
 ### v0.1.0 — Commercial Compliance & Production Optimizer
 
 Phase 2 (commercial credibility) and Phase 3 (optimizer upgrade), plus security hardening and dark theme.
@@ -471,7 +505,7 @@ Phase 2 (commercial credibility) and Phase 3 (optimizer upgrade), plus security 
 - **Safety fallback routing** — automatic retry with relaxed hard limits when severe weather blocks departure; structured error diagnostics (422 with explored-node count and failure reason)
 - **Speed optimization** — optimizer selects speed from discrete set (10-16 kts in 0.5 kt steps) per leg
 - **SOG profile analysis** — estimated speed-over-ground per waypoint with weather and current effects
-- **VISIR made optional** — A\* is the primary engine; VISIR Dijkstra available via UI toggle (off by default) with 60-second wall-clock timeout
+- **Dijkstra made optional** — A\* is the primary engine; Dijkstra time-expanded graph available via UI toggle (off by default) with node budget cap
 - **Smart grid bbox** — strait waypoint expansion checks both lat AND lon proximity to avoid pulling in distant straits
 - **Smart retry logic** — skip safety-fallback retry when >10K nodes explored (topology issue, not weather)
 
@@ -610,7 +644,8 @@ Live connectivity to Copernicus and NOAA weather services.
 
 ## Branch Strategy
 
-- `main` - Stable release branch (pushes trigger demo deployment via CI/CD)
+- `main` — stable release branch (pushes trigger demo deployment via CI/CD)
+- `dev` — active development branch
 
 ## Documentation
 
