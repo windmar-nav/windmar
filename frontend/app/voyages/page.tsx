@@ -7,9 +7,14 @@ import { StatCard } from '@/components/Card';
 import {
   BookOpen, Trash2, Download, ChevronLeft, ChevronRight, Search,
   Anchor, Ship, Fuel, Clock, Navigation, Wind, Waves, FileText,
+  Upload, MapPin, Map,
 } from 'lucide-react';
+import Link from 'next/link';
+import RouteImport from '@/components/RouteImport';
+import { useVoyage } from '@/components/VoyageContext';
 import {
   apiClient,
+  Position,
   VoyageSummary,
   VoyageDetail,
   VoyageListResponse,
@@ -21,10 +26,10 @@ import {
 } from '@/lib/api';
 import { isDemoUser } from '@/lib/demoMode';
 
-type VoyageTab = 'history' | 'detail' | 'reports';
+type VoyageTab = 'setup' | 'history' | 'detail' | 'reports';
 
 export default function VoyagesPage() {
-  const [activeTab, setActiveTab] = useState<VoyageTab>('history');
+  const [activeTab, setActiveTab] = useState<VoyageTab>('setup');
   const [selectedVoyageId, setSelectedVoyageId] = useState<string | null>(null);
 
   const selectVoyage = (id: string) => {
@@ -38,7 +43,8 @@ export default function VoyagesPage() {
 
       <main className="container mx-auto px-6 pt-20 pb-12">
         {/* Tab bar */}
-        <div className="flex space-x-1 mb-6 bg-maritime-medium/50 backdrop-blur-sm rounded-lg p-1 max-w-lg">
+        <div className="flex space-x-1 mb-6 bg-maritime-medium/50 backdrop-blur-sm rounded-lg p-1 max-w-xl">
+          <TabButton label="Route Setup" active={activeTab === 'setup'} onClick={() => setActiveTab('setup')} />
           <TabButton label="History" active={activeTab === 'history'} onClick={() => setActiveTab('history')} />
           <TabButton
             label="Detail"
@@ -54,6 +60,7 @@ export default function VoyagesPage() {
           />
         </div>
 
+        {activeTab === 'setup' && <SetupSection />}
         {activeTab === 'history' && <HistorySection onSelectVoyage={selectVoyage} />}
         {activeTab === 'detail' && selectedVoyageId && (
           <DetailSection voyageId={selectedVoyageId} />
@@ -86,6 +93,197 @@ function TabButton({ label, active, onClick, disabled }: {
     >
       {label}
     </button>
+  );
+}
+
+// ─── Setup Section ────────────────────────────────────────────────────────
+
+const SAMPLE_WAYPOINTS: Position[] = [
+  { lat: 51.9225, lon: 4.4792, name: 'Rotterdam' },
+  { lat: 51.0500, lon: 1.5000, name: 'Dover Strait' },
+  { lat: 48.4500, lon: -5.1000, name: 'Ushant' },
+  { lat: 42.8800, lon: -9.2700, name: 'Finisterre' },
+  { lat: 36.1408, lon: -5.3536, name: 'Gibraltar' },
+  { lat: 38.8000, lon: 8.4000, name: 'Sardinia South' },
+  { lat: 37.2333, lon: 15.2167, name: 'Augusta' },
+];
+
+function SetupSection() {
+  const {
+    departureTime, setDepartureTime,
+    calmSpeed, setCalmSpeed,
+    isLaden, setIsLaden,
+    useWeather, setUseWeather,
+    waypoints, setWaypoints,
+    routeName, setRouteName,
+    setViewMode,
+  } = useVoyage();
+
+  const handleImport = (importedWaypoints: Position[], name: string) => {
+    setWaypoints(importedWaypoints);
+    setRouteName(name);
+  };
+
+  const handleClearRoute = () => {
+    setWaypoints([]);
+    setRouteName('Custom Route');
+  };
+
+  const totalDistance = waypoints.reduce((sum, wp, i) => {
+    if (i === 0) return 0;
+    const prev = waypoints[i - 1];
+    const R = 3440.065;
+    const lat1 = (prev.lat * Math.PI) / 180;
+    const lat2 = (wp.lat * Math.PI) / 180;
+    const dlat = ((wp.lat - prev.lat) * Math.PI) / 180;
+    const dlon = ((wp.lon - prev.lon) * Math.PI) / 180;
+    const a = Math.sin(dlat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dlon / 2) ** 2;
+    const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+    return sum + R * c;
+  }, 0);
+
+  return (
+    <div className="max-w-2xl space-y-6">
+      {/* Voyage Parameters */}
+      <Card title="Voyage Parameters" icon={<Ship className="w-5 h-5" />}>
+        <div className="space-y-4">
+          {/* Departure Time */}
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Departure Time</label>
+            <input
+              type="datetime-local"
+              value={departureTime}
+              onChange={(e) => setDepartureTime(e.target.value)}
+              className="w-full px-3 py-2 rounded-lg text-sm bg-white/5 border border-white/10 text-white focus:border-primary-500/50 focus:outline-none"
+            />
+          </div>
+
+          {/* Speed */}
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Calm Water Speed</label>
+            <div className="flex items-center gap-3">
+              <input
+                type="range"
+                min="8"
+                max="18"
+                step="0.5"
+                value={calmSpeed}
+                onChange={(e) => setCalmSpeed(parseFloat(e.target.value))}
+                className="flex-1"
+              />
+              <span className="w-16 text-right text-white font-semibold text-sm">{calmSpeed} kts</span>
+            </div>
+          </div>
+
+          {/* Laden / Ballast */}
+          <div>
+            <label className="block text-sm text-gray-400 mb-1">Loading Condition</label>
+            <div className="flex gap-2">
+              <button
+                onClick={() => setIsLaden(true)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  isLaden ? 'bg-primary-500 text-white' : 'bg-maritime-medium text-gray-400 hover:text-white'
+                }`}
+              >
+                Laden
+              </button>
+              <button
+                onClick={() => setIsLaden(false)}
+                className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  !isLaden ? 'bg-primary-500 text-white' : 'bg-maritime-medium text-gray-400 hover:text-white'
+                }`}
+              >
+                Ballast
+              </button>
+            </div>
+          </div>
+
+          {/* Weather Toggle */}
+          <div className="flex items-center justify-between p-3 bg-maritime-medium rounded-lg">
+            <div className="flex items-center gap-2">
+              <Wind className="w-4 h-4 text-primary-400" />
+              <span className="text-sm text-white">Use Weather</span>
+            </div>
+            <button
+              onClick={() => setUseWeather(!useWeather)}
+              className={`relative w-10 h-6 rounded-full transition-colors ${useWeather ? 'bg-primary-500' : 'bg-gray-600'}`}
+            >
+              <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${useWeather ? 'left-5' : 'left-1'}`} />
+            </button>
+          </div>
+        </div>
+      </Card>
+
+      {/* Route */}
+      <Card title="Route" icon={<Navigation className="w-5 h-5" />}>
+        {waypoints.length > 0 ? (
+          <div className="space-y-4">
+            {/* Route summary */}
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <MapPin className="w-4 h-4 text-primary-400" />
+                <span className="text-sm text-white font-medium">{routeName}</span>
+              </div>
+              <button
+                onClick={handleClearRoute}
+                className="text-gray-400 hover:text-red-400 transition-colors"
+                title="Clear Route"
+              >
+                <Trash2 className="w-4 h-4" />
+              </button>
+            </div>
+            <div className="text-xs text-gray-400">
+              {waypoints.length} waypoints &middot; {totalDistance.toFixed(1)} nm
+            </div>
+
+            {/* Waypoint table */}
+            <div className="max-h-[300px] overflow-y-auto rounded-lg border border-white/5">
+              <table className="w-full text-xs">
+                <thead className="sticky top-0 bg-maritime-dark/95">
+                  <tr className="text-gray-400 border-b border-white/5">
+                    <th className="px-2 py-1.5 text-left w-8">#</th>
+                    <th className="px-2 py-1.5 text-left">Name</th>
+                    <th className="px-2 py-1.5 text-right">Lat</th>
+                    <th className="px-2 py-1.5 text-right">Lon</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {waypoints.map((wp, i) => (
+                    <tr key={i} className="text-gray-300 border-b border-white/5 last:border-0 hover:bg-white/5">
+                      <td className="px-2 py-1 text-gray-500">{i + 1}</td>
+                      <td className="px-2 py-1 truncate max-w-[200px]">{wp.name || `WP ${i + 1}`}</td>
+                      <td className="px-2 py-1 text-right font-mono">{wp.lat.toFixed(4)}</td>
+                      <td className="px-2 py-1 text-right font-mono">{wp.lon.toFixed(4)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-3">
+            <p className="text-sm text-gray-500">No route loaded. Import an RTZ file or load the sample route.</p>
+            <RouteImport onImport={handleImport} />
+            <button
+              onClick={() => handleImport(SAMPLE_WAYPOINTS, 'Rotterdam to Augusta')}
+              className="text-xs text-primary-400 hover:text-primary-300 underline"
+            >
+              Load sample route (Rotterdam — Augusta)
+            </button>
+          </div>
+        )}
+      </Card>
+
+      {/* Open in Chart */}
+      <Link
+        href="/"
+        onClick={() => setViewMode('analysis')}
+        className="flex items-center justify-center gap-2 w-full px-4 py-3 rounded-lg text-sm font-medium bg-primary-500/20 text-primary-400 hover:bg-primary-500/30 transition-colors"
+      >
+        <Map className="w-4 h-4" />
+        Open in Chart
+      </Link>
+    </div>
   );
 }
 
