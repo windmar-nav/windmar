@@ -439,6 +439,7 @@ export default function HomePage() {
             extendedWeatherData={weather.extendedWeatherData}
             fitBounds={fitBounds}
             fitKey={fitKey}
+            restoredViewport={lastViewport}
           >
             {/* Weather mode: overlay controls */}
             <MapOverlayControls

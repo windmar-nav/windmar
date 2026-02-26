@@ -115,6 +115,7 @@ export interface MapComponentProps {
   fitBounds?: [[number, number], [number, number]] | null;
   fitKey?: number;
   dataTimestamp?: string | null;
+  restoredViewport?: { bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number }; zoom: number } | null;
   children?: React.ReactNode;
 }
 
@@ -151,6 +152,7 @@ export default function MapComponent({
   fitBounds: fitBoundsProp = null,
   fitKey = 0,
   dataTimestamp = null,
+  restoredViewport = null,
   children,
 }: MapComponentProps) {
   const [isMounted, setIsMounted] = useState(false);
@@ -191,8 +193,13 @@ export default function MapComponent({
         {/* Viewport tracker */}
         {onViewportChange && <MapViewportProvider onViewportChange={onViewportChange} />}
 
-        {/* Fit initial viewport to weather window */}
-        <InitialFitBounds bounds={INITIAL_BOUNDS} />
+        {/* Fit initial viewport — restored viewport if available, else default */}
+        <InitialFitBounds
+          bounds={restoredViewport
+            ? [[restoredViewport.bounds.lat_min, restoredViewport.bounds.lon_min],
+               [restoredViewport.bounds.lat_max, restoredViewport.bounds.lon_max]]
+            : INITIAL_BOUNDS}
+        />
 
         {/* Fit bounds handler */}
         <FitBoundsHandler bounds={fitBoundsProp} fitKey={fitKey} />

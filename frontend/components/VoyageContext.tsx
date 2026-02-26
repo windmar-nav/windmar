@@ -1,10 +1,29 @@
 'use client';
 
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { createContext, useContext, useState, useEffect, useCallback, useRef, ReactNode } from 'react';
 import type { Position, AllOptimizationResults, RouteVisibility } from '@/lib/api';
 import { EMPTY_ALL_RESULTS, DEFAULT_ROUTE_VISIBILITY, apiClient } from '@/lib/api';
 
 const ZONE_TYPES = ['eca', 'hra', 'tss', 'vts', 'ice', 'canal', 'environmental', 'exclusion'] as const;
+
+// ── SessionStorage-backed state ──
+// Survives full page reloads and hard navigations, clears when tab closes.
+function useSessionState<T>(key: string, fallback: T): [T, (v: T | ((prev: T) => T)) => void] {
+  const [value, setValue] = useState<T>(() => {
+    if (typeof window === 'undefined') return fallback;
+    try {
+      const stored = sessionStorage.getItem(key);
+      return stored ? JSON.parse(stored) : fallback;
+    } catch { return fallback; }
+  });
+  const isFirstRender = useRef(true);
+  useEffect(() => {
+    if (isFirstRender.current) { isFirstRender.current = false; return; }
+    try { sessionStorage.setItem(key, JSON.stringify(value)); }
+    catch { /* quota exceeded — non-critical */ }
+  }, [key, value]);
+  return [value, setValue];
+}
 
 type WeatherLayerType = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
 
@@ -77,29 +96,30 @@ interface VoyageContextValue {
 const VoyageContext = createContext<VoyageContextValue | null>(null);
 
 export function VoyageProvider({ children }: { children: ReactNode }) {
-  const [viewMode, setViewMode] = useState<'weather' | 'analysis'>('weather');
-  const [departureTime, setDepartureTime] = useState(
-    () => new Date().toISOString().slice(0, 16),
-  );
-  const [calmSpeed, setCalmSpeed] = useState(14.5);
-  const [isLaden, setIsLaden] = useState(true);
-  const [useWeather, setUseWeather] = useState(true);
-  const [isDrawingZone, setIsDrawingZone] = useState(false);
-  const [weatherLayer, setWeatherLayer] = useState<WeatherLayerType>('none');
-  const [lastViewport, setLastViewport] = useState<ViewportState | null>(null);
+  // ── Session-persisted state (survives full page reloads) ──
+  const [viewMode, setViewMode] = useSessionState<'weather' | 'analysis'>('wm:viewMode', 'weather');
+  const [departureTime, setDepartureTime] = useSessionState('wm:departureTime', new Date().toISOString().slice(0, 16));
+  const [calmSpeed, setCalmSpeed] = useSessionState('wm:calmSpeed', 14.5);
+  const [isLaden, setIsLaden] = useSessionState('wm:isLaden', true);
+  const [useWeather, setUseWeather] = useSessionState('wm:useWeather', true);
+  const [weatherLayer, setWeatherLayer] = useSessionState<WeatherLayerType>('wm:weatherLayer', 'none');
+  const [lastViewport, setLastViewport] = useSessionState<ViewportState | null>('wm:lastViewport', null);
 
   // Optimization settings
-  const [gridResolution, setGridResolution] = useState(0.2);
-  const [variableResolution, setVariableResolution] = useState(true);
-  const [paretoEnabled, setParetoEnabled] = useState(false);
-  const [variableSpeed, setVariableSpeed] = useState(false);
-  const [displayedAnalysisId, setDisplayedAnalysisId] = useState<string | null>(null);
+  const [gridResolution, setGridResolution] = useSessionState('wm:gridRes', 0.2);
+  const [variableResolution, setVariableResolution] = useSessionState('wm:varRes', true);
+  const [paretoEnabled, setParetoEnabled] = useSessionState('wm:pareto', false);
+  const [variableSpeed, setVariableSpeed] = useSessionState('wm:varSpeed', false);
+  const [displayedAnalysisId, setDisplayedAnalysisId] = useSessionState<string | null>('wm:analysisId', null);
 
-  // Route state (persisted)
-  const [waypoints, setWaypoints] = useState<Position[]>([]);
-  const [routeName, setRouteName] = useState('Custom Route');
-  const [allResults, setAllResults] = useState<AllOptimizationResults>(EMPTY_ALL_RESULTS);
-  const [routeVisibility, setRouteVisibility] = useState<RouteVisibility>(DEFAULT_ROUTE_VISIBILITY);
+  // Route state (session-persisted)
+  const [waypoints, setWaypoints] = useSessionState<Position[]>('wm:waypoints', []);
+  const [routeName, setRouteName] = useSessionState('wm:routeName', 'Custom Route');
+  const [allResults, setAllResults] = useSessionState<AllOptimizationResults>('wm:allResults', EMPTY_ALL_RESULTS);
+  const [routeVisibility, setRouteVisibility] = useSessionState<RouteVisibility>('wm:routeVis', DEFAULT_ROUTE_VISIBILITY);
+
+  // ── Ephemeral state (not worth persisting) ──
+  const [isDrawingZone, setIsDrawingZone] = useState(false);
 
   // Cache backend vessel speeds so laden/ballast toggle can pick the right one
   const [vesselSpeeds, setVesselSpeeds] = useState<{ laden: number; ballast: number } | null>(null);
