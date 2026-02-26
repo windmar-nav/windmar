@@ -15,6 +15,7 @@ class VoyageRequest(BaseModel):
     is_laden: bool = True
     departure_time: Optional[datetime] = None
     use_weather: bool = True
+    variable_speed: bool = Field(False, description="Optimize speed per-leg to minimize fuel")
 
 
 class LegResultModel(BaseModel):
@@ -78,6 +79,10 @@ class VoyageResponse(BaseModel):
 
     calm_speed_kts: float
     is_laden: bool
+
+    # Variable speed optimization
+    variable_speed_enabled: bool = False
+    speed_profile: Optional[List[float]] = None
 
     # Data source summary
     data_sources: Optional[DataSourceSummary] = None

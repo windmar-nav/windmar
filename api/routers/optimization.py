@@ -1,7 +1,7 @@
 """
 Route optimization API router.
 
-Handles A* and VISIR weather routing optimization,
+Handles A* and Dijkstra weather routing optimization,
 and optimizer status queries.
 """
 
@@ -38,7 +38,7 @@ from api.weather_service import (
 )
 from src.optimization.grid_weather_provider import GridWeatherProvider
 from src.optimization.route_optimizer import RouteOptimizer
-from src.optimization.visir_optimizer import VisirOptimizer
+from src.optimization.dijkstra_optimizer import DijkstraOptimizer
 from src.optimization.weather_assessment import RouteWeatherAssessment
 
 logger = logging.getLogger(__name__)
@@ -53,17 +53,17 @@ async def optimize_route(request: OptimizationRequest):
 
     Supports two optimization engines selected via the ``engine`` field:
     - **astar** (default): A* grid search with weather-aware cost function
-    - **visir**: VISIR-style Dijkstra with time-expanded graph and voluntary speed reduction
+    - **dijkstra**: Dijkstra with time-expanded graph and voluntary speed reduction
 
     Minimizes fuel consumption (or time) by routing around adverse weather.
 
     Grid resolution affects accuracy vs computation time:
     - 0.2° = ~12nm cells, good land avoidance (default for A*)
-    - 0.25° = ~15nm cells, good balance (default for VISIR)
+    - 0.25° = ~15nm cells, good balance (default for Dijkstra)
     - 0.5° = ~30nm cells, faster, less precise
     """
     # Run the entire optimization in a thread so the event loop stays
-    # responsive (weather provisioning + VISIR can take 30s+).
+    # responsive (weather provisioning + Dijkstra can take 30s+).
     return await asyncio.to_thread(_optimize_route_sync, request)
 
 
@@ -78,12 +78,12 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
     engine_name = request.engine.lower()
     vessel_model = _vs.model
     resolution = (
-        max(request.grid_resolution_deg, 0.25) if engine_name == "visir"
+        max(request.grid_resolution_deg, 0.25) if engine_name == "dijkstra"
         else request.grid_resolution_deg
     )
 
-    if engine_name == "visir":
-        active_optimizer = VisirOptimizer(
+    if engine_name == "dijkstra":
+        active_optimizer = DijkstraOptimizer(
             vessel_model=vessel_model,
             resolution_deg=resolution,
             optimization_target=request.optimization_target,
@@ -185,11 +185,11 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
         if request.route_waypoints and len(request.route_waypoints) > 2:
             route_wps = [(wp.lat, wp.lon) for wp in request.route_waypoints]
 
-        # A* engine accepts extra dev params; VISIR uses base interface
-        if engine_name == "visir":
-            # VISIR needs a wider time budget than A* — its 3D graph
+        # A* engine accepts extra dev params; Dijkstra uses base interface
+        if engine_name == "dijkstra":
+            # Dijkstra needs a wider time budget than A* — its 3D graph
             # (lat, lon, time) requires slack to explore alternate speeds.
-            visir_time_factor = max(request.max_time_factor, 1.30)
+            dijkstra_time_factor = max(request.max_time_factor, 1.30)
             result = active_optimizer.optimize_route(
                 origin=(request.origin.lat, request.origin.lon),
                 destination=(request.destination.lat, request.destination.lon),
@@ -197,7 +197,7 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
                 calm_speed_kts=request.calm_speed_kts,
                 is_laden=request.is_laden,
                 weather_provider=wx_provider,
-                max_time_factor=visir_time_factor,
+                max_time_factor=dijkstra_time_factor,
             )
         elif request.pareto:
             result = active_optimizer.optimize_route_pareto(
@@ -347,7 +347,7 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
             avg_speed_kts=round(result.avg_speed_kts, 1),
             variable_speed_enabled=result.variable_speed_enabled,
             engine=engine_name,
-            variable_resolution_enabled=request.variable_resolution and engine_name != "visir",
+            variable_resolution_enabled=request.variable_resolution and engine_name != "dijkstra",
             safety=safety_summary,
             scenarios=scenario_models,
             pareto_front=pareto_models,
@@ -391,7 +391,7 @@ async def benchmark_engines(request: BenchmarkRequest):
     Run the same optimization on multiple engines and compare results.
 
     Returns wall-clock time, fuel, distance, and cells explored per engine.
-    Useful for comparing A* vs VISIR performance on the same route.
+    Useful for comparing A* vs Dijkstra performance on the same route.
     """
     return await asyncio.to_thread(_benchmark_sync, request)
 
@@ -403,10 +403,10 @@ def _benchmark_sync(request: "BenchmarkRequest") -> "BenchmarkResponse":
     departure = request.departure_time or datetime.now(timezone.utc)
     vessel_model = _vs.model
 
-    allowed_engines = {"astar", "visir"}
+    allowed_engines = {"astar", "dijkstra"}
     engines = [e.lower() for e in request.engines if e.lower() in allowed_engines]
     if not engines:
-        engines = ["astar", "visir"]
+        engines = ["astar", "dijkstra"]
 
     # Build shared weather provider once (snapshot fallback only for benchmark)
     margin = 5.0
@@ -429,12 +429,12 @@ def _benchmark_sync(request: "BenchmarkRequest") -> "BenchmarkResponse":
     for engine_name in engines:
         try:
             resolution = (
-                max(request.grid_resolution_deg, 0.25) if engine_name == "visir"
+                max(request.grid_resolution_deg, 0.25) if engine_name == "dijkstra"
                 else request.grid_resolution_deg
             )
 
-            if engine_name == "visir":
-                optimizer = VisirOptimizer(
+            if engine_name == "dijkstra":
+                optimizer = DijkstraOptimizer(
                     vessel_model=vessel_model,
                     resolution_deg=resolution,
                     optimization_target=request.optimization_target,

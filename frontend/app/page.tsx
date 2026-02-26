@@ -27,6 +27,8 @@ export default function HomePage() {
     routeVisibility, setRouteVisibility,
     weatherLayer, setWeatherLayer,
     lastViewport, setLastViewport,
+    gridResolution, variableResolution, paretoEnabled,
+    variableSpeed,
   } = useVoyage();
 
   // Toast notifications
@@ -36,7 +38,6 @@ export default function HomePage() {
   const [isEditing, setIsEditing] = useState(true);
   const [isCalculating, setIsCalculating] = useState(false);
   const [isOptimizing, setIsOptimizing] = useState(false);
-  const [variableResolution, setVariableResolution] = useState(true);
   const [paretoFront, setParetoFront] = useState<ParetoSolution[] | null>(null);
   const [isRunningPareto, setIsRunningPareto] = useState(false);
 
@@ -136,6 +137,7 @@ export default function HomePage() {
         is_laden: isLaden,
         use_weather: useWeather,
         departure_time: departureTime || undefined,
+        variable_speed: variableSpeed,
       });
       const dt = ((performance.now() - t0) / 1000).toFixed(1);
       debugLog('info', 'VOYAGE', `Calculation completed in ${dt}s: ${result.total_distance_nm}nm, ${result.total_time_hours.toFixed(1)}h, ${result.total_fuel_mt.toFixed(1)}mt fuel`);
@@ -178,7 +180,7 @@ export default function HomePage() {
       is_laden: isLaden,
       departure_time: departureTime || undefined,
       optimization_target: 'fuel' as const,
-      grid_resolution_deg: 0.2,
+      grid_resolution_deg: gridResolution,
       max_time_factor: 1.15,
       route_waypoints: waypoints.length > 2 ? waypoints : undefined,
       baseline_fuel_mt: displayedAnalysis?.result.total_fuel_mt,
@@ -187,13 +189,13 @@ export default function HomePage() {
       variable_resolution: variableResolution,
     };
 
-    const combos: { engine: 'astar' | 'visir'; weight: number; key: OptimizedRouteKey }[] = [
+    const combos: { engine: 'astar' | 'dijkstra'; weight: number; key: OptimizedRouteKey }[] = [
       { engine: 'astar', weight: 0.0, key: 'astar_fuel' },
       { engine: 'astar', weight: 0.5, key: 'astar_balanced' },
       { engine: 'astar', weight: 1.0, key: 'astar_safety' },
-      { engine: 'visir', weight: 0.0, key: 'visir_fuel' },
-      { engine: 'visir', weight: 0.5, key: 'visir_balanced' },
-      { engine: 'visir', weight: 1.0, key: 'visir_safety' },
+      { engine: 'dijkstra', weight: 0.0, key: 'dijkstra_fuel' },
+      { engine: 'dijkstra', weight: 0.5, key: 'dijkstra_balanced' },
+      { engine: 'dijkstra', weight: 1.0, key: 'dijkstra_safety' },
     ];
 
     try {
@@ -220,11 +222,11 @@ export default function HomePage() {
       const ok = Object.values(results).filter(Boolean).length;
       debugLog('info', 'ROUTE', `All-routes done in ${dt}s: ${ok}/6 succeeded`);
 
-      // Notify user if VISIR failed but A* succeeded
+      // Notify user if Dijkstra failed but A* succeeded
       const astarOk = [results.astar_fuel, results.astar_balanced, results.astar_safety].some(Boolean);
-      const visirOk = [results.visir_fuel, results.visir_balanced, results.visir_safety].some(Boolean);
-      if (astarOk && !visirOk) {
-        toast.warning('VISIR routes unavailable', 'VISIR engine could not find routes for this voyage. A* routes are shown.');
+      const dijkstraOk = [results.dijkstra_fuel, results.dijkstra_balanced, results.dijkstra_safety].some(Boolean);
+      if (astarOk && !dijkstraOk) {
+        toast.warning('Dijkstra routes unavailable', 'Dijkstra engine could not find routes for this voyage. A* routes are shown.');
       }
 
       if (displayedAnalysisId && ok > 0) {
@@ -235,6 +237,11 @@ export default function HomePage() {
       debugLog('error', 'ROUTE', `All-routes optimization failed: ${error}`);
     } finally {
       setIsOptimizing(false);
+    }
+
+    // Auto-trigger Pareto analysis if enabled in settings
+    if (paretoEnabled) {
+      handlePareto();
     }
   };
 
@@ -253,7 +260,7 @@ export default function HomePage() {
         is_laden: isLaden,
         departure_time: departureTime || undefined,
         optimization_target: 'fuel',
-        grid_resolution_deg: 0.2,
+        grid_resolution_deg: gridResolution,
         max_time_factor: 1.15,
         route_waypoints: waypoints.length > 2 ? waypoints : undefined,
         baseline_fuel_mt: displayedAnalysis?.result.total_fuel_mt,
@@ -470,8 +477,6 @@ export default function HomePage() {
                   if (displayedAnalysisId) handleRunSimulation(displayedAnalysisId);
                 }}
                 displayedAnalysis={displayedAnalysis}
-                variableResolution={variableResolution}
-                onVariableResolutionChange={setVariableResolution}
                 paretoFront={paretoFront}
                 isRunningPareto={isRunningPareto}
                 onRunPareto={handlePareto}

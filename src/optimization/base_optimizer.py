@@ -1,7 +1,7 @@
 """
 Abstract base class for route optimization engines.
 
-All optimization engines (A*, VISIR, etc.) must implement this interface
+All optimization engines (A*, Dijkstra, etc.) must implement this interface
 so they can be swapped via configuration or per-request selection.
 
 ``OptimizedRoute`` lives here (rather than in route_optimizer.py) so

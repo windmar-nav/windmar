@@ -5,7 +5,7 @@ from .router import MaritimeRouter
 from .voyage import VoyageCalculator, VoyageResult, LegResult, LegWeather
 from .base_optimizer import BaseOptimizer, OptimizedRoute
 from .route_optimizer import RouteOptimizer
-from .visir_optimizer import VisirOptimizer
+from .dijkstra_optimizer import DijkstraOptimizer
 
 __all__ = [
     "VesselModel",
@@ -13,7 +13,7 @@ __all__ = [
     "BaseOptimizer",
     "OptimizedRoute",
     "RouteOptimizer",
-    "VisirOptimizer",
+    "DijkstraOptimizer",
     "MaritimeRouter",
     "VoyageCalculator",
     "VoyageResult",

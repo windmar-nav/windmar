@@ -1,13 +1,12 @@
 """
-VISIR-style route optimizer for WINDMAR.
+Dijkstra time-expanded route optimizer for WINDMAR.
 
-Implements a graph-based shortest-path algorithm inspired by the VISIR
-(VIrtual Ship Route) model developed by CMCC.  Key characteristics:
+Implements a graph-based shortest-path algorithm.  Key characteristics:
 
 * **Time-expanded graph** – the ocean is discretised into (lat, lon, time)
   nodes so the vessel encounters weather *as it evolves*.
 * **Dijkstra on fuel cost** – unlike the A* engine which uses a heuristic,
-  VISIR builds isochrone shells (equal-time fronts) and picks the
+  this engine builds isochrone shells (equal-time fronts) and picks the
   minimum-cost path through them using Dijkstra's algorithm.
 * **Voluntary speed reduction (VSR)** – in heavy seas the engine
   automatically lowers speed to keep motions within safety limits,
@@ -80,14 +79,14 @@ class _QueueEntry:
 
 
 # ---------------------------------------------------------------------------
-# VISIR Optimizer
+# Dijkstra Optimizer
 # ---------------------------------------------------------------------------
 
-class VisirOptimizer(BaseOptimizer):
+class DijkstraOptimizer(BaseOptimizer):
     """
     Graph-based Dijkstra optimizer with isochrone expansion.
 
-    This is the VISIR-style engine.  It builds a time-expanded graph and
+    This is the Dijkstra engine.  It builds a time-expanded graph and
     finds the shortest (cheapest) path using Dijkstra, with voluntary
     speed reduction in heavy weather.
     """
@@ -166,7 +165,7 @@ class VisirOptimizer(BaseOptimizer):
         if start_rc is None or end_rc is None:
             raise ValueError("Origin or destination outside grid bounds")
 
-        logger.info(f"VISIR start_rc={start_rc} -> {grid[start_rc]}, end_rc={end_rc} -> {grid[end_rc]}")
+        logger.info(f"Dijkstra start_rc={start_rc} -> {grid[start_rc]}, end_rc={end_rc} -> {grid[end_rc]}")
 
         # 3. Estimate max time steps needed
         #    Chebyshev distance × 2 to account for routing around obstacles
@@ -175,7 +174,7 @@ class VisirOptimizer(BaseOptimizer):
         min_speed = self.SPEED_RANGE_KTS[0]
         gc_time_steps = int(math.ceil((gc_dist / min_speed) * 1.5 / self.time_step_hours))
         max_time_steps = max(chebyshev * 2, gc_time_steps, 8)
-        logger.info(f"VISIR gc_dist={gc_dist:.0f}nm, max_time_steps={max_time_steps}, "
+        logger.info(f"Dijkstra gc_dist={gc_dist:.0f}nm, max_time_steps={max_time_steps}, "
                      f"max_voyage_hours={gc_dist / max(calm_speed_kts, 0.1) * max_time_factor:.1f}h")
 
         # 4. Compute time budget: direct time at calm speed × max_time_factor
@@ -198,7 +197,7 @@ class VisirOptimizer(BaseOptimizer):
 
         if path is None:
             raise ValueError(
-                f"VISIR: no route found after exploring {explored} nodes"
+                f"Dijkstra: no route found after exploring {explored} nodes"
             )
 
         # 5. Extract waypoints
@@ -517,7 +516,7 @@ class VisirOptimizer(BaseOptimizer):
                     heapq.heappush(pq, _QueueEntry(cost=f_score, node=nb_node, speed_kts=chosen_speed))
 
         reason = "max_nodes" if explored >= max_nodes else "pq_empty"
-        logger.warning(f"VISIR search failed: reason={reason}, explored={explored}, "
+        logger.warning(f"Dijkstra search failed: reason={reason}, explored={explored}, "
                        f"pq_size={len(pq)}, cost_so_far_size={len(cost_so_far)}, "
                        f"max_time_steps={max_time_steps}")
         return None, explored

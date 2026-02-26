@@ -171,6 +171,7 @@ async def calculate_voyage(request: VoyageRequest):
         is_laden=request.is_laden,
         departure_time=departure,
         weather_provider=wp_func,
+        variable_speed=request.variable_speed,
     )
     logger.info(f"Voyage calculation completed in {_time.monotonic()-t_start:.1f}s: {len(result.legs)} legs, {result.total_distance_nm:.0f}nm, {result.total_fuel_mt:.1f}mt fuel")
 
@@ -252,6 +253,8 @@ async def calculate_voyage(request: VoyageRequest):
         legs=legs_response,
         calm_speed_kts=request.calm_speed_kts,
         is_laden=request.is_laden,
+        variable_speed_enabled=result.variable_speed_enabled,
+        speed_profile=result.speed_profile if result.speed_profile else None,
         data_sources=data_sources_summary,
     )
 

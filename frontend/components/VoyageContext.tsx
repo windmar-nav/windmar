@@ -54,6 +54,18 @@ interface VoyageContextValue {
   lastViewport: ViewportState | null;
   setLastViewport: (v: ViewportState) => void;
 
+  // Optimization settings (persisted across navigation)
+  gridResolution: number;
+  setGridResolution: (v: number) => void;
+  variableResolution: boolean;
+  setVariableResolution: (v: boolean) => void;
+  paretoEnabled: boolean;
+  setParetoEnabled: (v: boolean) => void;
+
+  // Variable speed (voyage calculation)
+  variableSpeed: boolean;
+  setVariableSpeed: (v: boolean) => void;
+
   // Sync speed from backend vessel specs
   refreshSpecs: () => Promise<void>;
 }
@@ -71,6 +83,12 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
   const [isDrawingZone, setIsDrawingZone] = useState(false);
   const [weatherLayer, setWeatherLayer] = useState<WeatherLayerType>('none');
   const [lastViewport, setLastViewport] = useState<ViewportState | null>(null);
+
+  // Optimization settings
+  const [gridResolution, setGridResolution] = useState(0.2);
+  const [variableResolution, setVariableResolution] = useState(true);
+  const [paretoEnabled, setParetoEnabled] = useState(false);
+  const [variableSpeed, setVariableSpeed] = useState(false);
 
   // Route state (persisted)
   const [waypoints, setWaypoints] = useState<Position[]>([]);
@@ -128,6 +146,10 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
         isDrawingZone, setIsDrawingZone,
         weatherLayer, setWeatherLayer,
         lastViewport, setLastViewport,
+        gridResolution, setGridResolution,
+        variableResolution, setVariableResolution,
+        paretoEnabled, setParetoEnabled,
+        variableSpeed, setVariableSpeed,
         refreshSpecs,
       }}
     >

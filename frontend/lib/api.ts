@@ -338,6 +338,7 @@ export interface VoyageRequest {
   is_laden: boolean;
   departure_time?: string;
   use_weather: boolean;
+  variable_speed?: boolean;
 }
 
 export interface LegResult {
@@ -387,6 +388,9 @@ export interface VoyageResponse {
   legs: LegResult[];
   calm_speed_kts: number;
   is_laden: boolean;
+  // Variable speed optimization
+  variable_speed_enabled?: boolean;
+  speed_profile?: number[];
   // Data source summary
   data_sources?: DataSourceSummary;
 }
@@ -606,8 +610,8 @@ export interface OptimizationRequest {
   baseline_fuel_mt?: number;
   baseline_time_hours?: number;
   baseline_distance_nm?: number;
-  // Engine selection (astar or visir)
-  engine?: 'astar' | 'visir';
+  // Engine selection (astar or dijkstra)
+  engine?: 'astar' | 'dijkstra';
   // Safety weight: 0=fuel optimal, 1=safety priority
   safety_weight?: number;
   // Pareto front: run A* with multiple lambda values
@@ -714,11 +718,11 @@ export interface OptimizationResponse {
 }
 
 // Dual-engine types
-export type EngineType = 'astar' | 'visir';
+export type EngineType = 'astar' | 'dijkstra';
 
 export type OptimizedRouteKey =
   | 'astar_fuel' | 'astar_balanced' | 'astar_safety'
-  | 'visir_fuel' | 'visir_balanced' | 'visir_safety';
+  | 'dijkstra_fuel' | 'dijkstra_balanced' | 'dijkstra_safety';
 
 export type AllOptimizationResults = Record<OptimizedRouteKey, OptimizationResponse | null>;
 
@@ -727,18 +731,18 @@ export interface RouteVisibility {
   astar_fuel: boolean;
   astar_balanced: boolean;
   astar_safety: boolean;
-  visir_fuel: boolean;
-  visir_balanced: boolean;
-  visir_safety: boolean;
+  dijkstra_fuel: boolean;
+  dijkstra_balanced: boolean;
+  dijkstra_safety: boolean;
 }
 
 export const ROUTE_STYLES: Record<OptimizedRouteKey, { color: string; dashArray: string; label: string }> = {
   astar_fuel:     { color: '#5ab87a', dashArray: '8, 4',  label: 'A* Fuel' },
   astar_balanced: { color: '#7bc89a', dashArray: '12, 6', label: 'A* Balanced' },
   astar_safety:   { color: '#a5d4b5', dashArray: '4, 4',  label: 'A* Safety' },
-  visir_fuel:     { color: '#d4885a', dashArray: '8, 4',  label: 'VISIR Fuel' },
-  visir_balanced: { color: '#dda07c', dashArray: '12, 6', label: 'VISIR Balanced' },
-  visir_safety:   { color: '#e6c0a0', dashArray: '4, 4',  label: 'VISIR Safety' },
+  dijkstra_fuel:     { color: '#d4885a', dashArray: '8, 4',  label: 'Dijkstra Fuel' },
+  dijkstra_balanced: { color: '#dda07c', dashArray: '12, 6', label: 'Dijkstra Balanced' },
+  dijkstra_safety:   { color: '#e6c0a0', dashArray: '4, 4',  label: 'Dijkstra Safety' },
 };
 
 export const DEFAULT_ROUTE_VISIBILITY: RouteVisibility = {
@@ -746,14 +750,14 @@ export const DEFAULT_ROUTE_VISIBILITY: RouteVisibility = {
   astar_fuel: true,
   astar_balanced: false,
   astar_safety: false,
-  visir_fuel: true,
-  visir_balanced: false,
-  visir_safety: false,
+  dijkstra_fuel: true,
+  dijkstra_balanced: false,
+  dijkstra_safety: false,
 };
 
 export const EMPTY_ALL_RESULTS: AllOptimizationResults = {
   astar_fuel: null, astar_balanced: null, astar_safety: null,
-  visir_fuel: null, visir_balanced: null, visir_safety: null,
+  dijkstra_fuel: null, dijkstra_balanced: null, dijkstra_safety: null,
 };
 
 // Vessel types

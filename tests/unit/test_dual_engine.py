@@ -1,11 +1,11 @@
 """
-Tests for the dual-engine optimizer: BaseOptimizer, RouteOptimizer, VisirOptimizer.
+Tests for the dual-engine optimizer: BaseOptimizer, RouteOptimizer, DijkstraOptimizer.
 
 Covers:
 - Shared geometry helpers in BaseOptimizer
 - Path smoothing
 - Route statistics calculation
-- VISIR optimizer (grid, Dijkstra, VSR, zone enforcement)
+- Dijkstra optimizer (grid, Dijkstra, VSR, zone enforcement)
 - Engine parity (same inputs → comparable outputs)
 """
 
@@ -16,7 +16,7 @@ from unittest.mock import MagicMock, patch
 
 from src.optimization.base_optimizer import BaseOptimizer, OptimizedRoute
 from src.optimization.route_optimizer import RouteOptimizer
-from src.optimization.visir_optimizer import VisirOptimizer
+from src.optimization.dijkstra_optimizer import DijkstraOptimizer
 from src.optimization.vessel_model import VesselModel, VesselSpecs
 from src.optimization.voyage import LegWeather
 
@@ -36,8 +36,8 @@ def astar(vessel_model):
 
 
 @pytest.fixture
-def visir(vessel_model):
-    return VisirOptimizer(vessel_model=vessel_model)
+def dijkstra(vessel_model):
+    return DijkstraOptimizer(vessel_model=vessel_model)
 
 
 @pytest.fixture
@@ -186,15 +186,15 @@ class TestRouteStats:
         assert safety['status'] == 'safe'
         assert len(speeds) == 1
 
-    def test_multi_leg_stats(self, visir, calm_weather):
+    def test_multi_leg_stats(self, dijkstra, calm_weather):
         waypoints = [(35.0, 10.0), (35.5, 10.5), (36.0, 11.0)]
-        fuel, time_h, dist, legs, safety, speeds = visir.calculate_route_stats(
+        fuel, time_h, dist, legs, safety, speeds = dijkstra.calculate_route_stats(
             waypoints=waypoints,
             departure_time=datetime(2025, 6, 1),
             calm_speed_kts=12.0,
             is_laden=True,
             weather_provider=calm_weather,
-            safety_constraints=visir.safety_constraints,
+            safety_constraints=dijkstra.safety_constraints,
         )
         assert len(legs) == 2
         assert len(speeds) == 2
@@ -220,13 +220,13 @@ class TestRouteStats:
 
 
 # ---------------------------------------------------------------------------
-# VISIR Optimizer
+# Dijkstra Optimizer
 # ---------------------------------------------------------------------------
 
-class TestVisirOptimizer:
+class TestDijkstraOptimizer:
 
-    def test_grid_construction(self, visir):
-        grid, bounds = visir._build_spatial_grid(
+    def test_grid_construction(self, dijkstra):
+        grid, bounds = dijkstra._build_spatial_grid(
             origin=(38.0, 3.0), destination=(36.0, 10.0)
         )
         assert len(grid) > 0
@@ -235,27 +235,27 @@ class TestVisirOptimizer:
         assert bounds['num_rows'] > 0
         assert bounds['num_cols'] > 0
 
-    def test_nearest_cell_direct_hit(self, visir):
-        grid, bounds = visir._build_spatial_grid(
+    def test_nearest_cell_direct_hit(self, dijkstra):
+        grid, bounds = dijkstra._build_spatial_grid(
             origin=(38.0, 3.0), destination=(36.0, 10.0)
         )
         # Origin should map to a cell
-        rc = visir._nearest_cell((38.0, 3.0), grid, bounds)
+        rc = dijkstra._nearest_cell((38.0, 3.0), grid, bounds)
         assert rc is not None
         assert rc in grid
 
-    def test_nearest_cell_fallback(self, visir):
+    def test_nearest_cell_fallback(self, dijkstra):
         """Point on land should fall back to nearest ocean cell."""
-        grid, bounds = visir._build_spatial_grid(
+        grid, bounds = dijkstra._build_spatial_grid(
             origin=(38.0, 3.0), destination=(36.0, 10.0)
         )
         # Sardinia interior — should fall back
-        rc = visir._nearest_cell((40.0, 9.0), grid, bounds)
+        rc = dijkstra._nearest_cell((40.0, 9.0), grid, bounds)
         assert rc is not None
         assert rc in grid
 
-    def test_calm_weather_route(self, visir, calm_weather):
-        result = visir.optimize_route(
+    def test_calm_weather_route(self, dijkstra, calm_weather):
+        result = dijkstra.optimize_route(
             origin=(38.0, 3.0),
             destination=(36.0, 10.0),
             departure_time=datetime(2025, 6, 1),
@@ -272,9 +272,9 @@ class TestVisirOptimizer:
         assert result.optimization_time_ms > 0
         assert result.variable_speed_enabled is True
 
-    def test_calm_route_reasonable_values(self, visir, calm_weather):
+    def test_calm_route_reasonable_values(self, dijkstra, calm_weather):
         """Route ~360nm at 12kts should take ~30h and use reasonable fuel."""
-        result = visir.optimize_route(
+        result = dijkstra.optimize_route(
             origin=(38.0, 3.0),
             destination=(36.0, 10.0),
             departure_time=datetime(2025, 6, 1),
@@ -286,10 +286,10 @@ class TestVisirOptimizer:
         assert 20 < result.total_time_hours < 100
         assert 1 < result.total_fuel_mt < 40
 
-    def test_vsr_in_heavy_weather(self, visir, stormy_weather):
-        """In heavy weather, VISIR should either find a slower route or fail."""
+    def test_vsr_in_heavy_weather(self, dijkstra, stormy_weather):
+        """In heavy weather, Dijkstra should either find a slower route or fail."""
         try:
-            result = visir.optimize_route(
+            result = dijkstra.optimize_route(
                 origin=(38.0, 3.0),
                 destination=(36.0, 10.0),
                 departure_time=datetime(2025, 6, 1),
@@ -303,9 +303,9 @@ class TestVisirOptimizer:
             # No safe route — expected in storm conditions
             pass
 
-    def test_best_edge_calm_returns_result(self, visir):
+    def test_best_edge_calm_returns_result(self, dijkstra):
         wx = LegWeather()
-        edge = visir._best_edge(
+        edge = dijkstra._best_edge(
             dist_nm=30.0, bearing_deg=90.0, weather=wx,
             calm_speed_kts=12.0, is_laden=True,
         )
@@ -315,25 +315,25 @@ class TestVisirOptimizer:
         assert hours > 0
         assert 6.0 <= speed <= 18.0
 
-    def test_best_edge_zone_penalty(self, visir):
+    def test_best_edge_zone_penalty(self, dijkstra):
         """High zone factor should increase cost."""
         wx = LegWeather()
-        edge_normal = visir._best_edge(
+        edge_normal = dijkstra._best_edge(
             dist_nm=30.0, bearing_deg=90.0, weather=wx,
             calm_speed_kts=12.0, is_laden=True, zone_factor=1.0,
         )
-        edge_penalty = visir._best_edge(
+        edge_penalty = dijkstra._best_edge(
             dist_nm=30.0, bearing_deg=90.0, weather=wx,
             calm_speed_kts=12.0, is_laden=True, zone_factor=2.0,
         )
         assert edge_normal is not None and edge_penalty is not None
         assert edge_penalty[0] > edge_normal[0]  # higher cost
 
-    def test_best_edge_exclusion_zone(self, visir):
+    def test_best_edge_exclusion_zone(self, dijkstra):
         """Infinite zone factor should be handled by caller (Dijkstra skips)."""
         # Zone exclusion is now handled in Dijkstra via cache, not in _best_edge
         wx = LegWeather()
-        edge = visir._best_edge(
+        edge = dijkstra._best_edge(
             dist_nm=30.0, bearing_deg=90.0, weather=wx,
             calm_speed_kts=12.0, is_laden=True, zone_factor=1.0,
         )
@@ -379,7 +379,7 @@ class TestRouteOptimizer:
             is_laden=True,
             weather_provider=calm_weather,
         )
-        # RouteOptimizer still has self.weather_provider pattern (only VISIR was fixed)
+        # RouteOptimizer still has self.weather_provider pattern (only Dijkstra was fixed)
         # This test documents current state — A* thread safety is a future improvement
 
 
@@ -389,7 +389,7 @@ class TestRouteOptimizer:
 
 class TestEngineParity:
 
-    def test_both_engines_return_optimized_route(self, astar, visir, calm_weather):
+    def test_both_engines_return_optimized_route(self, astar, dijkstra, calm_weather):
         """Both engines should return the same dataclass type."""
         origin = (38.0, 3.0)
         dest = (36.0, 10.0)
@@ -401,12 +401,12 @@ class TestEngineParity:
         )
 
         r_astar = astar.optimize_route(origin=origin, destination=dest, **kwargs)
-        r_visir = visir.optimize_route(origin=origin, destination=dest, **kwargs)
+        r_dijkstra = dijkstra.optimize_route(origin=origin, destination=dest, **kwargs)
 
         assert isinstance(r_astar, OptimizedRoute)
-        assert isinstance(r_visir, OptimizedRoute)
+        assert isinstance(r_dijkstra, OptimizedRoute)
 
-    def test_both_engines_comparable_fuel(self, astar, visir, calm_weather):
+    def test_both_engines_comparable_fuel(self, astar, dijkstra, calm_weather):
         """In calm weather, both engines should produce broadly similar fuel."""
         origin = (38.0, 3.0)
         dest = (36.0, 10.0)
@@ -418,14 +418,14 @@ class TestEngineParity:
         )
 
         r_astar = astar.optimize_route(origin=origin, destination=dest, **kwargs)
-        r_visir = visir.optimize_route(origin=origin, destination=dest, **kwargs)
+        r_dijkstra = dijkstra.optimize_route(origin=origin, destination=dest, **kwargs)
 
         # Both should be positive and within 5x of each other
         assert r_astar.total_fuel_mt > 0
-        assert r_visir.total_fuel_mt > 0
-        ratio = r_astar.total_fuel_mt / r_visir.total_fuel_mt
+        assert r_dijkstra.total_fuel_mt > 0
+        ratio = r_astar.total_fuel_mt / r_dijkstra.total_fuel_mt
         assert 0.2 < ratio < 5.0
 
-    def test_engine_name_property(self, astar, visir):
+    def test_engine_name_property(self, astar, dijkstra):
         assert astar.engine_name == "RouteOptimizer"
-        assert visir.engine_name == "VisirOptimizer"
+        assert dijkstra.engine_name == "DijkstraOptimizer"

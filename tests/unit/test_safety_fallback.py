@@ -13,7 +13,7 @@ import pytest
 from src.optimization.seakeeping import create_default_safety_constraints
 from src.optimization.base_optimizer import OptimizedRoute
 from src.optimization.route_optimizer import RouteOptimizer
-from src.optimization.visir_optimizer import VisirOptimizer
+from src.optimization.dijkstra_optimizer import DijkstraOptimizer
 
 
 @pytest.fixture
@@ -165,37 +165,37 @@ class TestSafetyDegraded:
 # ---------------------------------------------------------------------------
 
 class TestCourseChangePenalty:
-    """Tests for _course_change_penalty thresholds (shared by A* and VISIR)."""
+    """Tests for _course_change_penalty thresholds (shared by A* and Dijkstra)."""
 
-    @pytest.mark.parametrize("engine_cls", [RouteOptimizer, VisirOptimizer])
+    @pytest.mark.parametrize("engine_cls", [RouteOptimizer, DijkstraOptimizer])
     def test_zero_turn_no_penalty(self, engine_cls):
         assert engine_cls._course_change_penalty(90.0, 90.0) == 0.0
 
-    @pytest.mark.parametrize("engine_cls", [RouteOptimizer, VisirOptimizer])
+    @pytest.mark.parametrize("engine_cls", [RouteOptimizer, DijkstraOptimizer])
     def test_small_turn_no_penalty(self, engine_cls):
         """Turns <= 15 degrees have zero penalty."""
         assert engine_cls._course_change_penalty(90.0, 105.0) == 0.0
         assert engine_cls._course_change_penalty(90.0, 75.0) == 0.0
 
-    @pytest.mark.parametrize("engine_cls", [RouteOptimizer, VisirOptimizer])
+    @pytest.mark.parametrize("engine_cls", [RouteOptimizer, DijkstraOptimizer])
     def test_45_degree_turn(self, engine_cls):
         """45 degree turn produces 0.02 penalty."""
         penalty = engine_cls._course_change_penalty(0.0, 45.0)
         assert abs(penalty - 0.02) < 1e-6
 
-    @pytest.mark.parametrize("engine_cls", [RouteOptimizer, VisirOptimizer])
+    @pytest.mark.parametrize("engine_cls", [RouteOptimizer, DijkstraOptimizer])
     def test_90_degree_turn(self, engine_cls):
         """90 degree turn produces 0.08 penalty."""
         penalty = engine_cls._course_change_penalty(0.0, 90.0)
         assert abs(penalty - 0.08) < 1e-6
 
-    @pytest.mark.parametrize("engine_cls", [RouteOptimizer, VisirOptimizer])
+    @pytest.mark.parametrize("engine_cls", [RouteOptimizer, DijkstraOptimizer])
     def test_180_degree_reversal(self, engine_cls):
         """180 degree reversal produces 0.20 (max) penalty."""
         penalty = engine_cls._course_change_penalty(0.0, 180.0)
         assert abs(penalty - 0.20) < 1e-6
 
-    @pytest.mark.parametrize("engine_cls", [RouteOptimizer, VisirOptimizer])
+    @pytest.mark.parametrize("engine_cls", [RouteOptimizer, DijkstraOptimizer])
     def test_wrap_around(self, engine_cls):
         """Penalty handles wrap-around correctly (350 -> 10 = 20 degrees)."""
         penalty = engine_cls._course_change_penalty(350.0, 10.0)

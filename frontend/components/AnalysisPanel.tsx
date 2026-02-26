@@ -4,11 +4,10 @@ import { useState, useRef, useEffect } from 'react';
 import {
   Navigation, Clock, Fuel, Ship, Loader2, Trash2,
   Upload, Play, Zap, Dice5, ExternalLink, Eye, EyeOff,
-  PenLine, MapPin, Download, FolderOpen, Check, X, CheckCircle, Grid3X3, TrendingUp,
+  PenLine, MapPin, Download, FolderOpen, Check, X, CheckCircle, TrendingUp, Settings,
 } from 'lucide-react';
 import Link from 'next/link';
 import RouteImport, { SampleRTZButton } from '@/components/RouteImport';
-import SettingsPanel from '@/components/SettingsPanel';
 import { useVoyage } from '@/components/VoyageContext';
 import { DEMO_MODE } from '@/lib/demoMode';
 import {
@@ -40,9 +39,6 @@ interface AnalysisPanelProps {
   isSimulating: boolean;
   onRunSimulations: () => void;
   displayedAnalysis: AnalysisEntry | null;
-  // Phase 3: Variable resolution + Pareto
-  variableResolution: boolean;
-  onVariableResolutionChange: (v: boolean) => void;
   paretoFront: ParetoSolution[] | null;
   isRunningPareto: boolean;
   onRunPareto: () => void;
@@ -71,13 +67,11 @@ export default function AnalysisPanel({
   isSimulating,
   onRunSimulations,
   displayedAnalysis,
-  variableResolution,
-  onVariableResolutionChange,
   paretoFront,
   isRunningPareto,
   onRunPareto,
 }: AnalysisPanelProps) {
-  const { departureTime, setDepartureTime, calmSpeed, isLaden } = useVoyage();
+  const { departureTime, setDepartureTime, calmSpeed, isLaden, variableSpeed, setVariableSpeed } = useVoyage();
   const [showImport, setShowImport] = useState(false);
   const [isRenaming, setIsRenaming] = useState(false);
   const [renameValue, setRenameValue] = useState('');
@@ -241,6 +235,20 @@ export default function AnalysisPanel({
               </div>
             </div>
 
+            {/* ── Variable Speed toggle ── */}
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={variableSpeed}
+                onChange={(e) => setVariableSpeed(e.target.checked)}
+                className="accent-ocean-500 w-3.5 h-3.5"
+              />
+              <div>
+                <span className="text-xs text-gray-300">Variable speed</span>
+                <span className="text-[10px] text-gray-500 ml-1.5">optimize speed per leg</span>
+              </div>
+            </label>
+
             {/* ── Calculate Voyage ── */}
             <button
               onClick={onCalculate}
@@ -302,6 +310,33 @@ export default function AnalysisPanel({
                   />
                 </div>
 
+                {/* Speed profile summary */}
+                {displayedAnalysis.result.variable_speed_enabled && displayedAnalysis.result.speed_profile && (
+                  <div className="mt-1 p-2 rounded bg-ocean-500/10 border border-ocean-500/20">
+                    <div className="text-[10px] text-ocean-400 font-medium mb-1">Variable Speed Profile</div>
+                    <div className="flex items-end gap-px h-6">
+                      {displayedAnalysis.result.speed_profile.map((spd, i) => {
+                        const min = Math.min(...displayedAnalysis.result.speed_profile!);
+                        const max = Math.max(...displayedAnalysis.result.speed_profile!);
+                        const range = max - min || 1;
+                        const h = 20 + ((spd - min) / range) * 80; // 20-100%
+                        return (
+                          <div
+                            key={i}
+                            className="flex-1 bg-ocean-400/60 rounded-t-sm"
+                            style={{ height: `${h}%` }}
+                            title={`Leg ${i + 1}: ${spd} kts`}
+                          />
+                        );
+                      })}
+                    </div>
+                    <div className="flex justify-between text-[9px] text-gray-500 mt-0.5">
+                      <span>{Math.min(...displayedAnalysis.result.speed_profile).toFixed(1)} kts</span>
+                      <span>{Math.max(...displayedAnalysis.result.speed_profile).toFixed(1)} kts</span>
+                    </div>
+                  </div>
+                )}
+
                 {/* View Full Analysis link */}
                 <Link
                   href={`/analysis?id=${displayedAnalysis.id}`}
@@ -313,34 +348,35 @@ export default function AnalysisPanel({
               </div>
             )}
 
-            {/* ── Optimization Settings ── */}
-            <SettingsPanel
-              settings={{
-                gridResolution: 0.2,
-                variableResolution,
-                pareto: false,
-              }}
-              onSettingsChange={(s) => {
-                onVariableResolutionChange(s.variableResolution);
-              }}
-              waypoints={waypoints}
-              calmSpeed={calmSpeed}
-              isLaden={isLaden}
-            />
+            {/* ── Optimization Settings link ── */}
+            <Link
+              href="/settings"
+              className="flex items-center gap-2 px-3 py-2 rounded-lg text-xs text-gray-400 hover:text-gray-200 hover:bg-white/5 border border-white/10 transition-colors"
+            >
+              <Settings className="w-3.5 h-3.5" />
+              <span>Settings</span>
+              <span className="ml-auto text-gray-600">&rarr;</span>
+            </Link>
 
             {/* ── Optimize Route ── */}
-            <button
-              onClick={onOptimize}
-              disabled={isOptimizing || !hasRoute}
-              className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-ocean-500/20 text-ocean-400 hover:bg-ocean-500/30 transition-colors disabled:opacity-50"
-            >
-              {isOptimizing ? (
-                <Loader2 className="w-4 h-4 animate-spin" />
-              ) : (
-                <Zap className="w-4 h-4" />
+            <div className="space-y-1">
+              <button
+                onClick={onOptimize}
+                disabled={isOptimizing || !hasRoute || !hasBaseline}
+                className="w-full flex items-center justify-center gap-2 px-4 py-2.5 rounded-lg text-sm font-medium bg-ocean-500/20 text-ocean-400 hover:bg-ocean-500/30 transition-colors disabled:opacity-50"
+                title={!hasBaseline ? 'Calculate voyage first to establish a baseline' : undefined}
+              >
+                {isOptimizing ? (
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                ) : (
+                  <Zap className="w-4 h-4" />
+                )}
+                {isOptimizing ? 'Optimizing...' : 'Optimize Route'}
+              </button>
+              {hasRoute && !hasBaseline && !isOptimizing && (
+                <p className="text-[10px] text-gray-500 text-center">Calculate voyage first to establish a baseline</p>
               )}
-              {isOptimizing ? 'Optimizing...' : 'Optimize Route'}
-            </button>
+            </div>
 
             {/* ── Optimization Results ── */}
             {hasOptimized && (() => {
@@ -354,7 +390,7 @@ export default function AnalysisPanel({
               return (
                 <div className="space-y-2">
                   <div className="text-xs font-medium text-gray-300">Optimized Routes</div>
-                  {(['astar', 'visir'] as const).map(engine => {
+                  {(['astar', 'dijkstra'] as const).map(engine => {
                     const keys = [`${engine}_fuel`, `${engine}_balanced`, `${engine}_safety`] as OptimizedRouteKey[];
                     const hasAny = keys.some(k => allResults[k]);
                     if (!hasAny) return null;
@@ -366,7 +402,7 @@ export default function AnalysisPanel({
                     return (
                       <div key={engine} className="space-y-1">
                         <div className="text-[10px] text-gray-500 uppercase tracking-wider">
-                          {engine === 'astar' ? 'A*' : 'VISIR'}
+                          {engine === 'astar' ? 'A*' : 'Dijkstra'}
                         </div>
                         {visibleKeys.map(key => {
                           const r = allResults[key]!;

@@ -99,6 +99,14 @@ class VoyageResult:
     calm_speed_kts: float
     is_laden: bool
 
+    # Variable speed optimization
+    variable_speed_enabled: bool = False
+    speed_profile: List[float] = None  # type: ignore[assignment]
+
+    def __post_init__(self):
+        if self.speed_profile is None:
+            self.speed_profile = []
+
 
 class VoyageCalculator:
     """
@@ -126,6 +134,11 @@ class VoyageCalculator:
             specs = vessel_specs or VesselSpecs()
             self.vessel_model = VesselModel(specs=specs)
 
+    # Speed optimization constants
+    SPEED_STEPS = 13
+    MIN_SPEED_FRACTION = 0.6  # Test down to 60% of calm speed
+    LAMBDA_TIME = 1.5  # Time penalty coefficient (MT-equivalent per hour) — prevents extreme slow-steaming
+
     def calculate_voyage(
         self,
         route: Route,
@@ -133,6 +146,7 @@ class VoyageCalculator:
         is_laden: bool,
         departure_time: datetime,
         weather_provider: Optional[callable] = None,
+        variable_speed: bool = False,
     ) -> VoyageResult:
         """
         Calculate complete voyage with per-leg details.
@@ -143,11 +157,13 @@ class VoyageCalculator:
             is_laden: True if laden, False if ballast
             departure_time: Voyage start time
             weather_provider: Optional function(lat, lon, time) -> LegWeather
+            variable_speed: If True, optimize speed per-leg to minimize fuel
 
         Returns:
             VoyageResult with per-leg calculations
         """
         legs_result = []
+        speed_profile = []
         current_time = departure_time
         total_fuel = 0.0
 
@@ -164,31 +180,52 @@ class VoyageCalculator:
             else:
                 weather = LegWeather()  # Calm conditions
 
-            # Calculate speed through water with weather effects
-            stw_kts, speed_loss_pct, fuel_result = self._calculate_leg_performance(
-                calm_speed_kts=calm_speed_kts,
-                is_laden=is_laden,
-                bearing_deg=leg.bearing_deg,
-                weather=weather,
-                distance_nm=leg.distance_nm,
-            )
-
-            # Calculate SOG considering current
-            sog_kts = self._calculate_sog(
-                stw_kts=stw_kts,
-                heading_deg=leg.bearing_deg,
-                current_speed_ms=weather.current_speed_ms,
-                current_dir_deg=weather.current_dir_deg,
-            )
-
-            # Recompute speed loss from SOG to reflect total impact (weather + current)
-            speed_loss_pct = max(0.0, ((calm_speed_kts - sog_kts) / calm_speed_kts) * 100)
-
-            # Calculate time for this leg
-            if sog_kts > 0:
-                leg_time_hours = leg.distance_nm / sog_kts
+            if variable_speed:
+                # Per-leg speed optimization: find speed that minimizes fuel/time trade-off
+                opt_speed, fuel_mt, power_kw, time_hours = self._find_optimal_leg_speed(
+                    calm_speed_kts=calm_speed_kts,
+                    is_laden=is_laden,
+                    bearing_deg=leg.bearing_deg,
+                    weather=weather,
+                    distance_nm=leg.distance_nm,
+                )
+                stw_kts = opt_speed
+                sog_kts = self._calculate_sog(
+                    stw_kts=stw_kts,
+                    heading_deg=leg.bearing_deg,
+                    current_speed_ms=weather.current_speed_ms,
+                    current_dir_deg=weather.current_dir_deg,
+                )
+                speed_loss_pct = max(0.0, ((calm_speed_kts - sog_kts) / calm_speed_kts) * 100)
+                if sog_kts > 0:
+                    leg_time_hours = leg.distance_nm / sog_kts
+                else:
+                    leg_time_hours = time_hours
+                fuel_result = {'fuel_mt': fuel_mt, 'power_kw': power_kw, 'resistance_breakdown_kn': {}}
             else:
-                leg_time_hours = float('inf')
+                # Fixed speed: use calm_speed_kts with weather-induced speed loss
+                stw_kts, speed_loss_pct, fuel_result = self._calculate_leg_performance(
+                    calm_speed_kts=calm_speed_kts,
+                    is_laden=is_laden,
+                    bearing_deg=leg.bearing_deg,
+                    weather=weather,
+                    distance_nm=leg.distance_nm,
+                )
+                opt_speed = stw_kts
+
+                sog_kts = self._calculate_sog(
+                    stw_kts=stw_kts,
+                    heading_deg=leg.bearing_deg,
+                    current_speed_ms=weather.current_speed_ms,
+                    current_dir_deg=weather.current_dir_deg,
+                )
+                speed_loss_pct = max(0.0, ((calm_speed_kts - sog_kts) / calm_speed_kts) * 100)
+                if sog_kts > 0:
+                    leg_time_hours = leg.distance_nm / sog_kts
+                else:
+                    leg_time_hours = float('inf')
+
+            speed_profile.append(round(opt_speed, 1))
 
             arrival_time = current_time + timedelta(hours=leg_time_hours)
 
@@ -239,7 +276,83 @@ class VoyageCalculator:
             },
             calm_speed_kts=calm_speed_kts,
             is_laden=is_laden,
+            variable_speed_enabled=variable_speed,
+            speed_profile=speed_profile,
         )
+
+    def _find_optimal_leg_speed(
+        self,
+        calm_speed_kts: float,
+        is_laden: bool,
+        bearing_deg: float,
+        weather: LegWeather,
+        distance_nm: float,
+    ) -> Tuple[float, float, float, float]:
+        """
+        Find optimal speed for a leg that minimizes fuel/time trade-off.
+
+        Tests speeds from MIN_SPEED_FRACTION * calm_speed to calm_speed,
+        picks the one with lowest combined score (fuel + lambda * time).
+
+        Returns:
+            Tuple of (optimal_speed_kts, fuel_mt, power_kw, time_hours)
+        """
+        min_speed = max(calm_speed_kts * self.MIN_SPEED_FRACTION, 4.0)
+        max_speed = calm_speed_kts
+
+        speeds = np.linspace(min_speed, max_speed, self.SPEED_STEPS)
+
+        # Build weather dict for vessel model
+        weather_dict = None
+        if weather.wind_speed_ms > 0 or weather.sig_wave_height_m > 0:
+            weather_dict = {
+                'wind_speed_ms': weather.wind_speed_ms,
+                'wind_dir_deg': weather.wind_dir_deg,
+                'heading_deg': bearing_deg,
+            }
+            if weather.sig_wave_height_m > 0:
+                weather_dict['sig_wave_height_m'] = weather.sig_wave_height_m
+                weather_dict['wave_dir_deg'] = weather.wave_dir_deg
+
+        # Current effect (constant across speeds)
+        current_effect_kts = 0.0
+        if weather.current_speed_ms > 0:
+            current_kts = weather.current_speed_ms * 1.94384
+            rel_angle = abs(((weather.current_dir_deg - bearing_deg) + 180) % 360 - 180)
+            current_effect_kts = current_kts * np.cos(np.radians(rel_angle))
+
+        best_speed = calm_speed_kts
+        best_fuel = float('inf')
+        best_power = 0.0
+        best_time = float('inf')
+        best_score = float('inf')
+
+        for spd in speeds:
+            result = self.vessel_model.calculate_fuel_consumption(
+                speed_kts=spd,
+                is_laden=is_laden,
+                weather=weather_dict,
+                distance_nm=distance_nm,
+            )
+
+            sog = spd + current_effect_kts
+            if sog <= 1.0:
+                continue
+
+            time_h = distance_nm / sog
+            fuel = result['fuel_mt']
+
+            # Score: fuel + time penalty (prevents extreme slow-steaming)
+            score = fuel + self.LAMBDA_TIME * time_h
+
+            if score < best_score:
+                best_score = score
+                best_speed = spd
+                best_fuel = fuel
+                best_power = result['power_kw']
+                best_time = time_h
+
+        return best_speed, best_fuel, best_power, best_time
 
     def _calculate_leg_performance(
         self,

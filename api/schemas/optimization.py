@@ -28,7 +28,7 @@ class OptimizationRequest(BaseModel):
     grid_resolution_deg: float = Field(0.2, ge=0.05, le=2.0, description="Grid resolution in degrees")
     max_time_factor: float = Field(1.15, ge=1.0, le=2.0,
         description="Max voyage time as multiple of direct time (1.15 = 15% longer allowed)")
-    engine: Literal["astar", "visir"] = Field("astar", description="Optimization engine: 'astar' or 'visir'")
+    engine: Literal["astar", "dijkstra"] = Field("astar", description="Optimization engine: 'astar' or 'dijkstra'")
     # All user waypoints for multi-segment optimization (respects intermediate via-points)
     route_waypoints: Optional[List[Position]] = Field(None, max_length=50)
     # Baseline from voyage calculation (enables dual-strategy comparison)
@@ -138,7 +138,7 @@ class OptimizationResponse(BaseModel):
     variable_speed_enabled: bool
 
     # Engine used
-    engine: Literal["astar", "visir"] = "astar"
+    engine: Literal["astar", "dijkstra"] = "astar"
     variable_resolution_enabled: bool = False
 
     # Safety assessment
@@ -179,7 +179,7 @@ class BenchmarkRequest(BaseModel):
     max_time_factor: float = Field(1.15, ge=1.0, le=2.0)
     safety_weight: float = Field(0.0, ge=0.0, le=1.0)
     variable_resolution: bool = Field(True)
-    engines: List[str] = Field(default=["astar", "visir"], description="Engines to benchmark")
+    engines: List[str] = Field(default=["astar", "dijkstra"], description="Engines to benchmark")
 
 
 class BenchmarkEngineResult(BaseModel):

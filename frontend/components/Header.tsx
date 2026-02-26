@@ -1,7 +1,7 @@
 'use client';
 
 import { useState, useRef, useEffect } from 'react';
-import { Ship, Shield, Map, LogOut, Cloud, BarChart3, ScrollText, ExternalLink, Info, BookOpen } from 'lucide-react';
+import { Ship, Shield, Map, LogOut, Cloud, BarChart3, ScrollText, ExternalLink, Info, BookOpen, Settings } from 'lucide-react';
 import Link from 'next/link';
 import RegulationsDropdown from '@/components/RegulationsDropdown';
 import { useVoyage } from '@/components/VoyageContext';
@@ -139,6 +139,16 @@ export default function Header({ onFitRoute }: HeaderProps) {
               </button>
               {openDropdown === 'regulations' && <RegulationsDropdown />}
             </div>
+
+            {/* Settings */}
+            <Link
+              href="/settings"
+              className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
+              title="Settings"
+            >
+              <Settings className="w-5 h-5" />
+              <span className="text-sm font-medium hidden sm:inline">Settings</span>
+            </Link>
 
             {/* Docs — external link */}
             <a
