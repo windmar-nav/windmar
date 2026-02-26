@@ -50,9 +50,10 @@ logger = logging.getLogger(__name__)
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    """Run migrations, load persisted vessel specs on startup."""
+    """Run migrations, seed demo data, load persisted vessel specs on startup."""
     _run_weather_migrations()
     _run_voyage_migrations()
+    _run_engine_log_seed()
 
     # Ensure cache dirs exist (volume mounts may lack subdirectories)
     for sub in ("wind", "wave", "current", "ice", "sst", "vis"):
@@ -276,6 +277,58 @@ def _run_voyage_migrations():
             conn.close()
     except Exception as e:
         logger.error(f"Failed to run voyage migrations: {e}")
+
+
+def _run_engine_log_seed():
+    """Seed engine log demo data if the demo batch is not yet loaded."""
+    db_url = os.environ.get("DATABASE_URL", settings.database_url)
+    if not db_url.startswith("postgresql"):
+        return
+    try:
+        import psycopg2
+    except ImportError:
+        return
+
+    seed_path = Path(__file__).parent.parent / "data" / "demo-engine-log-seed.sql"
+    if not seed_path.exists():
+        logger.info("Engine log seed file not found, skipping")
+        return
+
+    try:
+        conn = psycopg2.connect(db_url)
+        conn.autocommit = True
+        cur = conn.cursor()
+
+        # Advisory lock to prevent concurrent seed from multiple workers
+        cur.execute("SELECT pg_try_advisory_lock(20260226)")
+        if not cur.fetchone()[0]:
+            logger.info("Another worker is running engine log seed, skipping")
+            conn.close()
+            return
+
+        try:
+            # Check if demo batch already loaded (table may not exist yet)
+            try:
+                cur.execute(
+                    "SELECT COUNT(*) FROM engine_log_entries "
+                    "WHERE upload_batch_id = '00000000-0000-0000-0000-de0000ba1c01'"
+                )
+                count = cur.fetchone()[0]
+                if count > 0:
+                    logger.info("Engine log demo data already loaded (%d entries)", count)
+                    return
+            except Exception:
+                # Table doesn't exist yet — seed SQL will create it
+                conn.rollback()
+
+            sql = seed_path.read_text()
+            cur.execute(sql)
+            logger.info("Engine log demo data seeded from %s", seed_path.name)
+        finally:
+            cur.execute("SELECT pg_advisory_unlock(20260226)")
+            conn.close()
+    except Exception as e:
+        logger.warning("Engine log seed failed (non-fatal): %s", e)
 
 
 # =============================================================================

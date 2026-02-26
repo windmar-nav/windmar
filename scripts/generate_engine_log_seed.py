@@ -19,11 +19,11 @@ sys.path.insert(0, str(PROJECT_ROOT))
 
 from src.database.engine_log_parser import EngineLogParser
 
-EXCEL_PATH = PROJECT_ROOT / "data" / "demo-engine-log.xlsx"
+EXCEL_PATH = PROJECT_ROOT / "data" / "MR Example.xlsx"
 OUTPUT_PATH = PROJECT_ROOT / "data" / "demo-engine-log-seed.sql"
 
 # Fixed UUIDs for demo data
-DEMO_BATCH_ID = "00000000-0000-0000-0000-demo00batch1"
+DEMO_BATCH_ID = "00000000-0000-0000-0000-de0000ba1c01"
 DEMO_VESSEL_ID = None  # Will be NULL — linked at runtime
 
 
@@ -125,6 +125,32 @@ def generate_seed():
     lines.append(f"-- Batch ID: {DEMO_BATCH_ID}")
     lines.append("-- =============================================================")
     lines.append("")
+    # Self-contained: ensure table exists before inserting
+    lines.append("-- Ensure table exists (self-contained — no dependency on API startup)")
+    lines.append("CREATE TABLE IF NOT EXISTS engine_log_entries (")
+    lines.append("    id UUID PRIMARY KEY,")
+    lines.append("    vessel_id UUID,")
+    lines.append("    timestamp TIMESTAMP NOT NULL,")
+    lines.append("    lapse_hours FLOAT, place VARCHAR(255), event VARCHAR(100),")
+    lines.append("    rpm FLOAT, engine_distance FLOAT, speed_stw FLOAT,")
+    lines.append("    me_power_kw FLOAT, me_load_pct FLOAT, me_fuel_index_pct FLOAT,")
+    lines.append("    shaft_power FLOAT, shaft_torque_knm FLOAT, slip_pct FLOAT,")
+    lines.append("    hfo_me_mt FLOAT, hfo_ae_mt FLOAT, hfo_boiler_mt FLOAT, hfo_total_mt FLOAT,")
+    lines.append("    mgo_me_mt FLOAT, mgo_ae_mt FLOAT, mgo_total_mt FLOAT,")
+    lines.append("    methanol_me_mt FLOAT,")
+    lines.append("    rob_vlsfo_mt FLOAT, rob_mgo_mt FLOAT, rob_methanol_mt FLOAT,")
+    lines.append("    rh_me FLOAT, rh_ae_total FLOAT,")
+    lines.append("    tc_rpm FLOAT, scav_air_press_bar FLOAT, fuel_temp_c FLOAT, sw_temp_c FLOAT,")
+    lines.append("    upload_batch_id UUID NOT NULL,")
+    lines.append("    source_sheet VARCHAR(100), source_file VARCHAR(500),")
+    lines.append("    created_at TIMESTAMP NOT NULL DEFAULT NOW(),")
+    lines.append("    extended_data JSONB")
+    lines.append(");")
+    lines.append("CREATE INDEX IF NOT EXISTS ix_engine_log_entries_timestamp ON engine_log_entries(timestamp);")
+    lines.append("CREATE INDEX IF NOT EXISTS ix_engine_log_entries_event ON engine_log_entries(event);")
+    lines.append("CREATE INDEX IF NOT EXISTS ix_engine_log_entries_upload_batch_id ON engine_log_entries(upload_batch_id);")
+    lines.append("CREATE INDEX IF NOT EXISTS ix_engine_log_vessel_timestamp ON engine_log_entries(vessel_id, timestamp);")
+    lines.append("")
     lines.append("BEGIN;")
     lines.append("")
     lines.append(f"-- Delete existing demo batch data (idempotent)")
@@ -133,7 +159,7 @@ def generate_seed():
 
     for i, entry in enumerate(entries):
         # Generate a deterministic UUID for each row
-        row_uuid = f"00000000-0000-0000-0000-demo{i:08d}"
+        row_uuid = f"00000000-0000-0000-0000-de00{i:08x}"
 
         values = []
         for col_name, entry_key, col_type in COLUMNS:
