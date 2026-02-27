@@ -300,10 +300,24 @@ function WeatherGridLayerInner({
 
     function checkOcean(lat: number, lng: number): boolean {
       if (!oceanMask) return true;
-      const mLatIdx = Math.round(((lat - maskLats[0]) / (maskLats[maskNy - 1] - maskLats[0])) * (maskNy - 1));
-      const mLonIdx = Math.round(((lng - maskLons[0]) / (maskLons[maskNx - 1] - maskLons[0])) * (maskNx - 1));
-      if (mLatIdx < 0 || mLatIdx >= maskNy || mLonIdx < 0 || mLonIdx >= maskNx) return true;
-      return !!oceanMask[mLatIdx]?.[mLonIdx];
+      const mLatRange = maskLats[maskNy - 1] - maskLats[0];
+      const mLonRange = maskLons[maskNx - 1] - maskLons[0];
+      if (mLatRange === 0 || mLonRange === 0) return true;
+      const mfi = ((lat - maskLats[0]) / mLatRange) * (maskNy - 1);
+      const mfj = ((lng - maskLons[0]) / mLonRange) * (maskNx - 1);
+      if (mfi < 0 || mfi > maskNy - 1 || mfj < 0 || mfj > maskNx - 1) return true;
+      const mi0 = Math.min(Math.floor(mfi), maskNy - 1);
+      const mi1 = Math.min(mi0 + 1, maskNy - 1);
+      const mj0 = Math.min(Math.floor(mfj), maskNx - 1);
+      const mj1 = Math.min(mj0 + 1, maskNx - 1);
+      const mf = mfi - mi0;
+      const mc = mfj - mj0;
+      const oceanFrac =
+        (oceanMask[mi0]?.[mj0] ? 1 : 0) * (1 - mf) * (1 - mc) +
+        (oceanMask[mi0]?.[mj1] ? 1 : 0) * (1 - mf) * mc +
+        (oceanMask[mi1]?.[mj0] ? 1 : 0) * mf * (1 - mc) +
+        (oceanMask[mi1]?.[mj1] ? 1 : 0) * mf * mc;
+      return oceanFrac >= 0.5;
     }
 
     // ── Wave direction crest marks (Windy-style arcs) ──

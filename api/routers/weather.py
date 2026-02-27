@@ -39,6 +39,7 @@ from api.weather_service import (
     get_sst_field, get_visibility_field, get_ice_field,
     get_weather_at_point,
     build_ocean_mask as _build_ocean_mask,
+    build_ocean_mask_at_coords as _build_ocean_mask_at_coords,
     apply_ocean_mask_velocity as _apply_ocean_mask_velocity,
 )
 from api.forecast_layer_manager import (
@@ -96,10 +97,10 @@ for _fn in FIELD_NAMES:
 # Constants & helpers
 # ============================================================================
 
-_OVERLAY_MAX_DIM = 500
+_OVERLAY_MAX_DIM = 800  # single-frame overlays (~2 MB with gzip)
 _FRAMES_MAX_DIM = 200  # vector timeline (wind/currents): ~5 MB per layer
-_WAVE_DECOMP_MAX_DIM = 60  # wave decomp (8 arrays/frame): ~4.5 MB per layer
-_SCALAR_FRAMES_MAX_DIM = 350  # scalar (sst/vis/ice, 1 array/frame): ~18 MB per layer
+_WAVE_DECOMP_MAX_DIM = 90  # wave decomp (8 arrays/frame): ~6 MB with gzip
+_SCALAR_FRAMES_MAX_DIM = 500  # scalar (sst/vis/ice, 1 array/frame): ~12 MB with gzip
 
 # Maximum bbox span for forecast frame API responses.
 # OOM is prevented by _FRAMES_MAX_DIM / _WAVE_DECOMP_MAX_DIM subsampling,
@@ -1353,11 +1354,10 @@ async def api_get_weather_field(
         "source": cfg.source.split("_")[0],
     }
 
-    # Ocean mask at data resolution
+    # Ocean mask at exact data grid resolution (1:1 alignment, no interpolation mismatch)
     if cfg.needs_ocean_mask:
-        mask_step = _dynamic_mask_step(lat_min, lat_max, lon_min, lon_max)
-        mask_lats, mask_lons, ocean_mask = _build_ocean_mask(
-            lat_min, lat_max, lon_min, lon_max, step=mask_step,
+        mask_lats, mask_lons, ocean_mask = _build_ocean_mask_at_coords(
+            data.lats[::step], data.lons[::step],
         )
         response["ocean_mask"] = ocean_mask
         response["ocean_mask_lats"] = mask_lats

@@ -180,6 +180,26 @@ def build_ocean_mask(lat_min, lat_max, lon_min, lon_max, step=0.05):
         return mask_lats.tolist(), mask_lons.tolist(), mask
 
 
+def build_ocean_mask_at_coords(lats, lons):
+    """Build an ocean mask at exactly the provided lat/lon arrays.
+
+    Returns (mask_lats_list, mask_lons_list, mask_2d_list) where the mask
+    dimensions match len(lats) x len(lons) exactly — no interpolation mismatch.
+    """
+    lats_arr = np.asarray(lats, dtype=np.float64)
+    lons_arr = np.asarray(lons, dtype=np.float64)
+    lon_grid, lat_grid = np.meshgrid(lons_arr, lats_arr)
+    try:
+        from global_land_mask import globe
+        mask = globe.is_ocean(lat_grid, lon_grid)
+    except ImportError:
+        mask = np.array([
+            [is_ocean(round(float(lat), 2), round(float(lon), 2)) for lon in lons_arr]
+            for lat in lats_arr
+        ])
+    return lats_arr.tolist(), lons_arr.tolist(), mask.tolist()
+
+
 def apply_ocean_mask_velocity(u: np.ndarray, v: np.ndarray, lats: np.ndarray, lons: np.ndarray) -> tuple:
     """Zero out U/V components over land so leaflet-velocity skips land areas."""
     try:

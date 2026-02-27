@@ -179,7 +179,7 @@ function WeatherCanvasOverlayInner({
     canvas.style.left = '0';
     canvas.style.zIndex = '350';
     canvas.style.pointerEvents = 'none';
-    canvas.style.imageRendering = 'pixelated';
+    canvas.style.imageRendering = 'auto';
     container.appendChild(canvas);
     canvasRef.current = canvas;
 
@@ -207,8 +207,12 @@ function WeatherCanvasOverlayInner({
     const ch: number = size.y;
     if (cw === 0 || ch === 0) return;
 
-    // Half-resolution rendering — weather data can't benefit from more
-    const scale = 0.5;
+    // Adaptive scale: match canvas resolution to data density
+    const lats = activeData.lats;
+    const lons = activeData.lons;
+    const dataMax = Math.max(lats.length, lons.length);
+    const viewMax = Math.max(cw, ch);
+    const scale = Math.min(1.0, Math.max(0.35, dataMax / viewMax));
     const w = Math.max(200, Math.round(cw * scale));
     const h = Math.max(150, Math.round(ch * scale));
 
@@ -222,8 +226,6 @@ function WeatherCanvasOverlayInner({
     if (!bufCtx) return;
 
     // ── Data grid metadata ──
-    const lats = activeData.lats;
-    const lons = activeData.lons;
     const ny = lats.length;
     const nx = lons.length;
     if (ny < 2 || nx < 2) return;
@@ -319,7 +321,7 @@ function WeatherCanvasOverlayInner({
 
         const edgeLon = Math.min((lon - lonMin) * invFade, (lonMax - lon) * invFade, 1);
         if (edgeLon <= 0) continue;
-        const edgeFade = Math.min(edgeLat, edgeLon);
+        let edgeFade = Math.min(edgeLat, edgeLon);
 
         let value: number;
         if (uData && vData) {
@@ -330,11 +332,24 @@ function WeatherCanvasOverlayInner({
         } else if (scalarData) {
           value = bilinear(scalarData, latFracIdx, lonFracIdx, ny, nx);
           if (Number.isNaN(value) || value < -100) continue; // NaN / sentinel → land
-          // Land mask: ocean_mask true = ocean, false = land
+          // Land mask: bilinear interpolation on boolean ocean mask for smooth coastlines
           if (hasMask) {
-            const mi = Math.round(((lat - mLatStart) / mLatRange) * (mNy - 1));
-            const mj = Math.round(((lon - mLonStart) / mLonRange) * (mNx - 1));
-            if (mi >= 0 && mi < mNy && mj >= 0 && mj < mNx && !mask![mi][mj]) continue;
+            const mfi = ((lat - mLatStart) / mLatRange) * (mNy - 1);
+            const mfj = ((lon - mLonStart) / mLonRange) * (mNx - 1);
+            if (mfi < 0 || mfi > mNy - 1 || mfj < 0 || mfj > mNx - 1) continue;
+            const mi0 = Math.min(Math.floor(mfi), mNy - 1);
+            const mi1 = Math.min(mi0 + 1, mNy - 1);
+            const mj0 = Math.min(Math.floor(mfj), mNx - 1);
+            const mj1 = Math.min(mj0 + 1, mNx - 1);
+            const mf = mfi - mi0;
+            const mc = mfj - mj0;
+            const oceanFrac =
+              (mask![mi0][mj0] ? 1 : 0) * (1 - mf) * (1 - mc) +
+              (mask![mi0][mj1] ? 1 : 0) * (1 - mf) * mc +
+              (mask![mi1][mj0] ? 1 : 0) * mf * (1 - mc) +
+              (mask![mi1][mj1] ? 1 : 0) * mf * mc;
+            if (oceanFrac < 0.5) continue;
+            edgeFade *= oceanFrac;
           }
         } else {
           continue;

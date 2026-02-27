@@ -63,9 +63,27 @@ def cache_covers_bounds(
     lats = cached_data.get("lats", [])
     lons = cached_data.get("lons", [])
     if not lats or not lons:
-        return False
-    data_lat_min, data_lat_max = min(lats), max(lats)
-    data_lon_min, data_lon_max = min(lons), max(lons)
+        # Wind uses leaflet-velocity format (no top-level lats/lons).
+        # Extract bounds from the first frame's header instead.
+        frames = cached_data.get("frames", {})
+        if frames:
+            first = next(iter(frames.values()))
+            if isinstance(first, list) and first:
+                h = first[0].get("header", {})
+                if "la1" in h and "la2" in h and "lo1" in h and "lo2" in h:
+                    data_lat_min = min(h["la1"], h["la2"])
+                    data_lat_max = max(h["la1"], h["la2"])
+                    data_lon_min = min(h["lo1"], h["lo2"])
+                    data_lon_max = max(h["lo1"], h["lo2"])
+                else:
+                    return False
+            else:
+                return False
+        else:
+            return False
+    else:
+        data_lat_min, data_lat_max = min(lats), max(lats)
+        data_lon_min, data_lon_max = min(lons), max(lons)
 
     req_lat_span = max(lat_max - lat_min, 0.01)
     req_lon_span = max(lon_max - lon_min, 0.01)
