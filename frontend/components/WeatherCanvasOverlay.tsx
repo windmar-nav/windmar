@@ -166,21 +166,29 @@ function WeatherCanvasOverlayInner({
   const isExtended = mode === 'ice' || mode === 'visibility' || mode === 'sst' || mode === 'swell';
   const activeData = isExtended ? extendedData : (mode === 'wind' ? windData : waveData);
 
-  // ── Canvas lifecycle: attach directly to map container (no Leaflet pane) ──
-  // Avoids pane-translation drift during pan — canvas stays fixed in viewport.
+  // ── Canvas lifecycle: custom Leaflet pane for correct z-ordering ──
+  // Canvas must be inside the map pane's stacking context (above tiles,
+  // below arrows/overlays).  containerPointToLayerPoint compensates for
+  // the pane transform so the canvas stays fixed at the viewport origin.
 
   useEffect(() => {
-    const container = map.getContainer();
+    // Create a custom Leaflet pane for the heatmap so it's layered correctly
+    // inside the map pane's stacking context (above tiles at 200, below arrows at 310).
+    let pane = map.getPane('heatmapPane');
+    if (!pane) {
+      pane = map.createPane('heatmapPane');
+      pane.style.zIndex = '250';
+      pane.style.pointerEvents = 'none';
+    }
 
-    // Visible canvas — fixed to viewport, re-rendered on move/zoom
+    // Visible canvas — re-rendered on move/zoom, positioned via containerPointToLayerPoint
     const canvas = document.createElement('canvas');
     canvas.style.position = 'absolute';
     canvas.style.top = '0';
     canvas.style.left = '0';
-    canvas.style.zIndex = '350';
     canvas.style.pointerEvents = 'none';
     canvas.style.imageRendering = 'auto';
-    container.appendChild(canvas);
+    pane.appendChild(canvas);
     canvasRef.current = canvas;
 
     // Offscreen buffer — CPU-backed, used for ImageData pixel operations
@@ -189,7 +197,7 @@ function WeatherCanvasOverlayInner({
 
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-      container.removeChild(canvas);
+      pane!.removeChild(canvas);
       canvasRef.current = null;
       bufferRef.current = null;
     };
