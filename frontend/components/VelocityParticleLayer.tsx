@@ -190,19 +190,21 @@ function VelocityParticleLayerInner({ data, type }: VelocityParticleLayerProps) 
             snap.style.opacity = '1';
           }
 
-          // Schedule fade-out 200 ms after last setData
+          // Schedule fade-out 500 ms after last setData — covers leaflet-velocity's
+          // grid rebuild + interpolation (~300-400ms) so particles are visible before
+          // the snapshot fades out.
           fadeTimer = setTimeout(() => {
             fadeTimer = null;
             if (snap && snap.parentNode) {
-              snap.style.transition = 'opacity 0.2s ease-out';
+              snap.style.transition = 'opacity 0.35s ease-out';
               snap.style.opacity = '0';
               removeTimer = setTimeout(() => {
                 removeTimer = null;
                 snap?.remove();
                 snap = null;
-              }, 220);
+              }, 370);
             }
-          }, 200);
+          }, 500);
         }
       }
 

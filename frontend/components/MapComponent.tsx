@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import dynamic from 'next/dynamic';
 import { Loader2 } from 'lucide-react';
-import { Position, WindFieldData, WaveFieldData, VelocityData, CreateZoneRequest, WaveForecastFrames, IceForecastFrames, SstForecastFrames, VisForecastFrames, AllOptimizationResults, RouteVisibility, OptimizedRouteKey, ROUTE_STYLES } from '@/lib/api';
+import { Position, WindFieldData, WaveFieldData, VelocityData, CreateZoneRequest, WaveForecastFrames, IceForecastFrames, SstForecastFrames, VisForecastFrames, AllOptimizationResults, RouteVisibility, OptimizedRouteKey, ROUTE_STYLES, GridFieldData, SwellFieldData } from '@/lib/api';
 import { sogToColor } from '@/lib/utils';
 import { DEMO_MODE, DEMO_BOUNDS } from '@/lib/demoMode';
 
@@ -229,15 +229,25 @@ export default function MapComponent({
           />
         )}
 
-        {/* Weather heatmap — single canvas overlay for all modes (live + forecast) */}
-        {weatherLayer !== 'none' && (windData || waveData || extendedWeatherData) && (
+        {/* Weather heatmap — client-side canvas overlay (seamless, no tile seams) */}
+        {weatherLayer !== 'none' && weatherLayer !== 'currents' && (
           <WeatherCanvasOverlay
-            mode={weatherLayer as any}
+            mode={weatherLayer as 'wind' | 'waves' | 'ice' | 'visibility' | 'sst' | 'swell'}
             windData={windData}
             waveData={waveData}
-            extendedData={extendedWeatherData}
+            extendedData={extendedWeatherData as GridFieldData | SwellFieldData | null}
             opacity={0.6}
           />
+        )}
+
+        {/* Wind barbs overlay (WMO standard) */}
+        {weatherLayer === 'wind' && windData && (
+          <WeatherGridLayer mode="wind" windData={windData} opacity={0.7} />
+        )}
+
+        {/* Currents: particle animation */}
+        {weatherLayer === 'currents' && currentVelocityData && (
+          <VelocityParticleLayer data={currentVelocityData} type="currents" />
         )}
 
         {/* Wave direction crests overlay */}
@@ -247,16 +257,6 @@ export default function MapComponent({
             waveData={waveData}
             opacity={0.7}
           />
-        )}
-
-        {/* Wind: animated WebGL particles */}
-        {weatherLayer === 'wind' && windVelocityData && (
-          <VelocityParticleLayer data={windVelocityData} type="wind" />
-        )}
-
-        {/* Currents: particle animation */}
-        {weatherLayer === 'currents' && currentVelocityData && (
-          <VelocityParticleLayer data={currentVelocityData} type="currents" />
         )}
 
         {/* Swell direction arrows overlay */}

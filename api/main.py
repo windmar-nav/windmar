@@ -23,6 +23,7 @@ from pathlib import Path
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from fastapi.responses import JSONResponse
 from fastapi.exceptions import RequestValidationError
 from slowapi.errors import RateLimitExceeded
@@ -163,6 +164,9 @@ Contact: contact@slmar.co
         allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
         allow_headers=["Content-Type", "X-API-Key", "Authorization", "Accept"],
     )
+
+    # GZip compression — weather JSON payloads (1-3 MB) compress ~10x
+    application.add_middleware(GZipMiddleware, minimum_size=1000)
 
     # Add rate limiter to app state
     application.state.limiter = limiter

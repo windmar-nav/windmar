@@ -86,7 +86,7 @@ function buildColorLUT(mode: string, vMin: number, vMax: number): Uint8Array {
     lut[off]     = r;
     lut[off + 1] = g;
     lut[off + 2] = b;
-    if (mode === 'ice' && value <= 0.01) {
+    if (mode === 'ice' && value < 0.15) {
       lut[off + 3] = 0;
     } else if (mode === 'visibility') {
       lut[off + 3] = (value < 0 || value > 20) ? 0 : Math.round(220 * (1 - value / 20));
@@ -156,6 +156,9 @@ function WeatherCanvasOverlayInner({
   const { useMap } = require('react-leaflet');
   const map = useMap();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  // Offscreen buffer: all pixel work happens here (CPU, willReadFrequently).
+  // The visible canvas only does a single drawImage blit (GPU-accelerated).
+  const bufferRef = useRef<HTMLCanvasElement | null>(null);
   const rafRef = useRef<number | null>(null);
   const lutRef = useRef<Uint8Array | null>(null);
   const lutKeyRef = useRef('');
@@ -163,36 +166,41 @@ function WeatherCanvasOverlayInner({
   const isExtended = mode === 'ice' || mode === 'visibility' || mode === 'sst' || mode === 'swell';
   const activeData = isExtended ? extendedData : (mode === 'wind' ? windData : waveData);
 
-  // ── Canvas lifecycle: create once, attach to Leaflet pane ────────
+  // ── Canvas lifecycle: attach directly to map container (no Leaflet pane) ──
+  // Avoids pane-translation drift during pan — canvas stays fixed in viewport.
 
   useEffect(() => {
-    const PANE = 'weatherHeatPane';
-    if (!map.getPane(PANE)) {
-      const pane = map.createPane(PANE);
-      pane.style.zIndex = '300';
-      pane.style.pointerEvents = 'none';
-    }
-    const pane = map.getPane(PANE)!;
+    const container = map.getContainer();
 
+    // Visible canvas — fixed to viewport, re-rendered on move/zoom
     const canvas = document.createElement('canvas');
     canvas.style.position = 'absolute';
-    canvas.style.imageRendering = 'pixelated';
+    canvas.style.top = '0';
+    canvas.style.left = '0';
+    canvas.style.zIndex = '350';
     canvas.style.pointerEvents = 'none';
-    pane.appendChild(canvas);
+    canvas.style.imageRendering = 'pixelated';
+    container.appendChild(canvas);
     canvasRef.current = canvas;
+
+    // Offscreen buffer — CPU-backed, used for ImageData pixel operations
+    const buffer = document.createElement('canvas');
+    bufferRef.current = buffer;
 
     return () => {
       if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-      pane.removeChild(canvas);
+      container.removeChild(canvas);
       canvasRef.current = null;
+      bufferRef.current = null;
     };
   }, [map]);
 
-  // ── Core render ──────────────────────────────────────────────────
+  // ── Core render (double-buffered) ─────────────────────────────────
 
   const render = useCallback(() => {
     const canvas = canvasRef.current;
-    if (!canvas || !activeData) return;
+    const buffer = bufferRef.current;
+    if (!canvas || !buffer || !activeData) return;
 
     const size = map.getSize();
     const cw: number = size.x;
@@ -204,20 +212,14 @@ function WeatherCanvasOverlayInner({
     const w = Math.max(200, Math.round(cw * scale));
     const h = Math.max(150, Math.round(ch * scale));
 
-    if (canvas.width !== w || canvas.height !== h) {
-      canvas.width = w;
-      canvas.height = h;
+    // Resize offscreen buffer (doesn't affect visible canvas)
+    if (buffer.width !== w || buffer.height !== h) {
+      buffer.width = w;
+      buffer.height = h;
     }
 
-    // Position canvas to cover viewport despite pane CSS transforms.
-    // containerPointToLayerPoint converts container coords → layer (pane) coords.
-    const topLeft = map.containerPointToLayerPoint([0, 0]);
-    canvas.style.transform = `translate(${topLeft.x}px, ${topLeft.y}px)`;
-    canvas.style.width = cw + 'px';
-    canvas.style.height = ch + 'px';
-
-    const ctx = canvas.getContext('2d', { willReadFrequently: true });
-    if (!ctx) return;
+    const bufCtx = buffer.getContext('2d', { willReadFrequently: true });
+    if (!bufCtx) return;
 
     // ── Data grid metadata ──
     const lats = activeData.lats;
@@ -279,8 +281,20 @@ function WeatherCanvasOverlayInner({
       lonForCol[px] = globalX * invMapSize * 360 - 180;
     }
 
-    // ── Pixel loop ──
-    const imgData = ctx.createImageData(w, h);
+    // ── Ocean mask for land masking (scalar fields: ice, SST, vis, swell) ──
+    const mask = (activeData as any)?.ocean_mask as boolean[][] | undefined;
+    const maskLats = (activeData as any)?.ocean_mask_lats as number[] | undefined;
+    const maskLons = (activeData as any)?.ocean_mask_lons as number[] | undefined;
+    const hasMask = !!(mask && maskLats && maskLons && maskLats.length >= 2 && maskLons.length >= 2);
+    const mLatStart = hasMask ? maskLats![0] : 0;
+    const mLatRange = hasMask ? maskLats![maskLats!.length - 1] - mLatStart : 1;
+    const mLonStart = hasMask ? maskLons![0] : 0;
+    const mLonRange = hasMask ? maskLons![maskLons!.length - 1] - mLonStart : 1;
+    const mNy = hasMask ? maskLats!.length : 0;
+    const mNx = hasMask ? maskLons!.length : 0;
+
+    // ── Pixel loop (renders to offscreen buffer) ──
+    const imgData = bufCtx.createImageData(w, h);
     const pixels = imgData.data;
     const vRange = vMax - vMin || 1;
     const lutScale = (LUT_SIZE - 1) / vRange;
@@ -312,10 +326,16 @@ function WeatherCanvasOverlayInner({
           const u = bilinear(uData, latFracIdx, lonFracIdx, ny, nx);
           const v = bilinear(vData, latFracIdx, lonFracIdx, ny, nx);
           value = Math.sqrt(u * u + v * v);
-          if (value < 0.1) continue; // land mask (backend zeros wind over land)
+          if (Number.isNaN(value) || value < 0.01) continue; // land mask (backend zeros over land)
         } else if (scalarData) {
           value = bilinear(scalarData, latFracIdx, lonFracIdx, ny, nx);
           if (Number.isNaN(value) || value < -100) continue; // NaN / sentinel → land
+          // Land mask: ocean_mask true = ocean, false = land
+          if (hasMask) {
+            const mi = Math.round(((lat - mLatStart) / mLatRange) * (mNy - 1));
+            const mj = Math.round(((lon - mLonStart) / mLonRange) * (mNx - 1));
+            if (mi >= 0 && mi < mNy && mj >= 0 && mj < mNx && !mask![mi][mj]) continue;
+          }
         } else {
           continue;
         }
@@ -329,14 +349,31 @@ function WeatherCanvasOverlayInner({
       }
     }
 
-    ctx.putImageData(imgData, 0, 0);
+    // Write completed frame to offscreen buffer
+    bufCtx.putImageData(imgData, 0, 0);
+
+    // ── Atomic blit: swap the completed frame onto the visible canvas ──
+    // Resize visible canvas only when needed (avoids flash from canvas.width=)
+    if (canvas.width !== w || canvas.height !== h) {
+      canvas.width = w;
+      canvas.height = h;
+    }
+
+    const topLeft = map.containerPointToLayerPoint([0, 0]);
+    canvas.style.transform = `translate(${topLeft.x}px, ${topLeft.y}px)`;
+    canvas.style.width = cw + 'px';
+    canvas.style.height = ch + 'px';
+
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    ctx.clearRect(0, 0, w, h);
+    ctx.drawImage(buffer, 0, 0);
   }, [map, mode, activeData, windData, waveData, extendedData, isExtended, opacity]);
 
-  // ── Trigger render on data/mode/viewport changes ─────────────────
+  // ── Data/mode change: render synchronously (no rAF delay) ────────
 
   useEffect(() => {
-    if (rafRef.current !== null) cancelAnimationFrame(rafRef.current);
-    rafRef.current = requestAnimationFrame(() => { rafRef.current = null; render(); });
+    render();
   }, [render]);
 
   useEffect(() => {

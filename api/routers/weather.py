@@ -1652,14 +1652,28 @@ async def api_get_field_frames(
         if _is_demo_user:
             return limit_demo_frames(cached)
         # Serve raw bytes for performance (same file, already validated)
-        use_covering = field in ("sst", "visibility")
         raw = mgr.serve_frames_file(
             cache_key, lat_min, lat_max, lon_min, lon_max,
-            use_covering=use_covering,
+            use_covering=True,
         )
         if raw is not None:
             return raw
         return cached
+
+    # Try covering cache (startup prefetch builds global-bbox caches that
+    # cover any smaller viewport — serve those instead of expensive DB rebuild)
+    covering_raw = mgr.serve_frames_file(
+        cache_key, lat_min, lat_max, lon_min, lon_max,
+        use_covering=True,
+    )
+    if covering_raw is not None:
+        logger.info(f"{field} frames: serving covering cache for [{lat_min:.0f},{lat_max:.0f}]x[{lon_min:.0f},{lon_max:.0f}]")
+        if _is_demo_user:
+            # Need to parse for demo filtering; covering raw is already compressed
+            import json as _json
+            covering_data = _json.loads(covering_raw.body)
+            return limit_demo_frames(covering_data)
+        return covering_raw
 
     # Fallback: rebuild from PostgreSQL
     cached = await asyncio.to_thread(

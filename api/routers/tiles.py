@@ -48,11 +48,12 @@ def _tile_cache_path(field: str, h: int, z: int, x: int, y: int) -> Path:
 
 
 def _find_cache_data(field: str) -> Optional[dict]:
-    """Load the forecast cache file with the widest geographic coverage.
+    """Load the forecast cache file with the best coverage.
 
-    Always picks the single file with the largest bbox area so that ALL
-    tiles for a given field use the same data — eliminates seams between
-    overlapping cache files from different viewport fetches.
+    Prefers the file with the most data (largest file size) because
+    filename bbox reflects the *requested* region, not the actual data
+    coverage — global requests produce small low-resolution files while
+    regional requests contain full-resolution grids.
     """
     import json
     import re
@@ -78,33 +79,65 @@ def _find_cache_data(field: str) -> Optional[dict]:
     if not candidates:
         return None
 
-    # Parse bbox from filenames and pick the one with the largest area,
-    # breaking ties by file size (more data points = better coverage).
-    bbox_re = re.compile(r"_(-?\d+)_(-?\d+)_(-?\d+)_(-?\d+)\.json$")
-    best_file: Optional[Path] = None
-    best_score = (-1.0, -1)  # (area, file_size)
+    # Prefer broadest geographic coverage for tile rendering.
+    # A global cache (17 MB, 360° lon span) is better than a regional
+    # cache (19 MB, 220° lon span) — tiles outside the regional bbox
+    # would render as empty.  Sort by bbox area then file size as tie-breaker.
+    bbox_pat = re.compile(r"_(-?\d+)_(-?\d+)_(-?\d+)_(-?\d+)\.json$")
 
-    for f in candidates:
-        m = bbox_re.search(f.name)
-        if m:
-            c_lat_min, c_lat_max = float(m.group(1)), float(m.group(2))
-            c_lon_min, c_lon_max = float(m.group(3)), float(m.group(4))
-            area = (c_lat_max - c_lat_min) * (c_lon_max - c_lon_min)
-        else:
-            area = 0.0
-        score = (area, f.stat().st_size)
-        if score > best_score:
-            best_score = score
-            best_file = f
+    def _bbox_area(fp: Path) -> float:
+        m = bbox_pat.search(fp.name)
+        if not m:
+            return 0.0
+        c_lat_min, c_lat_max, c_lon_min, c_lon_max = (
+            float(m.group(i)) for i in range(1, 5)
+        )
+        return (c_lat_max - c_lat_min) * (c_lon_max - c_lon_min)
+
+    candidates.sort(
+        key=lambda f: (_bbox_area(f), f.stat().st_size), reverse=True,
+    )
+    best_file = candidates[0] if candidates else None
 
     if best_file is None:
         return None
 
     try:
-        return json.loads(best_file.read_text())
+        data = json.loads(best_file.read_text())
     except Exception as exc:
         logger.warning("Failed to load tile cache %s: %s", best_file, exc)
         return None
+
+    # Sanity check: velocity-format wind needs at least one valid frame
+    # with reasonable dimensions to avoid using broken cache files.
+    frames = data.get("frames", {})
+    if frames:
+        sample = next(iter(frames.values()))
+        if isinstance(sample, list) and len(sample) >= 2:
+            hdr = sample[0].get("header", {})
+            if hdr.get("nx", 0) < 2 or hdr.get("ny", 0) < 2:
+                logger.warning("Rejecting broken wind cache %s (nx=%s)", best_file, hdr.get("nx"))
+                # Try next broadest-coverage file
+                candidates.remove(best_file)
+                candidates.sort(
+                    key=lambda f: (_bbox_area(f), f.stat().st_size),
+                    reverse=True,
+                )
+                for f in candidates:
+                    try:
+                        data = json.loads(f.read_text())
+                        s = next(iter(data.get("frames", {}).values()), None)
+                        if isinstance(s, list) and len(s) >= 2:
+                            h = s[0].get("header", {})
+                            if h.get("nx", 0) >= 2 and h.get("ny", 0) >= 2:
+                                return data
+                        elif isinstance(s, dict):
+                            return data
+                    except Exception:
+                        continue
+                return None
+
+    return data
 
 
 def _cache_fingerprint(cache_data: dict) -> str:

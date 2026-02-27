@@ -37,6 +37,21 @@ def _tile_bbox(z: int, x: int, y: int) -> Tuple[float, float, float, float]:
     return lat_min, lat_max, lon_min, lon_max
 
 
+def _mercator_pixel_lats(lat_min: float, lat_max: float, n: int = 256) -> np.ndarray:
+    """Generate Mercator-projected latitude values for *n* pixel rows.
+
+    In Web Mercator (EPSG:3857) tile pixels are evenly spaced in
+    Mercator Y, not in geographic latitude.  Returns latitudes from
+    *lat_max* (top row) to *lat_min* (bottom row).
+    """
+    lat_max_r = np.radians(np.clip(lat_max, -85, 85))
+    lat_min_r = np.radians(np.clip(lat_min, -85, 85))
+    merc_top = np.log(np.tan(np.pi / 4 + lat_max_r / 2))
+    merc_bot = np.log(np.tan(np.pi / 4 + lat_min_r / 2))
+    merc_y = np.linspace(merc_top, merc_bot, n)
+    return np.degrees(2 * np.arctan(np.exp(merc_y)) - np.pi / 2)
+
+
 # ---------------------------------------------------------------------------
 # Land mask (per-tile, using global_land_mask)
 # ---------------------------------------------------------------------------
@@ -230,7 +245,7 @@ def _apply_ice_ramp(values: np.ndarray) -> np.ndarray:
     """Ice has a transparent cutoff below 1%."""
     ramp, alpha_low, alpha_high, alpha_default = FIELD_RAMP["ice"]
     rgba = _apply_ramp(values, ramp, alpha_low, alpha_high, alpha_default)
-    rgba[values <= 0.01, 3] = 0  # transparent below 1%
+    rgba[values < 0.15, 3] = 0  # transparent below 15% (CMEMS noise floor)
     return rgba
 
 
@@ -414,7 +429,7 @@ def render_tile(
 
     # Edge fade: soften the boundary at grid coverage edges (5° ramp)
     fade_deg = 5.0
-    pixel_lats = np.linspace(lat_max, lat_min, TILE_SIZE)
+    pixel_lats = _mercator_pixel_lats(lat_min, lat_max, TILE_SIZE)
     pixel_lons = np.linspace(lon_min, lon_max, TILE_SIZE)
     lat_fade = np.clip(
         np.minimum(
@@ -465,8 +480,16 @@ def _extract_values(
         values = np.sqrt(u ** 2 + v ** 2)
     elif cfg.components == "wave_decomp":
         # Waves / swell: primary height field
+        # Cache format stores swell either as flat keys (swell_hs) or nested
+        # dicts (swell: {height: [[...]]}).  Handle both.
         if field == "swell":
-            data = frame.get("swell_hs") or frame.get("data")
+            data = frame.get("swell_hs")
+            if data is None:
+                swell_obj = frame.get("swell")
+                if isinstance(swell_obj, dict):
+                    data = swell_obj.get("height")
+            if data is None:
+                data = frame.get("data")
         else:
             data = frame.get("data") or frame.get("wave_hs")
         if data is None:
@@ -506,8 +529,10 @@ def _resample_to_tile(
     grid_lon_min, grid_lon_max = float(lons[0]), float(lons[-1])
 
     # Pixel centres in geographic coordinates
-    # Y axis: top of tile = lat_max, bottom = lat_min (Mercator)
-    pixel_lats = np.linspace(lat_max, lat_min, TILE_SIZE)  # top→bottom
+    # Y axis: top of tile = lat_max, bottom = lat_min
+    # Use Mercator-projected latitudes — tile pixels are evenly spaced
+    # in Mercator Y, not in geographic latitude.
+    pixel_lats = _mercator_pixel_lats(lat_min, lat_max, TILE_SIZE)
     pixel_lons = np.linspace(lon_min, lon_max, TILE_SIZE)
 
     # Map pixel coords to fractional grid indices

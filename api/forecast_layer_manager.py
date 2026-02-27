@@ -11,6 +11,7 @@ Eliminates ~2,000 LOC of near-identical boilerplate across 6 weather layers
 
 Each layer supplies its own fetch + frame-building logic as a callback.
 """
+import gzip
 import json
 import logging
 import re
@@ -182,9 +183,20 @@ class ForecastLayerManager:
 
     def cache_put(self, cache_key: str, data: dict) -> None:
         p = self.cache_path(cache_key)
+        raw = json.dumps(data, allow_nan=False, default=str).encode()
+        # Write JSON
         tmp = p.with_suffix(".tmp")
-        tmp.write_text(json.dumps(data, allow_nan=False, default=str))
+        tmp.write_bytes(raw)
         tmp.rename(p)  # atomic on same filesystem
+        # Write pre-compressed copy for fast HTTP serving
+        gz_path = p.with_name(p.name + ".gz")
+        gz_tmp = gz_path.with_suffix(".tmp")
+        try:
+            with gzip.open(gz_tmp, "wb", compresslevel=6) as f:
+                f.write(raw)
+            gz_tmp.rename(gz_path)
+        except Exception:
+            gz_tmp.unlink(missing_ok=True)
 
     # -- prefetch lifecycle ------------------------------------------------
 
@@ -267,6 +279,7 @@ class ForecastLayerManager:
     ):
         """Try to serve cached frames as a raw Response.  Returns None if no file found.
 
+        Prefers pre-compressed .gz files to avoid on-the-fly gzip overhead.
         Caller is responsible for the DB-rebuild fallback.
         """
         from starlette.responses import Response as RawResponse
@@ -276,10 +289,19 @@ class ForecastLayerManager:
             cache_file = find_covering_cache(self._cache_dir, self.name, lat_min, lat_max, lon_min, lon_max)
 
         if cache_file and cache_file.exists():
-            if is_cache_complete(cache_file):
-                return RawResponse(content=cache_file.read_bytes(), media_type="application/json")
-            logger.warning("%s cache %s is partial — removing", self.name.capitalize(), cache_file.name)
-            cache_file.unlink(missing_ok=True)
+            if not is_cache_complete(cache_file):
+                logger.warning("%s cache %s is partial — removing", self.name.capitalize(), cache_file.name)
+                cache_file.unlink(missing_ok=True)
+                return None
+            # Prefer pre-compressed file (Content-Encoding: gzip skips GZipMiddleware)
+            gz_file = cache_file.parent / (cache_file.name + ".gz")
+            if gz_file.exists():
+                return RawResponse(
+                    content=gz_file.read_bytes(),
+                    media_type="application/json",
+                    headers={"Content-Encoding": "gzip"},
+                )
+            return RawResponse(content=cache_file.read_bytes(), media_type="application/json")
 
         return None
 

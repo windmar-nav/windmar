@@ -165,6 +165,21 @@ export function useWeatherDisplay(
   // ---- request tracking: monotonic counter guards stale responses ----
   const loadRequestRef = useRef(0);
 
+  // ---- data coverage tracking: skip viewport refetches when data already covers view ----
+  const dataExtentRef = useRef<{
+    lat_min: number; lat_max: number; lon_min: number; lon_max: number;
+    layer: WeatherLayer;
+  } | null>(null);
+  const storeDataExtent = (bbox: { lat_min: number; lat_max: number; lon_min: number; lon_max: number }, layer: WeatherLayer) => {
+    dataExtentRef.current = {
+      lat_min: Math.min(bbox.lat_min, bbox.lat_max),
+      lat_max: Math.max(bbox.lat_min, bbox.lat_max),
+      lon_min: Math.min(bbox.lon_min, bbox.lon_max),
+      lon_max: Math.max(bbox.lon_min, bbox.lon_max),
+      layer,
+    };
+  };
+
   // ---- stable refs (avoid re-creating callbacks on every render) ----
   const viewportRef = useRef(viewport);
   useEffect(() => { viewportRef.current = viewport; }, [viewport]);
@@ -224,6 +239,7 @@ export function useWeatherDisplay(
           setWindData(wind);
           windDataBaseRef.current = wind;
           setWindVelocityData(windFieldToVelocity(wind));
+          if (wind.bbox) storeDataExtent(wind.bbox, 'wind');
         }
         if (wind?.ingested_at && !options?.skipIngestedAt) setLayerIngestedAt(wind.ingested_at);
         // Background prefetch waves for instant layer switching
@@ -236,7 +252,10 @@ export function useWeatherDisplay(
         if (isStale()) return;
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Waves loaded in ${dt}ms: grid=${waves?.ny}x${waves?.nx}`);
-        if (waves) setWaveData(waves);
+        if (waves) {
+          setWaveData(waves);
+          if (waves.bbox) storeDataExtent(waves.bbox, 'waves');
+        }
         if (waves?.ingested_at && !options?.skipIngestedAt) setLayerIngestedAt(waves.ingested_at);
 
       } else if (activeLayer === 'currents') {
@@ -248,7 +267,11 @@ export function useWeatherDisplay(
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Currents loaded in ${dt}ms: ${currentVel ? 'yes' : 'no data'}`);
         setCurrentVelocityData(currentVel);
-        if (currentGrid) setExtendedWeatherData(currentGrid as GridFieldData);
+        if (currentGrid) {
+          setExtendedWeatherData(currentGrid as GridFieldData);
+          const g = currentGrid as GridFieldData;
+          if (g.bbox) storeDataExtent(g.bbox, 'currents');
+        }
         if ((currentGrid as GridFieldData | null)?.ingested_at && !options?.skipIngestedAt) {
           setLayerIngestedAt((currentGrid as GridFieldData).ingested_at!);
         }
@@ -267,7 +290,10 @@ export function useWeatherDisplay(
           if (isStale()) return;
           const dt = (performance.now() - t0).toFixed(0);
           debugLog('info', 'API', `${activeLayer} loaded in ${dt}ms: grid=${data?.ny}x${data?.nx}`);
-          if (data) setExtendedWeatherData(data);
+          if (data) {
+            setExtendedWeatherData(data);
+            if (data.bbox) storeDataExtent(data.bbox, activeLayer);
+          }
           if (data?.ingested_at && !options?.skipIngestedAt) setLayerIngestedAt(data.ingested_at);
         }
       }
@@ -288,6 +314,7 @@ export function useWeatherDisplay(
   // single-frame response arriving after the timeline restores its frames.
   useEffect(() => {
     setExtendedWeatherData(null);
+    dataExtentRef.current = null; // Force refetch for new layer
     if (viewport && weatherLayer !== 'none' && !forecastEnabled) {
       loadWeatherData(viewport, weatherLayer);
     }
@@ -297,13 +324,25 @@ export function useWeatherDisplay(
   }, [weatherLayer, forecastEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---- Debounced viewport refresh for arrow/grid overlays ----
+  // Skip refetch when existing data already covers the visible viewport.
+  // The server returns global-bbox data (covering cache), so small
+  // pan/zoom changes rarely need new data.
   const viewportRefreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => {
     if (!viewport || weatherLayer === 'none' || forecastEnabled) return;
+    const ext = dataExtentRef.current;
+    if (ext && ext.layer === weatherLayer) {
+      const b = viewport.bounds;
+      if (ext.lat_min <= b.lat_min && ext.lat_max >= b.lat_max &&
+          ext.lon_min <= b.lon_min && ext.lon_max >= b.lon_max) {
+        return; // data covers viewport — no refetch needed
+      }
+    }
+
     clearTimeout(viewportRefreshTimer.current);
     viewportRefreshTimer.current = setTimeout(() => {
       loadWeatherData(viewport, weatherLayer);
-    }, 800);
+    }, 1200);
     return () => clearTimeout(viewportRefreshTimer.current);
   }, [viewport]); // eslint-disable-line react-hooks/exhaustive-deps
 
