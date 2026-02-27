@@ -123,6 +123,7 @@ export function useWeatherDisplay(
   const [layerIngestedAt, setLayerIngestedAt] = useState<string | null>(null);
   const [resyncRunning, setResyncRunning] = useState(false);
   const [forecastEnabled, setForecastEnabled] = useState(false);
+  const [currentForecastHour, setCurrentForecastHour] = useState(0);
 
   // ---- request tracking: monotonic counter guards stale responses ----
   const loadRequestRef = useRef(0);
@@ -271,6 +272,7 @@ export function useWeatherDisplay(
 
   // Wind: VelocityData[] → WindFieldData (with per-frame cache)
   const handleForecastHourChange = useCallback((hour: number, data: VelocityData[] | null) => {
+    setCurrentForecastHour(hour);
     if (data && data.length >= 2) {
       setWindVelocityData(data);
 
@@ -324,6 +326,7 @@ export function useWeatherDisplay(
 
   // Waves: WaveForecastFrames → WaveFieldData
   const handleWaveForecastHourChange = useCallback((hour: number, allFrames: WaveForecastFrames | null) => {
+    setCurrentForecastHour(hour);
     if (!allFrames) { if (hour === 0) loadWeatherData(); return; }
     const frame = allFrames.frames[String(hour)];
     if (!frame) return;
@@ -351,6 +354,7 @@ export function useWeatherDisplay(
 
   // Ice: IceForecastFrames → GridFieldData
   const handleIceForecastHourChange = useCallback((hour: number, allFrames: IceForecastFrames | null) => {
+    setCurrentForecastHour(hour);
     if (!allFrames) { if (hour === 0) loadWeatherData(); return; }
     const result = buildGridFrameData('ice_concentration', 'fraction', allFrames, hour);
     if (result) setExtendedWeatherData(result);
@@ -358,6 +362,7 @@ export function useWeatherDisplay(
 
   // SST: SstForecastFrames → GridFieldData
   const handleSstForecastHourChange = useCallback((hour: number, allFrames: SstForecastFrames | null) => {
+    setCurrentForecastHour(hour);
     if (!allFrames) { if (hour === 0) loadWeatherData(); return; }
     const result = buildGridFrameData('sst', '\u00B0C', allFrames, hour);
     if (result) setExtendedWeatherData(result);
@@ -365,6 +370,7 @@ export function useWeatherDisplay(
 
   // Visibility: VisForecastFrames → GridFieldData
   const handleVisForecastHourChange = useCallback((hour: number, allFrames: VisForecastFrames | null) => {
+    setCurrentForecastHour(hour);
     if (!allFrames) { if (hour === 0) loadWeatherData(); return; }
     const result = buildGridFrameData('visibility', 'km', allFrames, hour);
     if (result) setExtendedWeatherData(result);
@@ -372,6 +378,7 @@ export function useWeatherDisplay(
 
   // Swell: WaveForecastFrames → SwellFieldData (built directly, not via helper)
   const handleSwellForecastHourChange = useCallback((hour: number, allFrames: WaveForecastFrames | null) => {
+    setCurrentForecastHour(hour);
     if (!allFrames) { if (hour === 0) loadWeatherData(); return; }
     const frame = allFrames.frames[String(hour)];
     if (!frame) return;
@@ -404,6 +411,7 @@ export function useWeatherDisplay(
 
   // Currents: 2D u/v arrays → VelocityData[] (leaflet-velocity format)
   const handleCurrentForecastHourChange = useCallback((hour: number, allFrames: CurrentForecastFrames | null) => {
+    setCurrentForecastHour(hour);
     if (!allFrames) { if (hour === 0) loadWeatherData(); return; }
     const frame = allFrames.frames?.[String(hour)];
     if (!frame?.u || !frame?.v) return;
@@ -491,6 +499,7 @@ export function useWeatherDisplay(
     resyncRunning,
     forecastEnabled,
     setForecastEnabled,
+    currentForecastHour,
     weatherModelLabel,
     // Actions
     loadWeatherData,

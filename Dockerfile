@@ -87,7 +87,8 @@ RUN PYTHONPATH=/app/deps python -c "import cartopy.io.shapereader as s; s.gshhs(
 # Create necessary directories with correct permissions
 RUN mkdir -p data/grib data/gfs_cache data/vessel_database data/calibration data/weather_cache data/copernicus_cache data/climatology_cache logs \
     /tmp/windmar_cache/wind /tmp/windmar_cache/wave /tmp/windmar_cache/current /tmp/windmar_cache/ice /tmp/windmar_cache/sst /tmp/windmar_cache/vis \
-    && chown -R windmar:windmar /app /tmp/windmar_cache
+    /tmp/windmar_tiles \
+    && chown -R windmar:windmar /app /tmp/windmar_cache /tmp/windmar_tiles
 
 # Switch to non-root user
 USER windmar

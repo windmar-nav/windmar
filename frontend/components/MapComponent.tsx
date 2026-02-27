@@ -23,6 +23,10 @@ const WeatherGridLayer = dynamic(
   () => import('@/components/WeatherGridLayer'),
   { ssr: false }
 );
+const WeatherTileLayer = dynamic(
+  () => import('@/components/WeatherTileLayer'),
+  { ssr: false }
+);
 const WeatherLegend = dynamic(
   () => import('@/components/WeatherLegend'),
   { ssr: false }
@@ -115,6 +119,7 @@ export interface MapComponentProps {
   fitBounds?: [[number, number], [number, number]] | null;
   fitKey?: number;
   dataTimestamp?: string | null;
+  currentForecastHour?: number;
   restoredViewport?: { bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number }; zoom: number } | null;
   children?: React.ReactNode;
 }
@@ -152,6 +157,7 @@ export default function MapComponent({
   fitBounds: fitBoundsProp = null,
   fitKey = 0,
   dataTimestamp = null,
+  currentForecastHour = 0,
   restoredViewport = null,
   children,
 }: MapComponentProps) {
@@ -223,34 +229,44 @@ export default function MapComponent({
           />
         )}
 
-        {/* Weather Layers */}
-        {weatherLayer === 'wind' && windData && (
-          <WeatherGridLayer
-            mode="wind"
-            windData={windData}
+        {/* Weather heatmap — server-rendered raster tiles */}
+        {weatherLayer !== 'none' && (
+          <WeatherTileLayer
+            field={weatherLayer}
+            forecastHour={currentForecastHour}
             opacity={0.6}
-            showArrows={false}
           />
         )}
+
+        {/* Wind particles */}
         {weatherLayer === 'wind' && windVelocityData && (
           <VelocityParticleLayer data={windVelocityData} type="wind" />
         )}
+
+        {/* Wave arrow overlays (crests + decomposition) — heatmap via tiles */}
         {weatherLayer === 'waves' && waveData && (
           <WeatherGridLayer
             mode="waves"
             waveData={waveData}
+            opacity={0.7}
+            showArrows={true}
+            arrowsOnly={true}
           />
         )}
+
+        {/* Currents: particle animation (no heatmap tile — velocity-only) */}
         {weatherLayer === 'currents' && currentVelocityData && (
           <VelocityParticleLayer data={currentVelocityData} type="currents" />
         )}
 
-        {/* Extended weather layers (SPEC-P1) */}
-        {(weatherLayer === 'ice' || weatherLayer === 'visibility' || weatherLayer === 'sst' || weatherLayer === 'swell') && extendedWeatherData && (
+        {/* Swell direction arrows — heatmap via tiles */}
+        {weatherLayer === 'swell' && extendedWeatherData && (
           <WeatherGridLayer
-            mode={weatherLayer as 'ice' | 'visibility' | 'sst' | 'swell'}
+            mode="swell"
             extendedData={extendedWeatherData}
-            opacity={0.6}
+            opacity={0.7}
+            showArrows={true}
+            arrowsOnly={true}
           />
         )}
 

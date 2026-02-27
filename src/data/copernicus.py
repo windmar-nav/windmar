@@ -534,7 +534,9 @@ class CopernicusDataProvider:
 
             if ds is None:
                 logger.info(f"Downloading CMEMS wave forecast {start_dt} → {end_dt}")
-                ds = _retry_download(lambda: copernicusmarine.open_dataset(
+                # Use subset() for server-side download — much faster than
+                # open_dataset() which streams chunk-by-chunk from S3.
+                _retry_download(lambda: copernicusmarine.subset(
                     dataset_id=self.CMEMS_WAVE_DATASET,
                     variables=[
                         "VHM0", "VTPK", "VMDR",
@@ -549,15 +551,13 @@ class CopernicusDataProvider:
                     end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
                     username=self.cmems_username,
                     password=self.cmems_password,
+                    output_directory=str(cache_file.parent),
+                    output_filename=cache_file.name,
+                    overwrite=True,
                 ))
-                if ds is None:
-                    logger.error("CMEMS returned None for wave forecast")
+                if not cache_file.exists():
+                    logger.error("CMEMS returned no file for wave forecast")
                     return None
-                # Load into memory first to avoid hung lazy reads during to_netcdf
-                logger.info("Loading wave forecast data into memory...")
-                ds = ds.load()
-                ds.to_netcdf(cache_file)
-                ds.close()
                 logger.info(f"Wave forecast cached: {cache_file}")
                 # Validate file isn't truncated (should be at least 1MB for any real forecast)
                 fsize = cache_file.stat().st_size
@@ -565,8 +565,20 @@ class CopernicusDataProvider:
                     logger.warning(f"Wave forecast cache suspiciously small ({fsize} bytes), deleting")
                     cache_file.unlink(missing_ok=True)
                     return None
-                # Reopen from local file
                 ds = xr.open_dataset(cache_file)
+                # Subsample to ~0.25° if grid is large (for downstream memory)
+                lat_count = ds.sizes.get('latitude', 0)
+                lon_count = ds.sizes.get('longitude', 0)
+                if lat_count > 1000 or lon_count > 2000:
+                    sub_step = max(1, round(0.25 / 0.083))  # 3
+                    ds = ds.isel(
+                        latitude=slice(None, None, sub_step),
+                        longitude=slice(None, None, sub_step),
+                    )
+                    logger.info(
+                        "Wave forecast subsampled to ~0.25°: %s×%s",
+                        ds.sizes.get('latitude', '?'), ds.sizes.get('longitude', '?'),
+                    )
 
             # Extract coordinate arrays
             lats = ds["latitude"].values
@@ -819,7 +831,19 @@ class CopernicusDataProvider:
                 if ds is None:
                     logger.error("CMEMS returned None for current forecast")
                     return None
-                # Load into memory first to avoid hung lazy reads during to_netcdf
+                # Subsample to ~0.25° before loading to reduce memory
+                lat_count = ds.sizes.get('latitude', 0)
+                lon_count = ds.sizes.get('longitude', 0)
+                if lat_count > 500 or lon_count > 1000:
+                    sub_step = max(1, round(0.25 / 0.083))  # 3
+                    ds = ds.isel(
+                        latitude=slice(None, None, sub_step),
+                        longitude=slice(None, None, sub_step),
+                    )
+                    logger.info(
+                        "Current forecast subsampled to ~0.25°: %s×%s",
+                        ds.sizes.get('latitude', '?'), ds.sizes.get('longitude', '?'),
+                    )
                 logger.info("Loading current forecast data into memory...")
                 ds = ds.load()
                 ds.to_netcdf(cache_file)
@@ -1053,18 +1077,19 @@ class CopernicusDataProvider:
                 if ds is None:
                     logger.error("CMEMS returned None for SST forecast")
                     return None
-                # Subsample to ~0.25° before loading — native 0.083° is
-                # too heavy for the full NE Atlantic + Med bbox (122h × 420×720
-                # ≈ 148 MB).  0.25° is plenty for a visualisation overlay.
-                lat_step = max(1, round(0.25 / 0.083))  # 3
-                lon_step = max(1, round(0.25 / 0.083))
-                ds = ds.isel(latitude=slice(None, None, lat_step),
-                             longitude=slice(None, None, lon_step))
-                logger.info(
-                    f"SST forecast subsampled to ~0.25°: "
-                    f"{ds.sizes.get('latitude', '?')}×{ds.sizes.get('longitude', '?')}"
-                )
-                # Load into memory first to avoid hung lazy reads during to_netcdf
+                # Subsample to ~0.25° before loading to reduce memory
+                lat_count = ds.sizes.get('latitude', 0)
+                lon_count = ds.sizes.get('longitude', 0)
+                if lat_count > 500 or lon_count > 1000:
+                    sub_step = max(1, round(0.25 / 0.083))  # 3
+                    ds = ds.isel(
+                        latitude=slice(None, None, sub_step),
+                        longitude=slice(None, None, sub_step),
+                    )
+                    logger.info(
+                        "SST forecast subsampled to ~0.25°: %s×%s",
+                        ds.sizes.get('latitude', '?'), ds.sizes.get('longitude', '?'),
+                    )
                 logger.info("Loading SST forecast data into memory...")
                 ds = ds.load()
                 ds.to_netcdf(cache_file)
@@ -1312,6 +1337,19 @@ class CopernicusDataProvider:
                 if ds is None:
                     logger.error("CMEMS returned None for ice forecast")
                     return None
+                # Subsample to ~0.25° before loading if grid is large
+                lat_count = ds.sizes.get('latitude', 0)
+                lon_count = ds.sizes.get('longitude', 0)
+                if lat_count > 500 or lon_count > 1000:
+                    sub_step = max(1, round(0.25 / 0.083))  # 3
+                    ds = ds.isel(
+                        latitude=slice(None, None, sub_step),
+                        longitude=slice(None, None, sub_step),
+                    )
+                    logger.info(
+                        "Ice forecast subsampled to ~0.25°: %s×%s",
+                        ds.sizes.get('latitude', '?'), ds.sizes.get('longitude', '?'),
+                    )
                 logger.info("Loading ice forecast data into memory...")
                 ds = ds.load()
                 ds.to_netcdf(cache_file)

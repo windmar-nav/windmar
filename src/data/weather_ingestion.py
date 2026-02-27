@@ -36,25 +36,24 @@ class WeatherIngestionService:
     def _get_conn(self):
         return psycopg2.connect(self.db_url)
 
-    # Default CMEMS viewport bounds (North Atlantic + Mediterranean).
-    # Global 0.083° CMEMS grids are too large; GFS 0.5° is fine globally.
-    # Keep the bounding box ≤ 40° lat × 60° lon to avoid OOM during
-    # xarray load (~1.5 GB for 9 params × 41 timesteps at this extent).
-    CMEMS_DEFAULT_LAT_MIN = 25.0
+    # Default CMEMS viewport bounds.
+    # Waves use subset() (server-side download) — can handle wide bbox.
+    # Currents/SST use open_dataset() — limited to moderate bbox to avoid
+    # slow S3 chunk downloads.  GFS wind/visibility are global at 0.5°.
+    CMEMS_DEFAULT_LAT_MIN = -60.0
     CMEMS_DEFAULT_LAT_MAX = 60.0
-    CMEMS_DEFAULT_LON_MIN = -20.0
-    CMEMS_DEFAULT_LON_MAX = 40.0
-    # SST is a single variable (thetao), subsampled to ~0.25° at download.
-    # Wider than CMEMS_DEFAULT to cover Nordic waters + full Med.
-    SST_DEFAULT_LAT_MIN = 20.0
+    CMEMS_DEFAULT_LON_MIN = -80.0
+    CMEMS_DEFAULT_LON_MAX = 140.0
+    # SST — moderate bbox (open_dataset), covers Atl + Med + Indian.
+    SST_DEFAULT_LAT_MIN = -40.0
     SST_DEFAULT_LAT_MAX = 65.0
-    SST_DEFAULT_LON_MIN = -30.0
-    SST_DEFAULT_LON_MAX = 45.0
-    # Ice needs high-latitude bounds (but narrower longitude span)
-    ICE_DEFAULT_LAT_MIN = 55.0
-    ICE_DEFAULT_LAT_MAX = 75.0
-    ICE_DEFAULT_LON_MIN = -20.0
-    ICE_DEFAULT_LON_MAX = 40.0
+    SST_DEFAULT_LON_MIN = -80.0
+    SST_DEFAULT_LON_MAX = 80.0
+    # Ice — Arctic (50-85°N), moderate lon range.
+    ICE_DEFAULT_LAT_MIN = 50.0
+    ICE_DEFAULT_LAT_MAX = 85.0
+    ICE_DEFAULT_LON_MIN = -80.0
+    ICE_DEFAULT_LON_MAX = 80.0
 
     def ingest_all(self, force: bool = False,
                    lat_min: Optional[float] = None, lat_max: Optional[float] = None,

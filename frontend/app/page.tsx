@@ -437,6 +437,7 @@ export default function HomePage() {
             viewportBounds={viewport?.bounds ?? null}
             weatherModelLabel={weather.weatherModelLabel}
             extendedWeatherData={weather.extendedWeatherData}
+            currentForecastHour={weather.currentForecastHour}
             fitBounds={fitBounds}
             fitKey={fitKey}
             restoredViewport={lastViewport}

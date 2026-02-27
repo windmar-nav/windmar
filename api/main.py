@@ -15,6 +15,7 @@ License: Apache 2.0 - See LICENSE file
 
 import logging
 import os
+import shutil
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -58,6 +59,7 @@ async def lifespan(application: FastAPI):
     # Ensure cache dirs exist (volume mounts may lack subdirectories)
     for sub in ("wind", "wave", "current", "ice", "sst", "vis"):
         Path(f"/tmp/windmar_cache/{sub}").mkdir(parents=True, exist_ok=True)
+    Path("/tmp/windmar_tiles").mkdir(parents=True, exist_ok=True)
 
     # Load persisted vessel specs from DB (survives container restarts)
     from api.routers.vessel import load_vessel_specs_from_db
@@ -85,10 +87,12 @@ async def lifespan(application: FastAPI):
 
     logger.info("Startup complete")
 
-    # Prefetch all weather fields on default viewport (background, single worker)
-    threading.Thread(target=_prefetch_all_weather, daemon=True).start()
+    # Prefetch all weather fields on startup, then repeat every 6 hours
+    _t = threading.Thread(target=_weather_refresh_loop, daemon=True, name="wx-refresh")
+    _t.start()
 
     yield
+    _refresh_stop.set()
 
 
 def create_app() -> FastAPI:
@@ -335,12 +339,29 @@ def _run_engine_log_seed():
 # Startup Weather Prefetch
 # =============================================================================
 
-# Default viewport: NE Atlantic + Mediterranean (30°N-60°N, 30°W-40°E)
-_DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX = 30.0, 60.0
-_DEFAULT_LON_MIN, _DEFAULT_LON_MAX = -30.0, 40.0
+# Default viewports for prefetch.
+# Waves use subset() (server-side) — can handle wide lon range.
+# Currents/SST/ice use open_dataset() — limited to moderate lon range.
+# GFS (wind, visibility) handles any bbox at 0.5° resolution.
+_DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX = -60.0, 60.0
+_DEFAULT_LON_MIN, _DEFAULT_LON_MAX = -80.0, 140.0
+# Narrower bbox for fields using open_dataset() (slow S3 chunk fetches)
+_MODERATE_LON_MAX = 80.0
 
 # Advisory lock ID for single-worker prefetch (prevent 4 workers downloading simultaneously)
 _PREFETCH_LOCK_ID = 20260224
+
+# Periodic refresh: run prefetch on startup, then every 6 hours
+_REFRESH_INTERVAL = 6 * 3600  # seconds
+_refresh_stop = threading.Event()
+
+
+def _weather_refresh_loop():
+    """Run weather prefetch on startup, then repeat every 6 hours."""
+    _prefetch_all_weather()
+    while not _refresh_stop.wait(_REFRESH_INTERVAL):
+        logger.info("Scheduled weather refresh starting")
+        _prefetch_all_weather()
 
 
 def _prefetch_all_weather():
@@ -386,10 +407,14 @@ def _prefetch_all_weather():
             ft0 = time.monotonic()
             try:
                 mgr = _get_layer_manager(field_name)
+                # Currents/SST/ice use open_dataset() — limit lon to avoid
+                # slow S3 chunk downloads.  Waves/wind/vis handle wider bbox.
+                lon_max = _MODERATE_LON_MAX if field_name in ("currents", "sst", "ice") else _DEFAULT_LON_MAX
                 _do_generic_prefetch(
                     mgr,
                     _DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX,
-                    _DEFAULT_LON_MIN, _DEFAULT_LON_MAX,
+                    _DEFAULT_LON_MIN, lon_max,
+                    _skip_clamp=True,
                 )
                 logger.info(
                     "Weather prefetch %s complete (%.0fs)",
@@ -398,8 +423,20 @@ def _prefetch_all_weather():
             except Exception as e:
                 logger.error("Weather prefetch %s failed: %s", field_name, e)
 
-        with ThreadPoolExecutor(max_workers=4, thread_name_prefix="wx-prefetch") as pool:
-            pool.map(_prefetch_field, FIELD_NAMES)
+        # Waves must complete before swell (both share the same CMEMS cache file).
+        # Run waves first, then the rest in parallel.
+        _prefetch_field("waves")
+        remaining = [f for f in FIELD_NAMES if f != "waves"]
+        with ThreadPoolExecutor(max_workers=2, thread_name_prefix="wx-prefetch") as pool:
+            pool.map(_prefetch_field, remaining)
+
+        # Clear tile cache so tiles re-render from fresh data
+        tile_root = Path("/tmp/windmar_tiles")
+        if tile_root.is_dir():
+            for child in tile_root.iterdir():
+                if child.is_dir():
+                    shutil.rmtree(child, ignore_errors=True)
+            logger.info("Tile cache cleared after weather refresh")
 
         logger.info(
             "Weather prefetch ALL COMPLETE: %d fields in %.0fs",
@@ -441,6 +478,7 @@ from api.routers.optimization import router as optimization_router
 from api.routers.weather import router as weather_router
 from api.routers.voyage_history import router as voyage_history_router
 from api.routers.charter_party import router as charter_party_router
+from api.routers.tiles import router as tiles_router
 app.include_router(zones_router)
 app.include_router(cii_router)
 app.include_router(fueleu_router)
@@ -453,6 +491,7 @@ app.include_router(voyage_history_router)
 app.include_router(optimization_router)
 app.include_router(weather_router)
 app.include_router(charter_party_router)
+app.include_router(tiles_router)
 
 # Initialize application state (thread-safe singleton)
 _ = get_app_state()

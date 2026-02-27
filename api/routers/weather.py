@@ -427,17 +427,22 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
 # ============================================================================
 
 def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: float,
-                         lon_min: float, lon_max: float):
+                         lon_min: float, lon_max: float, *, _skip_clamp: bool = False):
     """Generic prefetch that works for any CMEMS/GFS field.
 
     For wind, delegates to GFS-specific logic (GRIB file cache).
     For everything else, calls the provider's forecast method and builds frames.
+
+    Args:
+        _skip_clamp: If True, bypass the 50°×80° bbox clamp (used by the
+            background scheduler for global prefetch).
     """
     field_name = mgr.name
     cfg = get_field(field_name)
 
-    # Cap bbox to prevent OOM on large viewports
-    lat_min, lat_max, lon_min, lon_max = _clamp_bbox(lat_min, lat_max, lon_min, lon_max)
+    # Cap bbox to prevent OOM on large viewports (skip for scheduled global prefetch)
+    if not _skip_clamp:
+        lat_min, lat_max, lon_min, lon_max = _clamp_bbox(lat_min, lat_max, lon_min, lon_max)
 
     cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
 
@@ -523,7 +528,9 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
             elif cfg.components == "wave_decomp":
                 raw = wd.values
             elif cfg.components == "scalar":
-                raw = getattr(wd, field_name, None) or wd.values
+                raw = getattr(wd, field_name, None)
+                if raw is None:
+                    raw = wd.values
                 if field_name == "ice" and wd.ice_concentration is not None:
                     raw = wd.ice_concentration
                 elif field_name == "visibility" and wd.visibility is not None:

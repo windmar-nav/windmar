@@ -70,6 +70,7 @@ services:
       - ./data:/app/data
       - ./logs:/app/logs
       - forecast_cache:/tmp/windmar_cache
+      - tile_cache:/tmp/windmar_tiles
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
@@ -119,6 +120,8 @@ volumes:
   redis_data:
     driver: local
   forecast_cache:
+    driver: local
+  tile_cache:
     driver: local
 
 networks:

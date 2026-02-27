@@ -12,6 +12,7 @@ interface WeatherGridLayerProps {
   extendedData?: GridFieldData | null;
   opacity?: number;
   showArrows?: boolean;
+  arrowsOnly?: boolean;
 }
 
 // Reusable color ramp interpolator for meteorological fields
@@ -204,6 +205,7 @@ function WeatherGridLayerInner({
   extendedData,
   opacity = 0.7,
   showArrows = true,
+  arrowsOnly = false,
 }: WeatherGridLayerProps) {
   const { useMap } = require('react-leaflet');
   const L = require('leaflet');
@@ -224,6 +226,7 @@ function WeatherGridLayerInner({
   useEffect(() => {
     const currentMode = mode;
     const currentShowArrows = showArrows;
+    const currentArrowsOnly = arrowsOnly;
     const DS = 128; // render at 128x128, upscale to 256x256
     const tileSize = 256;
 
@@ -281,6 +284,13 @@ function WeatherGridLayerInner({
         const lonMin = Math.min(lonStart, lonEnd);
         const lonMax = Math.max(lonStart, lonEnd);
 
+        const zoom = coords.z;
+
+        // In arrowsOnly mode, skip the heatmap pixel loop (tiles handle it)
+        if (currentArrowsOnly) {
+          ctx.clearRect(0, 0, 256, 256);
+        } else {
+
         // Create offscreen canvas at downsampled resolution
         const offscreen = document.createElement('canvas');
         offscreen.width = DS;
@@ -290,8 +300,6 @@ function WeatherGridLayerInner({
 
         const imgData = offCtx.createImageData(DS, DS);
         const pixels = imgData.data;
-
-        const zoom = coords.z;
 
         for (let py = 0; py < DS; py++) {
           for (let px = 0; px < DS; px++) {
@@ -395,6 +403,8 @@ function WeatherGridLayerInner({
         ctx.imageSmoothingEnabled = true;
         ctx.imageSmoothingQuality = 'high';
         ctx.drawImage(offscreen, 0, 0, DS, DS, 0, 0, 256, 256);
+
+        } // end if (!currentArrowsOnly)
 
         // Draw wind arrows on top (sparse, every ~40px)
         if (currentShowArrows && currentMode === 'wind' && uData && vData) {
@@ -699,7 +709,7 @@ function WeatherGridLayerInner({
         layerRef.current = null;
       }
     };
-  }, [mode, opacity, map, L, showArrows]); // NOT windData/waveData — data is read from refs
+  }, [mode, opacity, map, L, showArrows, arrowsOnly]); // NOT windData/waveData — data is read from refs
 
   // When data changes, repaint existing tile canvases in-place (no flash).
   // refreshTiles() reuses DOM elements — avoids the destroy/recreate cycle.
