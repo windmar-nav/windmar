@@ -86,7 +86,7 @@ function buildColorLUT(mode: string, vMin: number, vMax: number): Uint8Array {
     lut[off]     = r;
     lut[off + 1] = g;
     lut[off + 2] = b;
-    if (mode === 'ice' && value < 0.15) {
+    if (mode === 'ice' && value < 0.10) {
       lut[off + 3] = 0;
     } else if (mode === 'visibility') {
       lut[off + 3] = (value < 0 || value > 20) ? 0 : Math.round(220 * (1 - value / 20));
@@ -120,6 +120,11 @@ function getValueRange(
 }
 
 // ── Bilinear interpolation (inlined for tight loop perf) ───────────────
+// Sentinel-aware: values < -100 are treated as missing (NaN/land).
+// When some neighbors are sentinel, only valid neighbors contribute.
+// Returns NaN when all four neighbors are sentinel.
+
+const SENTINEL_THRESHOLD = -100;
 
 function bilinear(
   data: number[][], latFI: number, lonFI: number, ny: number, nx: number,
@@ -130,11 +135,29 @@ function bilinear(
   const j1 = Math.min(j0 + 1, nx - 1);
   const lf = latFI - i0;
   const cf = lonFI - j0;
-  const v00 = data[i0]?.[j0] ?? 0;
-  const v01 = data[i0]?.[j1] ?? 0;
-  const v10 = data[i1]?.[j0] ?? 0;
-  const v11 = data[i1]?.[j1] ?? 0;
-  return (v00 + cf * (v01 - v00)) + lf * ((v10 + cf * (v11 - v10)) - (v00 + cf * (v01 - v00)));
+  const v00 = data[i0]?.[j0] ?? NaN;
+  const v01 = data[i0]?.[j1] ?? NaN;
+  const v10 = data[i1]?.[j0] ?? NaN;
+  const v11 = data[i1]?.[j1] ?? NaN;
+
+  // Fast path: all four valid (common case — open ocean / inland)
+  if (v00 > SENTINEL_THRESHOLD && v01 > SENTINEL_THRESHOLD &&
+      v10 > SENTINEL_THRESHOLD && v11 > SENTINEL_THRESHOLD) {
+    return (v00 + cf * (v01 - v00)) + lf * ((v10 + cf * (v11 - v10)) - (v00 + cf * (v01 - v00)));
+  }
+
+  // Slow path: weighted average of only valid neighbors
+  let sum = 0;
+  let wSum = 0;
+  const w00 = (1 - lf) * (1 - cf);
+  const w01 = (1 - lf) * cf;
+  const w10 = lf * (1 - cf);
+  const w11 = lf * cf;
+  if (v00 > SENTINEL_THRESHOLD) { sum += w00 * v00; wSum += w00; }
+  if (v01 > SENTINEL_THRESHOLD) { sum += w01 * v01; wSum += w01; }
+  if (v10 > SENTINEL_THRESHOLD) { sum += w10 * v10; wSum += w10; }
+  if (v11 > SENTINEL_THRESHOLD) { sum += w11 * v11; wSum += w11; }
+  return wSum > 0 ? sum / wSum : NaN;
 }
 
 // ── Component ──────────────────────────────────────────────────────────

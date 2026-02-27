@@ -247,7 +247,9 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
     # Build ocean mask from actual data: a cell is ocean if ANY frame has valid
     # (non-NaN) data.  This is more accurate than global_land_mask at coastlines
     # where the external library marks valid CMEMS ocean cells as land.
+    # Exception: ice data has valid non-NaN values over land, so use global_land_mask.
     ocean_mask_data = None
+    _ice_ocean_arr = None  # numpy bool array for masking ice land cells
     if cfg.needs_ocean_mask:
         if cfg.components == "wave_decomp":
             mask_step = W_STEP
@@ -257,12 +259,18 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
             mask_step = STEP
         mask_lats = lats_full[::mask_step]
         mask_lons = lons_full[::mask_step]
-        data_ocean = np.zeros((len(lats_full), len(lons_full)), dtype=bool)
-        for fh in sorted(hours):
-            if primary_param in grids and fh in grids[primary_param]:
-                _, _, d = grids[primary_param][fh]
-                data_ocean |= np.isfinite(d)
-        ocean_mask_data = data_ocean[::mask_step, ::mask_step].tolist()
+
+        if field_name == "ice":
+            # Ice: CMEMS has valid non-NaN values over land — use global_land_mask
+            _, _, ocean_mask_data = _build_ocean_mask_at_coords(mask_lats, mask_lons)
+            _ice_ocean_arr = np.array(ocean_mask_data, dtype=bool)
+        else:
+            data_ocean = np.zeros((len(lats_full), len(lons_full)), dtype=bool)
+            for fh in sorted(hours):
+                if primary_param in grids and fh in grids[primary_param]:
+                    _, _, d = grids[primary_param][fh]
+                    data_ocean |= np.isfinite(d)
+            ocean_mask_data = data_ocean[::mask_step, ::mask_step].tolist()
 
     def _sub(arr, dec=cfg.decimals):
         if arr is None:
@@ -362,6 +370,9 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
             clean = np.nan_to_num(d[::S_STEP, ::S_STEP], nan=cfg.nan_fill)
             if clean.shape[0] != expected_ny or clean.shape[1] != expected_nx:
                 logger.error(f"{field_name} fh={fh} shape mismatch: data={clean.shape} expected=({expected_ny},{expected_nx})")
+            # Ice: mask land cells to sentinel (CMEMS ice has non-NaN land values)
+            if _ice_ocean_arr is not None and clean.shape == _ice_ocean_arr.shape:
+                clean = np.where(_ice_ocean_arr, clean, cfg.nan_fill)
             frames[str(fh)] = {"data": np.round(clean, cfg.decimals).tolist()}
 
     # Build cache data envelope
@@ -530,29 +541,35 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
     ocean_mask_data = None
     mask_lats_list = None
     mask_lons_list = None
+    _ice_ocean_arr2 = None  # For masking ice land cells in frame data
     if cfg.needs_ocean_mask:
-        data_ocean = np.zeros((len(first_wd.lats), len(first_wd.lons)), dtype=bool)
-        for fh, wd in result.items():
-            raw = None
-            if cfg.components == "vector":
-                raw = wd.u_component
-            elif cfg.components == "wave_decomp":
-                raw = wd.values
-            elif cfg.components == "scalar":
-                raw = getattr(wd, field_name, None)
-                if raw is None:
+        if field_name == "ice":
+            # Ice: CMEMS has valid non-NaN values over land — use global_land_mask
+            mask_lats_list, mask_lons_list, ocean_mask_data = _build_ocean_mask_at_coords(
+                env_lats, env_lons,
+            )
+            _ice_ocean_arr2 = np.array(ocean_mask_data, dtype=bool)
+        else:
+            data_ocean = np.zeros((len(first_wd.lats), len(first_wd.lons)), dtype=bool)
+            for fh, wd in result.items():
+                raw = None
+                if cfg.components == "vector":
+                    raw = wd.u_component
+                elif cfg.components == "wave_decomp":
                     raw = wd.values
-                if field_name == "ice" and wd.ice_concentration is not None:
-                    raw = wd.ice_concentration
-                elif field_name == "visibility" and wd.visibility is not None:
-                    raw = wd.visibility
-                elif field_name == "sst" and wd.sst is not None:
-                    raw = wd.sst
-            if raw is not None:
-                data_ocean |= np.isfinite(raw)
-        ocean_mask_data = data_ocean[::env_step, ::env_step].tolist()
-        mask_lats_list = env_lats.tolist() if hasattr(env_lats, 'tolist') else list(env_lats)
-        mask_lons_list = env_lons.tolist() if hasattr(env_lons, 'tolist') else list(env_lons)
+                elif cfg.components == "scalar":
+                    raw = getattr(wd, field_name, None)
+                    if raw is None:
+                        raw = wd.values
+                    if field_name == "visibility" and wd.visibility is not None:
+                        raw = wd.visibility
+                    elif field_name == "sst" and wd.sst is not None:
+                        raw = wd.sst
+                if raw is not None:
+                    data_ocean |= np.isfinite(raw)
+            ocean_mask_data = data_ocean[::env_step, ::env_step].tolist()
+            mask_lats_list = env_lats.tolist() if hasattr(env_lats, 'tolist') else list(env_lats)
+            mask_lons_list = env_lons.tolist() if hasattr(env_lons, 'tolist') else list(env_lons)
 
     def _subsample_round(arr, dec=cfg.decimals):
         if arr is None:
@@ -616,6 +633,9 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
                 vals = wd.sst
             if vals is not None:
                 clean = np.nan_to_num(vals[::S_STEP, ::S_STEP], nan=cfg.nan_fill)
+                # Ice: mask land cells to sentinel (CMEMS ice has non-NaN land values)
+                if _ice_ocean_arr2 is not None and clean.shape == _ice_ocean_arr2.shape:
+                    clean = np.where(_ice_ocean_arr2, clean, cfg.nan_fill)
                 if field_name == "sst":
                     valid = clean[clean > -100]
                     if valid.size > 0:
@@ -1410,9 +1430,14 @@ async def api_get_weather_field(
         clean = np.nan_to_num(data.values[::step, ::step], nan=cfg.nan_fill)
         response["data"] = np.round(clean, cfg.decimals).tolist()
 
-        # Ice: prefer ice_concentration field if available
+        # Ice: prefer ice_concentration field if available.
+        # Use -999 sentinel for NaN AND land cells so the frontend
+        # sentinel-aware bilinear excludes them cleanly.
         if field == "ice" and data.ice_concentration is not None:
-            clean_ice = np.nan_to_num(data.ice_concentration[::step, ::step], nan=0.0)
+            clean_ice = np.nan_to_num(data.ice_concentration[::step, ::step], nan=-999.0)
+            if "ocean_mask" in response:
+                ocean_arr = np.array(response["ocean_mask"], dtype=bool)
+                clean_ice = np.where(ocean_arr, clean_ice, -999.0)
             response["data"] = np.round(clean_ice, cfg.decimals).tolist()
 
     if ingested_at is not None:

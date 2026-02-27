@@ -201,13 +201,23 @@ def build_ocean_mask_at_coords(lats, lons):
 
 
 def apply_ocean_mask_velocity(u: np.ndarray, v: np.ndarray, lats: np.ndarray, lons: np.ndarray) -> tuple:
-    """Zero out U/V components over land so leaflet-velocity skips land areas."""
+    """Zero out U/V components over land so leaflet-velocity skips land areas.
+
+    Applies 1-cell erosion so coastal ocean cells adjacent to land are also
+    zeroed — prevents particles from drifting over land during animation.
+    """
     try:
         from global_land_mask import globe
         lon_grid, lat_grid = np.meshgrid(lons, lats)
         ocean = globe.is_ocean(lat_grid, lon_grid)
-        u_masked = np.where(ocean, u, 0.0)
-        v_masked = np.where(ocean, v, 0.0)
+        # Erode: ocean cell must have all 4-connected neighbors also be ocean
+        eroded = ocean.copy()
+        eroded[:-1, :] &= ocean[1:, :]
+        eroded[1:, :]  &= ocean[:-1, :]
+        eroded[:, :-1] &= ocean[:, 1:]
+        eroded[:, 1:]  &= ocean[:, :-1]
+        u_masked = np.where(eroded, u, 0.0)
+        v_masked = np.where(eroded, v, 0.0)
         return u_masked, v_masked
     except ImportError:
         return u, v
