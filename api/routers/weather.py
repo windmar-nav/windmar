@@ -101,10 +101,12 @@ _FRAMES_MAX_DIM = 200  # vector timeline (wind/currents): ~5 MB per layer
 _WAVE_DECOMP_MAX_DIM = 60  # wave decomp (8 arrays/frame): ~4.5 MB per layer
 _SCALAR_FRAMES_MAX_DIM = 350  # scalar (sst/vis/ice, 1 array/frame): ~18 MB per layer
 
-# Maximum bbox span for CMEMS/GFS downloads — prevents OOM.
-# Wave forecast at 45×80° ≈ 530 MB peak (8 params × 41 steps × ~522K grid points).
-_MAX_LAT_SPAN = 50.0
-_MAX_LON_SPAN = 80.0
+# Maximum bbox span for forecast frame API responses.
+# OOM is prevented by _FRAMES_MAX_DIM / _WAVE_DECOMP_MAX_DIM subsampling,
+# NOT by bbox caps. Global coverage at coarser resolution (≈2° wind, ≈1° SST)
+# keeps payloads under 20 MB and enables smooth canvas-based animation.
+_MAX_LAT_SPAN = 180.0
+_MAX_LON_SPAN = 360.0
 
 
 def _clamp_bbox(lat_min, lat_max, lon_min, lon_max):

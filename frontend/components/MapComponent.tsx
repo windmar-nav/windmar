@@ -23,8 +23,8 @@ const WeatherGridLayer = dynamic(
   () => import('@/components/WeatherGridLayer'),
   { ssr: false }
 );
-const WeatherTileLayer = dynamic(
-  () => import('@/components/WeatherTileLayer'),
+const WeatherCanvasOverlay = dynamic(
+  () => import('@/components/WeatherCanvasOverlay'),
   { ssr: false }
 );
 const WeatherLegend = dynamic(
@@ -92,8 +92,8 @@ export interface MapComponentProps {
   isEditing: boolean;
   weatherLayer: WeatherLayer;
   windData: WindFieldData | null;
-  waveData: WaveFieldData | null;
   windVelocityData: VelocityData[] | null;
+  waveData: WaveFieldData | null;
   currentVelocityData: VelocityData[] | null;
   showZones?: boolean;
   visibleZoneTypes?: string[];
@@ -130,8 +130,8 @@ export default function MapComponent({
   isEditing,
   weatherLayer,
   windData,
-  waveData,
   windVelocityData,
+  waveData,
   currentVelocityData,
   showZones = true,
   visibleZoneTypes,
@@ -229,44 +229,42 @@ export default function MapComponent({
           />
         )}
 
-        {/* Weather heatmap — server-rendered raster tiles */}
-        {weatherLayer !== 'none' && (
-          <WeatherTileLayer
-            field={weatherLayer}
-            forecastHour={currentForecastHour}
+        {/* Weather heatmap — single canvas overlay for all modes (live + forecast) */}
+        {weatherLayer !== 'none' && (windData || waveData || extendedWeatherData) && (
+          <WeatherCanvasOverlay
+            mode={weatherLayer as any}
+            windData={windData}
+            waveData={waveData}
+            extendedData={extendedWeatherData}
             opacity={0.6}
           />
         )}
 
-        {/* Wind particles */}
-        {weatherLayer === 'wind' && windVelocityData && (
-          <VelocityParticleLayer data={windVelocityData} type="wind" />
-        )}
-
-        {/* Wave arrow overlays (crests + decomposition) — heatmap via tiles */}
+        {/* Wave direction crests overlay */}
         {weatherLayer === 'waves' && waveData && (
           <WeatherGridLayer
             mode="waves"
             waveData={waveData}
             opacity={0.7}
-            showArrows={true}
-            arrowsOnly={true}
           />
         )}
 
-        {/* Currents: particle animation (no heatmap tile — velocity-only) */}
+        {/* Wind: animated WebGL particles */}
+        {weatherLayer === 'wind' && windVelocityData && (
+          <VelocityParticleLayer data={windVelocityData} type="wind" />
+        )}
+
+        {/* Currents: particle animation */}
         {weatherLayer === 'currents' && currentVelocityData && (
           <VelocityParticleLayer data={currentVelocityData} type="currents" />
         )}
 
-        {/* Swell direction arrows — heatmap via tiles */}
+        {/* Swell direction arrows overlay */}
         {weatherLayer === 'swell' && extendedWeatherData && (
           <WeatherGridLayer
             mode="swell"
             extendedData={extendedWeatherData}
             opacity={0.7}
-            showArrows={true}
-            arrowsOnly={true}
           />
         )}
 

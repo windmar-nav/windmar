@@ -230,35 +230,11 @@ export default function ForecastTimeline({
   // NOT on every small pan (which would miss the backend's per-bounds frame cache).
   const BOUNDS_GRID = 10; // degrees
 
-  // Pad viewport bounds OUT to grid cell edges so fetched data always covers the
-  // full grid cell.  This prevents truncated overlays when panning within a cell.
-  // Cap must match backend _MAX_LAT_SPAN/_MAX_LON_SPAN to avoid OOM.
-  const MAX_LAT_SPAN = 50; // degrees — matches backend _MAX_LAT_SPAN
-  const MAX_LON_SPAN = 80; // degrees — matches backend _MAX_LON_SPAN
+  // Always request global bounds for forecast frames. Backend _FRAMES_MAX_DIM
+  // subsampling keeps data size manageable (~2° wind, ~1° SST globally).
+  // Canvas rendering needs full-globe coverage for smooth animation at any zoom.
   const paddedBounds = () => {
-    const b = boundsRef.current;
-    if (!b) return undefined;
-    let lat_min = Math.floor(b.lat_min / BOUNDS_GRID) * BOUNDS_GRID;
-    let lat_max = Math.ceil(b.lat_max / BOUNDS_GRID) * BOUNDS_GRID;
-    let lon_min = Math.floor(b.lon_min / BOUNDS_GRID) * BOUNDS_GRID;
-    let lon_max = Math.ceil(b.lon_max / BOUNDS_GRID) * BOUNDS_GRID;
-    // Clamp oversized spans around viewport center (must match backend caps)
-    if (lat_max - lat_min > MAX_LAT_SPAN) {
-      const mid = (b.lat_min + b.lat_max) / 2;
-      lat_min = Math.floor((mid - MAX_LAT_SPAN / 2) / BOUNDS_GRID) * BOUNDS_GRID;
-      lat_max = lat_min + MAX_LAT_SPAN;
-    }
-    if (lon_max - lon_min > MAX_LON_SPAN) {
-      const mid = (b.lon_min + b.lon_max) / 2;
-      lon_min = Math.floor((mid - MAX_LON_SPAN / 2) / BOUNDS_GRID) * BOUNDS_GRID;
-      lon_max = lon_min + MAX_LON_SPAN;
-    }
-    // Clamp to valid geographic range
-    lat_min = Math.max(-89.9, lat_min);
-    lat_max = Math.min(89.9, lat_max);
-    lon_min = Math.max(-180, lon_min);
-    lon_max = Math.min(180, lon_max);
-    return { lat_min, lat_max, lon_min, lon_max };
+    return { lat_min: -89.9, lat_max: 89.9, lon_min: -180, lon_max: 180 };
   };
   // NOTE: No auto-refetch on pan/zoom. Data loads once when timeline opens.
   // Manual resync (dataTimestamp change) handles region changes.

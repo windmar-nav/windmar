@@ -384,16 +384,12 @@ def render_tile(
         if frame is None:
             return None
 
-    # Build the value grid to colormap
     values_2d = _extract_values(field, cfg, frame, lat_ascending)
     if values_2d is None:
         return None
-
     ny, nx = values_2d.shape
     if ny != len(lats) or nx != len(lons):
         return None
-
-    # Resample grid to 256x256 tile pixels
     pixel_values = _resample_to_tile(
         values_2d, lats, lons, lat_min, lat_max, lon_min, lon_max
     )

@@ -118,7 +118,7 @@ def _cache_fingerprint(cache_data: dict) -> str:
 @router.get("/{field}/{z}/{x}/{y}.png")
 async def get_tile(
     field: str,
-    z: int,
+    z: float,
     x: int,
     y: int,
     h: int = Query(0, description="Forecast hour offset"),
@@ -128,6 +128,9 @@ async def get_tile(
     Returns 200 with PNG on hit, or a transparent 1×1 PNG if the tile
     is outside grid coverage (land / no data).
     """
+    # Round fractional zoom from maps with zoomSnap < 1
+    z = int(round(z))
+
     # Validate field
     if field not in FIELD_NAMES:
         return Response(content=_EMPTY_PNG, media_type="image/png", status_code=200)

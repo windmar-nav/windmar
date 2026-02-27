@@ -414,8 +414,8 @@ export default function HomePage() {
             routeVisibility={routeVisibility}
             weatherLayer={weatherLayer}
             windData={weather.windData}
-            waveData={weather.waveData}
             windVelocityData={weather.windVelocityData}
+            waveData={weather.waveData}
             currentVelocityData={weather.currentVelocityData}
             showZones={visibleZoneTypes.length > 0}
             visibleZoneTypes={visibleZoneTypes}

@@ -17,6 +17,43 @@ import { debugLog } from '@/lib/debugLog';
 
 type WeatherLayer = 'wind' | 'waves' | 'currents' | 'ice' | 'visibility' | 'sst' | 'swell' | 'none';
 
+/**
+ * Convert a WindFieldData grid (u[][], v[][]) to leaflet-velocity format.
+ * Eliminates the separate /api/weather/wind/velocity fetch — ~0ms overhead.
+ */
+function windFieldToVelocity(wind: WindFieldData): VelocityData[] {
+  const { ny, nx } = wind;
+  const flatU: number[] = new Array(ny * nx);
+  const flatV: number[] = new Array(ny * nx);
+  // leaflet-velocity expects la1=top (descending lat order).
+  // WindFieldData.lats may be ascending — flip rows if so.
+  const ascending = wind.lats.length > 1 && wind.lats[0] < wind.lats[wind.lats.length - 1];
+  for (let j = 0; j < ny; j++) {
+    const srcRow = ascending ? ny - 1 - j : j;
+    for (let i = 0; i < nx; i++) {
+      flatU[j * nx + i] = wind.u[srcRow]?.[i] ?? 0;
+      flatV[j * nx + i] = wind.v[srcRow]?.[i] ?? 0;
+    }
+  }
+  const header = {
+    parameterCategory: 2,
+    parameterNumber: 2,
+    la1: wind.bbox.lat_max,
+    la2: wind.bbox.lat_min,
+    lo1: wind.bbox.lon_min,
+    lo2: wind.bbox.lon_max,
+    dx: wind.resolution,
+    dy: wind.resolution,
+    nx,
+    ny,
+    refTime: wind.time || '',
+  };
+  return [
+    { header: { ...header, parameterNumber: 2 }, data: flatU },
+    { header: { ...header, parameterNumber: 3 }, data: flatV },
+  ];
+}
+
 interface ViewportState {
   bounds: { lat_min: number; lat_max: number; lon_min: number; lon_max: number };
   zoom: number;
@@ -110,11 +147,11 @@ export function useWeatherDisplay(
 ) {
   // ---- display data ----
   const [windData, setWindData] = useState<WindFieldData | null>(null);
+  const [windVelocityData, setWindVelocityData] = useState<VelocityData[] | null>(null);
   const windDataBaseRef = useRef<WindFieldData | null>(null);
   const windFieldCacheRef = useRef<Record<string, WindFieldData>>({});
   const windFieldCacheVersionRef = useRef<string>('');
   const [waveData, setWaveData] = useState<WaveFieldData | null>(null);
-  const [windVelocityData, setWindVelocityData] = useState<VelocityData[] | null>(null);
   const [currentVelocityData, setCurrentVelocityData] = useState<VelocityData[] | null>(null);
   const [extendedWeatherData, setExtendedWeatherData] = useState<GridFieldData | null>(null);
 
@@ -179,15 +216,15 @@ export function useWeatherDisplay(
 
     try {
       if (activeLayer === 'wind') {
-        const [wind, windVel] = await Promise.all([
-          apiClient.getWindField(params).then(orNull),
-          apiClient.getWindVelocity(params).then(orNull),
-        ]);
+        const wind = await apiClient.getWindField(params).then(orNull);
         if (isStale()) return;
         const dt = (performance.now() - t0).toFixed(0);
         debugLog('info', 'API', `Wind loaded in ${dt}ms: grid=${wind?.ny}x${wind?.nx}`);
-        if (wind) { setWindData(wind); windDataBaseRef.current = wind; }
-        if (windVel) setWindVelocityData(windVel);
+        if (wind) {
+          setWindData(wind);
+          windDataBaseRef.current = wind;
+          setWindVelocityData(windFieldToVelocity(wind));
+        }
         if (wind?.ingested_at && !options?.skipIngestedAt) setLayerIngestedAt(wind.ingested_at);
         // Background prefetch waves for instant layer switching
         apiClient.getWaveField(params).then(orNull).then(w => {
@@ -259,6 +296,17 @@ export function useWeatherDisplay(
     }
   }, [weatherLayer, forecastEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 
+  // ---- Debounced viewport refresh for arrow/grid overlays ----
+  const viewportRefreshTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
+  useEffect(() => {
+    if (!viewport || weatherLayer === 'none' || forecastEnabled) return;
+    clearTimeout(viewportRefreshTimer.current);
+    viewportRefreshTimer.current = setTimeout(() => {
+      loadWeatherData(viewport, weatherLayer);
+    }, 800);
+    return () => clearTimeout(viewportRefreshTimer.current);
+  }, [viewport]); // eslint-disable-line react-hooks/exhaustive-deps
+
   // ---- Auto-load wind when route has 2+ waypoints ----
   useEffect(() => {
     if (waypointCount >= 2 && weatherLayer === 'none') {
@@ -274,8 +322,6 @@ export function useWeatherDisplay(
   const handleForecastHourChange = useCallback((hour: number, data: VelocityData[] | null) => {
     setCurrentForecastHour(hour);
     if (data && data.length >= 2) {
-      setWindVelocityData(data);
-
       const hdr = data[0].header;
       const version = hdr.refTime || '';
       if (version !== windFieldCacheVersionRef.current) {
@@ -319,6 +365,7 @@ export function useWeatherDisplay(
         windFieldCacheRef.current[key] = field;
       }
       setWindData(field);
+      setWindVelocityData(data);
     } else if (hour === 0) {
       loadWeatherData();
     }
@@ -489,8 +536,8 @@ export function useWeatherDisplay(
   return {
     // Display data
     windData,
-    waveData,
     windVelocityData,
+    waveData,
     currentVelocityData,
     extendedWeatherData,
     // UI state

@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 
 interface WeatherTileLayerProps {
   field: string;
@@ -31,11 +31,16 @@ function WeatherTileLayerInner({
   const L = require('leaflet');
   const map = useMap();
   const layerRef = useRef<any>(null);
-  const prevUrlRef = useRef<string>('');
 
+  // Extend TileLayer to round fractional zoom (map uses zoomSnap=0.25)
+  const RoundedTileLayer = useMemo(() => L.TileLayer.extend({
+    _getZoomForUrl: function () {
+      return Math.round(L.TileLayer.prototype._getZoomForUrl.call(this));
+    },
+  }), [L]);
+
+  // Create the tile layer once on mount (key={field} in parent handles field changes)
   useEffect(() => {
-    // Create a dedicated pane for weather tiles so they render
-    // above the base map (z-index 200) but below the coastline (350).
     const PANE_NAME = 'weatherTilePane';
     if (!map.getPane(PANE_NAME)) {
       const pane = map.createPane(PANE_NAME);
@@ -45,17 +50,7 @@ function WeatherTileLayerInner({
 
     const url = `${API_BASE_URL}/api/tiles/${field}/{z}/{x}/{y}.png?h=${forecastHour}`;
 
-    if (layerRef.current) {
-      // Field or forecast hour changed — swap URL (Leaflet handles tile refresh)
-      if (prevUrlRef.current !== url) {
-        layerRef.current.setUrl(url);
-        prevUrlRef.current = url;
-      }
-      layerRef.current.setOpacity(opacity);
-      return;
-    }
-
-    const layer = L.tileLayer(url, {
+    const layer = new RoundedTileLayer(url, {
       opacity,
       pane: PANE_NAME,
       tileSize: 256,
@@ -68,16 +63,25 @@ function WeatherTileLayerInner({
 
     layer.addTo(map);
     layerRef.current = layer;
-    prevUrlRef.current = url;
 
     return () => {
-      if (layerRef.current) {
-        map.removeLayer(layerRef.current);
-        layerRef.current = null;
-        prevUrlRef.current = '';
-      }
+      map.removeLayer(layer);
+      layerRef.current = null;
     };
-  }, [field, forecastHour, opacity, map, L]);
+  }, [map, L, field]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Update URL when forecast hour changes (no layer re-creation needed)
+  useEffect(() => {
+    if (!layerRef.current) return;
+    const url = `${API_BASE_URL}/api/tiles/${field}/{z}/{x}/{y}.png?h=${forecastHour}`;
+    layerRef.current.setUrl(url);
+  }, [forecastHour, field]);
+
+  // Update opacity without re-creating the layer
+  useEffect(() => {
+    if (!layerRef.current) return;
+    layerRef.current.setOpacity(opacity);
+  }, [opacity]);
 
   return null;
 }
