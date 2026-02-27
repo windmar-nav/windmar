@@ -198,7 +198,8 @@ def _sanitize_nan(val, fill=None):
 
 def _rebuild_frames_from_db(field_name: str, cache_key: str,
                             lat_min: float, lat_max: float,
-                            lon_min: float, lon_max: float):
+                            lon_min: float, lon_max: float, *,
+                            _tile_resolution: bool = False):
     """Rebuild forecast frame cache from PostgreSQL for any field.
 
     This single function replaces _rebuild_wind_cache_from_db,
@@ -234,7 +235,8 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
     lats_full, lons_full, _ = grids[primary_param][first_fh]
     max_dim = max(len(lats_full), len(lons_full))
     STEP = max(1, math.ceil(max_dim / _FRAMES_MAX_DIM))
-    W_STEP = max(1, math.ceil(max_dim / _WAVE_DECOMP_MAX_DIM))
+    wave_max = _WAVE_DECOMP_MAX_DIM * 2 if _tile_resolution else _WAVE_DECOMP_MAX_DIM
+    W_STEP = max(1, math.ceil(max_dim / wave_max))
     S_STEP = max(1, math.ceil(max_dim / _SCALAR_FRAMES_MAX_DIM))
     shared_lats = lats_full[::STEP]
     shared_lons = lons_full[::STEP]
@@ -427,7 +429,8 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
 # ============================================================================
 
 def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: float,
-                         lon_min: float, lon_max: float, *, _skip_clamp: bool = False):
+                         lon_min: float, lon_max: float, *, _skip_clamp: bool = False,
+                         _tile_resolution: bool = False):
     """Generic prefetch that works for any CMEMS/GFS field.
 
     For wind, delegates to GFS-specific logic (GRIB file cache).
@@ -436,6 +439,8 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
     Args:
         _skip_clamp: If True, bypass the 50°×80° bbox clamp (used by the
             background scheduler for global prefetch).
+        _tile_resolution: If True, use higher subsampling limits for wave
+            decomposition data to improve server-side tile quality.
     """
     field_name = mgr.name
     cfg = get_field(field_name)
@@ -457,7 +462,8 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
     # Try rebuild from DB first
     db_weather = _db_weather()
     if db_weather is not None:
-        rebuilt = _rebuild_frames_from_db(field_name, cache_key, lat_min, lat_max, lon_min, lon_max)
+        rebuilt = _rebuild_frames_from_db(field_name, cache_key, lat_min, lat_max, lon_min, lon_max,
+                                         _tile_resolution=_tile_resolution)
         if rebuilt and len(rebuilt.get("frames", {})) >= min_frames:
             if cache_covers_bounds(rebuilt, lat_min, lat_max, lon_min, lon_max):
                 logger.info(f"{field_name} forecast rebuilt from DB, skipping provider download")
@@ -498,7 +504,9 @@ def _do_generic_prefetch(mgr: ForecastLayerManager, lat_min: float, lat_max: flo
     first_wd = next(iter(result.values()))
     max_dim = max(len(first_wd.lats), len(first_wd.lons))
     STEP = max(1, math.ceil(max_dim / _FRAMES_MAX_DIM))
-    W_STEP = max(1, math.ceil(max_dim / _WAVE_DECOMP_MAX_DIM))
+    # For global tile rendering, use 2x wave decomp resolution (disk-only, not browser-bound)
+    wave_max = _WAVE_DECOMP_MAX_DIM * 2 if _tile_resolution else _WAVE_DECOMP_MAX_DIM
+    W_STEP = max(1, math.ceil(max_dim / wave_max))
     S_STEP = max(1, math.ceil(max_dim / _SCALAR_FRAMES_MAX_DIM))
     logger.info(f"{field_name} forecast: grid {len(first_wd.lats)}x{len(first_wd.lons)}, STEP={STEP}, W_STEP={W_STEP}, S_STEP={S_STEP}")
     sub_lats = first_wd.lats[::STEP]

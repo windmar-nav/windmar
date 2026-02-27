@@ -415,6 +415,7 @@ def _prefetch_all_weather():
                     _DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX,
                     _DEFAULT_LON_MIN, lon_max,
                     _skip_clamp=True,
+                    _tile_resolution=True,
                 )
                 logger.info(
                     "Weather prefetch %s complete (%.0fs)",

@@ -34,6 +34,15 @@ function WeatherTileLayerInner({
   const prevUrlRef = useRef<string>('');
 
   useEffect(() => {
+    // Create a dedicated pane for weather tiles so they render
+    // above the base map (z-index 200) but below the coastline (350).
+    const PANE_NAME = 'weatherTilePane';
+    if (!map.getPane(PANE_NAME)) {
+      const pane = map.createPane(PANE_NAME);
+      pane.style.zIndex = '300';
+      pane.style.pointerEvents = 'none';
+    }
+
     const url = `${API_BASE_URL}/api/tiles/${field}/{z}/{x}/{y}.png?h=${forecastHour}`;
 
     if (layerRef.current) {
@@ -48,6 +57,7 @@ function WeatherTileLayerInner({
 
     const layer = L.tileLayer(url, {
       opacity,
+      pane: PANE_NAME,
       tileSize: 256,
       zoomOffset: 0,
       maxNativeZoom: field === 'wind' || field === 'visibility' ? 8 : 10,

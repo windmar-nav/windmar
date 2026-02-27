@@ -693,11 +693,23 @@ function WeatherGridLayerInner({
       },
     });
 
+    // When in arrowsOnly mode, render in a dedicated pane ABOVE the weather
+    // tile heatmap (z-300) but below the coastline (z-350).
+    if (currentArrowsOnly) {
+      const ARROW_PANE = 'weatherArrowPane';
+      if (!map.getPane(ARROW_PANE)) {
+        const pane = map.createPane(ARROW_PANE);
+        pane.style.zIndex = '310';
+        pane.style.pointerEvents = 'none';
+      }
+    }
+
     const layer = new WeatherTileLayer({
       opacity,
       tileSize: 256,
       updateWhenZooming: false,
       updateWhenIdle: true,
+      ...(currentArrowsOnly ? { pane: 'weatherArrowPane' } : {}),
     });
 
     layer.addTo(map);
