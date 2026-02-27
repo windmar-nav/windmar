@@ -90,7 +90,7 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 - Unified comparison table with fuel, distance, time, and waypoint counts for every route variant
 - Sequential optimization with progressive map updates (routes appear one by one)
 - **Session persistence** — waypoints, optimization results, viewport, and settings survive page navigation and full reloads (sessionStorage-backed React Context)
-- **Settings page** — dedicated optimization engine configuration with educational content on Pareto analysis, variable speed, and startup procedure
+- **Settings page** — 2-column card layout with optimization engine configuration, WMO wind barb legend, and educational content on Pareto analysis, variable speed, and startup procedure
 - Voyage calculation with per-leg fuel, speed, and ETA breakdown
 - Consolidated vessel configuration, calibration, fuel analysis, and performance prediction page
 - Engine log upload, entries browser, and analytics dashboard
@@ -100,6 +100,11 @@ A weather routing and performance analytics platform for merchant ships. Optimiz
 - Dark maritime theme, responsive design
 
 ## Screenshots
+
+<details>
+  <summary><strong>Screencast — Weather Layers & Wind Barbs (v0.1.3)</strong></summary>
+  <video src="docs/windmar-demo.webm" width="800" controls muted></video>
+</details>
 
 <table>
   <tr>
@@ -452,6 +457,26 @@ The system ships with a default MR Product Tanker configuration (all values conf
 
 ## Changelog
 
+### v0.1.3 — Global Weather Coverage & Wind Barbs
+
+**Weather Rendering**
+
+- **Global weather coverage** — 7 overlay layers (wind, waves, swell, currents, SST, ice, visibility) rendered at ±60° latitude via raster tiles with client-side canvas painting
+- **WMO-standard wind barbs** — calm circle, pennants (50 kt), full barbs (10 kt), and half barbs (5 kt) drawn on the wind overlay grid
+- **Calm wind zone coloring** — areas below 1 kt rendered with a distinct calm-zone color instead of the lowest speed bin
+- **Double-buffered canvas rendering** — offscreen canvas compositing eliminates flicker during tile redraws
+- **Gzip weather cache** — compressed weather tile responses reduce bandwidth and improve load times
+
+**Weather Fixes**
+
+- **Ice land masking** — ice concentration overlay now masks land areas, preventing false ice display over continents
+- **SST coastline bleed fix** — sea surface temperature no longer bleeds inland along coastlines
+- **Currents-over-land fix** — ocean current vectors suppressed over land grid cells
+
+**UI**
+
+- **Settings page 2-column card layout** — reorganized settings into a responsive card grid with WMO wind barb legend
+
 ### v0.1.2 — Settings Page, Variable Speed & Session Persistence
 
 **Settings & Documentation**
@@ -483,6 +508,19 @@ The system ships with a default MR Product Tanker configuration (all values conf
 - File uploads (RTZ import, Load from File) hidden for demo users
 - Map viewport fully locked in demo mode — dragging, zoom, scroll, keyboard, and touch interactions disabled
 - Weather data: frozen snapshot (Feb 2025), forecast capped at 48h, Visibility/SST layers hidden, resync blocked
+
+### v0.1.1 — Weather Pipeline Fixes
+
+**Weather Layer Fixes**
+
+- **Wind DB rebuild** — rebuilt wind database schema and ingestion to fix missing/corrupt wind grid data
+- **SST black hole fix** — resolved missing SST data patches that appeared as black holes in the overlay
+- **Wave OOM crash fix** — fixed out-of-memory crash when loading large wave forecast grids
+- **Weather debug endpoint** — added `/api/weather/debug` for inspecting cached weather grid metadata
+- **Cache versioning** — weather cache keys now include a version suffix to prevent stale data after schema changes
+- **NaN sentinel handling** — weather grids with NaN values are now replaced with configurable sentinel values before storage
+- **Viewport margin widening** — increased the fetch margin around the visible viewport to reduce edge-of-screen data gaps
+- **Latitude cap widening** — extended the maximum latitude for weather data requests from ±55° to ±60°
 
 ### v0.1.0 — Commercial Compliance & Production Optimizer
 
@@ -640,7 +678,7 @@ Live connectivity to Copernicus and NOAA weather services.
 
 ## Codebase
 
-~67,000 lines of code across 197 files: 36K Python backend, 22K TypeScript frontend, 9K tests.
+~72,000 lines of code across 224 files: 48K Python, 24K TypeScript.
 
 ## Branch Strategy
 
