@@ -27,7 +27,7 @@ const SWELL_PERIOD_RAMP: ColorStop[] = [
 // Wind speed ramp (knots → color), matching server tile_renderer _WIND_RAMP
 // Server ramp is in m/s [0,5,10,15,20,25] → converted to knots [0,~10,~19,~29,~39,~49]
 const WIND_SPEED_RAMP: ColorStop[] = [
-  [ 0,  30,  80, 220],
+  [ 0,  80, 220, 240],
   [10,   0, 200, 220],
   [19,   0, 200,  50],
   [29, 240, 220,   0],
@@ -70,6 +70,10 @@ function windSpeedColor(knots: number): string {
  *  cx,cy   = center position on the canvas
  *  uMs,vMs = u/v wind components in m/s (positive east / positive north)
  *  The barb staff points INTO the wind (direction wind comes FROM).
+ *
+ *  WMO convention:
+ *    calm  = circle             half barb = 5 kt
+ *    full barb = 10 kt          pennant (flag) = 50 kt
  */
 function drawWindBarb(
   ctx: CanvasRenderingContext2D,
@@ -78,26 +82,45 @@ function drawWindBarb(
 ) {
   const MS_TO_KT = 1.94384;
   const speed = Math.sqrt(uMs * uMs + vMs * vMs) * MS_TO_KT;
-  if (speed < 1) return; // calm — skip
+
+  const color = windSpeedColor(Math.max(speed, 1));
+
+  // ── Calm: draw circle ──
+  if (speed < 2.5) {
+    ctx.strokeStyle = 'rgba(0,0,0,0.5)';
+    ctx.lineWidth = 2.4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.stroke();
+    ctx.strokeStyle = color;
+    ctx.lineWidth = 1.4;
+    ctx.beginPath();
+    ctx.arc(cx, cy, 4, 0, Math.PI * 2);
+    ctx.stroke();
+    return;
+  }
 
   // Meteorological direction: angle wind is coming FROM, measured CW from north
-  // On canvas: 0° = up (north), 90° = right (east)
-  const fromRad = Math.atan2(-uMs, -vMs); // radians, 0=N, pi/2=E
+  const fromRad = Math.atan2(-uMs, -vMs);
 
-  const color = windSpeedColor(speed);
-  const staffLen = 22;
-  const barbLen = 10;
+  const staffLen = 24;
+  const barbLen = 12;
+  const halfBarbLen = 6;
   const barbSpacing = 4;
-  const barbAngle = 60 * Math.PI / 180; // barbs at 60° from staff
+  // Barbs angled ~60° from staff axis (matching WMO reference)
+  const barbAngle = 60 * Math.PI / 180;
+  // Pennant height along staff
+  const pennantH = 6;
 
   ctx.save();
   ctx.translate(cx, cy);
-  ctx.rotate(fromRad); // rotate so 0° = staff pointing up (into wind)
+  ctx.rotate(fromRad);
+  ctx.lineCap = 'round';
+  ctx.lineJoin = 'round';
 
-  // Staff: line from center towards wind source
+  // ── Staff (shadow + colored line) ──
   ctx.strokeStyle = 'rgba(0,0,0,0.5)';
   ctx.lineWidth = 3;
-  ctx.lineCap = 'round';
   ctx.beginPath();
   ctx.moveTo(0, 0);
   ctx.lineTo(0, -staffLen);
@@ -110,74 +133,72 @@ function drawWindBarb(
   ctx.lineTo(0, -staffLen);
   ctx.stroke();
 
-  // Decompose speed into pennants (50kt), full barbs (10kt), half barbs (5kt)
-  let remaining = Math.round(speed / 5) * 5; // round to nearest 5
+  // ── Decompose speed ──
+  let remaining = Math.round(speed / 5) * 5;
   const pennants = Math.floor(remaining / 50);
   remaining -= pennants * 50;
   const fullBarbs = Math.floor(remaining / 10);
   remaining -= fullBarbs * 10;
   const halfBarbs = Math.floor(remaining / 5);
 
-  let y = -staffLen; // start at tip
+  let y = -staffLen; // start drawing from tip
 
-  // Draw pennants (filled triangles)
-  ctx.fillStyle = color;
-  for (let p = 0; p < pennants; p++) {
-    const bx = Math.sin(barbAngle) * barbLen;
-    const by = Math.cos(barbAngle) * barbLen;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(bx, y + by * 0.5);
-    ctx.lineTo(0, y + by);
-    ctx.closePath();
-    ctx.fill();
-    // Dark outline
+  // Helper: draw a line segment with shadow + color
+  const drawLine = (x0: number, y0: number, x1: number, y1: number) => {
     ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-    ctx.lineWidth = 1;
+    ctx.lineWidth = 2.6;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
     ctx.stroke();
     ctx.strokeStyle = color;
-    y += by;
+    ctx.lineWidth = 1.6;
+    ctx.beginPath();
+    ctx.moveTo(x0, y0);
+    ctx.lineTo(x1, y1);
+    ctx.stroke();
+  };
+
+  // ── Pennants (filled triangles, 50 kt each) ──
+  for (let p = 0; p < pennants; p++) {
+    const bx = Math.sin(barbAngle) * barbLen;
+    ctx.beginPath();
+    ctx.moveTo(0, y);
+    ctx.lineTo(bx, y + pennantH * 0.5);
+    ctx.lineTo(0, y + pennantH);
+    ctx.closePath();
+    // Shadow fill
+    ctx.fillStyle = 'rgba(0,0,0,0.4)';
+    ctx.fill();
+    // Color fill
+    ctx.fillStyle = color;
+    ctx.fill();
+    // Outline
+    ctx.strokeStyle = 'rgba(0,0,0,0.3)';
+    ctx.lineWidth = 0.8;
+    ctx.stroke();
+    y += pennantH;
+    // Small gap after pennants before barbs
+    if (p === pennants - 1 && (fullBarbs > 0 || halfBarbs > 0)) {
+      y += 2;
+    }
   }
 
-  // Draw full barbs (long lines)
+  // ── Full barbs (10 kt each) ──
   for (let f = 0; f < fullBarbs; f++) {
     const bx = Math.sin(barbAngle) * barbLen;
     const by = Math.cos(barbAngle) * barbLen;
-    // Shadow
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-    ctx.lineWidth = 2.6;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(bx, y + by);
-    ctx.stroke();
-    // Color
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(bx, y + by);
-    ctx.stroke();
+    drawLine(0, y, bx, y + by);
     y += barbSpacing;
   }
 
-  // Draw half barbs (short lines)
+  // ── Half barbs (5 kt each) ──
   for (let h = 0; h < halfBarbs; h++) {
-    const bx = Math.sin(barbAngle) * barbLen * 0.5;
-    const by = Math.cos(barbAngle) * barbLen * 0.5;
-    // If only a half barb and no others, offset it slightly from tip
+    const bx = Math.sin(barbAngle) * halfBarbLen;
+    const by = Math.cos(barbAngle) * halfBarbLen;
+    // If only a half barb with no others, offset from tip
     if (pennants === 0 && fullBarbs === 0 && h === 0) y += barbSpacing;
-    ctx.strokeStyle = 'rgba(0,0,0,0.4)';
-    ctx.lineWidth = 2.6;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(bx, y + by);
-    ctx.stroke();
-    ctx.strokeStyle = color;
-    ctx.lineWidth = 1.6;
-    ctx.beginPath();
-    ctx.moveTo(0, y);
-    ctx.lineTo(bx, y + by);
-    ctx.stroke();
+    drawLine(0, y, bx, y + by);
     y += barbSpacing;
   }
 

@@ -16,7 +16,7 @@ interface WeatherCanvasOverlayProps {
 type ColorStop = [number, number, number, number]; // [threshold, R, G, B]
 
 const WIND_RAMP: ColorStop[] = [
-  [0,  30,  80, 220], [5,   0, 200, 220], [10,  0, 200,  50],
+  [0,  80, 220, 240], [5,   0, 200, 220], [10,  0, 200,  50],
   [15, 240, 220,   0], [20, 240, 130,   0], [25, 220,  30,  30],
 ];
 const WAVE_RAMP: ColorStop[] = [
@@ -359,7 +359,7 @@ function WeatherCanvasOverlayInner({
           const u = bilinear(uData, latFracIdx, lonFracIdx, ny, nx);
           const v = bilinear(vData, latFracIdx, lonFracIdx, ny, nx);
           value = Math.sqrt(u * u + v * v);
-          if (Number.isNaN(value) || value < 0.01) continue; // land mask (backend zeros over land)
+          if (Number.isNaN(value)) continue;
         } else if (scalarData) {
           value = bilinear(scalarData, latFracIdx, lonFracIdx, ny, nx);
           if (Number.isNaN(value) || value < -100) continue; // NaN / sentinel → land
