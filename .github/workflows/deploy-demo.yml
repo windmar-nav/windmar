@@ -79,10 +79,15 @@ jobs:
             cat > .env <<'ENVEOF'
             DEMO_DB_PASSWORD=${{ secrets.DEMO_DB_PASSWORD }}
             API_SECRET_KEY=${{ secrets.DEMO_API_SECRET }}
+            ENVEOF
+
+            # Bcrypt hashes contain $ which Docker Compose variable
+            # substitution would corrupt.  env_file bypasses interpolation.
+            cat > .env.hashes <<'HASHEOF'
             DEMO_API_KEY_HASH=${{ secrets.DEMO_API_KEY_HASH }}
             DEMO_API_KEY_HASHES=${{ secrets.DEMO_API_KEY_HASHES }}
             FULL_API_KEY_HASHES=${{ secrets.FULL_API_KEY_HASHES }}
-            ENVEOF
+            HASHEOF
 
             # Authenticate to GHCR on VPS for pulling private packages
             echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
