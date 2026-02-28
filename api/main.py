@@ -351,6 +351,8 @@ _DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX = -60.0, 60.0
 _DEFAULT_LON_MIN, _DEFAULT_LON_MAX = -80.0, 140.0
 # Narrower bbox for fields using open_dataset() (slow S3 chunk fetches)
 _MODERATE_LON_MAX = 80.0
+# Ice-specific bbox: extends to 85N for Arctic coverage
+_ICE_LAT_MIN, _ICE_LAT_MAX = 50.0, 85.0
 
 # Advisory lock ID for single-worker prefetch (prevent 4 workers downloading simultaneously)
 _PREFETCH_LOCK_ID = 20260224
@@ -411,12 +413,17 @@ def _prefetch_all_weather():
             ft0 = time.monotonic()
             try:
                 mgr = _get_layer_manager(field_name)
-                # Currents/SST/ice use open_dataset() — limit lon to avoid
-                # slow S3 chunk downloads.  Waves/wind/vis handle wider bbox.
-                lon_max = _MODERATE_LON_MAX if field_name in ("currents", "sst", "ice") else _DEFAULT_LON_MAX
+                # Field-specific bbox: ice needs Arctic (50-85N), others use defaults.
+                # Currents/SST use moderate lon to avoid slow S3 chunk fetches.
+                if field_name == "ice":
+                    lat_min, lat_max = _ICE_LAT_MIN, _ICE_LAT_MAX
+                    lon_max = _MODERATE_LON_MAX
+                else:
+                    lat_min, lat_max = _DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX
+                    lon_max = _MODERATE_LON_MAX if field_name in ("currents", "sst") else _DEFAULT_LON_MAX
                 _do_generic_prefetch(
                     mgr,
-                    _DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX,
+                    lat_min, lat_max,
                     _DEFAULT_LON_MIN, lon_max,
                     _skip_clamp=True,
                     _tile_resolution=True,

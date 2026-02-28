@@ -439,8 +439,9 @@ class WeatherIngestionService:
                     logger.error(f"Failed to ingest wave forecast f{fh:03d}: {e}")
                     conn.rollback()
 
-            # Only supersede old runs if new run has at least as many hours
-            if ingested_count >= old_hour_count:
+            # Only supersede old runs if new run has at least 70% of old frame count
+            min_required = max(1, int(old_hour_count * 0.7))
+            if ingested_count >= min_required:
                 cur.execute(
                     """UPDATE weather_forecast_runs SET status = 'superseded'
                        WHERE source = %s AND status = 'complete' AND id != %s""",
@@ -450,7 +451,7 @@ class WeatherIngestionService:
             else:
                 status = "failed"
                 logger.warning(
-                    f"Wave: new run ({ingested_count}h) < old ({old_hour_count}h) — keeping old"
+                    f"Wave: new run ({ingested_count}h) < min required ({min_required}h from old {old_hour_count}h) — keeping old"
                 )
 
             cur.execute(
@@ -535,7 +536,8 @@ class WeatherIngestionService:
                     logger.error(f"Failed to ingest current forecast f{fh:03d}: {e}")
                     conn.rollback()
 
-            if ingested_count >= old_hour_count:
+            min_required = max(1, int(old_hour_count * 0.7))
+            if ingested_count >= min_required:
                 cur.execute(
                     """UPDATE weather_forecast_runs SET status = 'superseded'
                        WHERE source = %s AND status = 'complete' AND id != %s""",
@@ -545,7 +547,7 @@ class WeatherIngestionService:
             else:
                 status = "failed"
                 logger.warning(
-                    f"Current: new run ({ingested_count}h) < old ({old_hour_count}h) — keeping old"
+                    f"Current: new run ({ingested_count}h) < min required ({min_required}h from old {old_hour_count}h) — keeping old"
                 )
 
             cur.execute(
@@ -628,7 +630,8 @@ class WeatherIngestionService:
                     logger.error(f"Failed to ingest ice forecast f{fh:03d}: {e}")
                     conn.rollback()
 
-            if ingested_count >= old_hour_count:
+            min_required = max(1, int(old_hour_count * 0.7))
+            if ingested_count >= min_required:
                 cur.execute(
                     """UPDATE weather_forecast_runs SET status = 'superseded'
                        WHERE source = %s AND status = 'complete' AND id != %s""",
@@ -638,7 +641,7 @@ class WeatherIngestionService:
             else:
                 status = "failed"
                 logger.warning(
-                    f"Ice: new run ({ingested_count}h) < old ({old_hour_count}h) — keeping old"
+                    f"Ice: new run ({ingested_count}h) < min required ({min_required}h from old {old_hour_count}h) — keeping old"
                 )
 
             cur.execute(
@@ -776,7 +779,8 @@ class WeatherIngestionService:
                     logger.error(f"Failed to ingest SST forecast f{fh:03d}: {e}")
                     conn.rollback()
 
-            if ingested_count >= old_hour_count:
+            min_required = max(1, int(old_hour_count * 0.7))
+            if ingested_count >= min_required:
                 cur.execute(
                     """UPDATE weather_forecast_runs SET status = 'superseded'
                        WHERE source = %s AND status = 'complete' AND id != %s""",
@@ -786,7 +790,7 @@ class WeatherIngestionService:
             else:
                 status = "failed"
                 logger.warning(
-                    f"SST: new run ({ingested_count}h) < old ({old_hour_count}h) — keeping old"
+                    f"SST: new run ({ingested_count}h) < min required ({min_required}h from old {old_hour_count}h) — keeping old"
                 )
 
             cur.execute(
@@ -868,7 +872,8 @@ class WeatherIngestionService:
                     logger.error(f"Failed to ingest visibility forecast f{fh:03d}: {e}")
                     conn.rollback()
 
-            if ingested_count >= old_hour_count:
+            min_required = max(1, int(old_hour_count * 0.7))
+            if ingested_count >= min_required:
                 cur.execute(
                     """UPDATE weather_forecast_runs SET status = 'superseded'
                        WHERE source = %s AND status = 'complete' AND id != %s""",
@@ -878,7 +883,7 @@ class WeatherIngestionService:
             else:
                 status = "failed"
                 logger.warning(
-                    f"Visibility: new run ({ingested_count}h) < old ({old_hour_count}h) — keeping old"
+                    f"Visibility: new run ({ingested_count}h) < min required ({min_required}h from old {old_hour_count}h) — keeping old"
                 )
 
             cur.execute(
