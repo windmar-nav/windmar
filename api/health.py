@@ -5,12 +5,15 @@ Provides detailed health checks for all dependencies and system components.
 Designed for Kubernetes liveness/readiness probes and load balancer health checks.
 """
 import logging
+import os
 import asyncio
 from typing import Dict, Any, Optional
 from datetime import datetime, timezone
 from enum import Enum
 from dataclasses import dataclass
 import redis
+
+BUILD_COMMIT = os.environ.get("BUILD_COMMIT", "unknown")
 
 from api.config import settings
 from api.cache import get_all_cache_stats
@@ -225,6 +228,7 @@ async def perform_full_health_check() -> Dict[str, Any]:
         "status": overall_status.value,
         "timestamp": datetime.now(timezone.utc).isoformat() + "Z",
         "version": "2.1.0",
+        "commit": BUILD_COMMIT,
         "check_duration_ms": round(total_time_ms, 2),
         "components": {
             c.name: {
