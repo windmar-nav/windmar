@@ -97,10 +97,10 @@ for _fn in FIELD_NAMES:
 # Constants & helpers
 # ============================================================================
 
-_OVERLAY_MAX_DIM = 800  # single-frame overlays (~2 MB with gzip)
-_FRAMES_MAX_DIM = 200  # vector timeline (wind/currents): ~5 MB per layer
+_OVERLAY_MAX_DIM = 1500  # single-frame overlays (~3 MB with gzip)
+_FRAMES_MAX_DIM = 200   # vector timeline (wind/currents): ~5 MB per layer
 _WAVE_DECOMP_MAX_DIM = 90  # wave decomp (8 arrays/frame): ~6 MB with gzip
-_SCALAR_FRAMES_MAX_DIM = 500  # scalar (sst/vis/ice, 1 array/frame): ~12 MB with gzip
+_SCALAR_FRAMES_MAX_DIM = 1000  # scalar (sst/vis/ice, 1 array/frame): ~15 MB with gzip
 
 # Maximum bbox span for forecast frame API responses.
 # OOM is prevented by _FRAMES_MAX_DIM / _WAVE_DECOMP_MAX_DIM subsampling,

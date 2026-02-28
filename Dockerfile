@@ -85,9 +85,6 @@ COPY --chown=windmar:windmar api/ ./api/
 COPY --chown=windmar:windmar docker/migrations/ ./docker/migrations/
 COPY --chown=windmar:windmar LICENSE ./
 
-# Pre-download GSHHS shapefiles so first request doesn't incur 70MB download
-RUN PYTHONPATH=/app/deps python -c "import cartopy.io.shapereader as s; s.gshhs('i', 1)" || true
-
 # Create necessary directories with correct permissions
 RUN mkdir -p data/grib data/gfs_cache data/vessel_database data/calibration data/weather_cache data/copernicus_cache data/climatology_cache logs \
     /tmp/windmar_cache/wind /tmp/windmar_cache/wave /tmp/windmar_cache/current /tmp/windmar_cache/ice /tmp/windmar_cache/sst /tmp/windmar_cache/vis \
@@ -96,6 +93,11 @@ RUN mkdir -p data/grib data/gfs_cache data/vessel_database data/calibration data
 
 # Switch to non-root user
 USER windmar
+
+# Pre-download GSHHS shapefiles so first request doesn't incur 70MB download.
+# Must run AFTER USER windmar so data lands in /home/windmar/.local/share/cartopy/
+# (same path the runtime process will look in).
+RUN PYTHONPATH=/app/deps python -c "import cartopy.io.shapereader as s; s.gshhs('i', 1)" || true
 
 # Expose API port
 EXPOSE 8000

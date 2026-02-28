@@ -71,6 +71,7 @@ services:
       - ./logs:/app/logs
       - forecast_cache:/tmp/windmar_cache
       - tile_cache:/tmp/windmar_tiles
+      - cartopy_cache:/home/windmar/.local/share/cartopy
     ports:
       - "${API_PORT:-8000}:8000"
     depends_on:
@@ -122,6 +123,8 @@ volumes:
   forecast_cache:
     driver: local
   tile_cache:
+    driver: local
+  cartopy_cache:
     driver: local
 
 networks:
