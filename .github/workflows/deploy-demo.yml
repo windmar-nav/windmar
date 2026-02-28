@@ -76,7 +76,7 @@ jobs:
           envs: GH_TOKEN,GH_ACTOR
           script: |
             cd /opt/windmar-demo
-            cat > .env <<ENVEOF
+            cat > .env <<'ENVEOF'
             DEMO_DB_PASSWORD=${{ secrets.DEMO_DB_PASSWORD }}
             API_SECRET_KEY=${{ secrets.DEMO_API_SECRET }}
             DEMO_API_KEY_HASH=${{ secrets.DEMO_API_KEY_HASH }}
