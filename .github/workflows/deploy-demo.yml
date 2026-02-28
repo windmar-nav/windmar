@@ -76,9 +76,12 @@ jobs:
           envs: GH_TOKEN,GH_ACTOR
           script: |
             cd /opt/windmar-demo
-            cat > .env << 'ENVEOF'
+            cat > .env <<ENVEOF
+            DEMO_DB_PASSWORD=${{ secrets.DEMO_DB_PASSWORD }}
             API_SECRET_KEY=${{ secrets.DEMO_API_SECRET }}
             DEMO_API_KEY_HASH=${{ secrets.DEMO_API_KEY_HASH }}
+            DEMO_API_KEY_HASHES=${{ secrets.DEMO_API_KEY_HASHES }}
+            FULL_API_KEY_HASHES=${{ secrets.FULL_API_KEY_HASHES }}
             ENVEOF
 
             # Authenticate to GHCR on VPS for pulling private packages
