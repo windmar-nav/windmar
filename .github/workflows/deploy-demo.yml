@@ -84,9 +84,9 @@ jobs:
             # Bcrypt hashes contain $ which Docker Compose variable
             # substitution would corrupt.  env_file bypasses interpolation.
             cat > .env.hashes <<'HASHEOF'
-            DEMO_API_KEY_HASH=${{ secrets.DEMO_API_KEY_HASH }}
-            DEMO_API_KEY_HASHES=${{ secrets.DEMO_API_KEY_HASHES }}
-            FULL_API_KEY_HASHES=${{ secrets.FULL_API_KEY_HASHES }}
+            DEMO_API_KEY_HASH='${{ secrets.DEMO_API_KEY_HASH }}'
+            DEMO_API_KEY_HASHES='${{ secrets.DEMO_API_KEY_HASHES }}'
+            FULL_API_KEY_HASHES='${{ secrets.FULL_API_KEY_HASHES }}'
             HASHEOF
 
             # Authenticate to GHCR on VPS for pulling private packages
