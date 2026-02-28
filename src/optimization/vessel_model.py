@@ -61,12 +61,12 @@ class VesselSpecs:
     wetted_surface_ballast: float = 5200.0
 
     # Main engine
-    mcr_kw: float = 8840.0  # Maximum continuous rating (kW)
+    mcr_kw: float = 6600.0  # Maximum continuous rating (kW)
     sfoc_at_mcr: float = 171.0  # Specific fuel oil consumption at MCR (g/kWh)
 
     # Service speeds
-    service_speed_laden: float = 14.5  # Service speed laden (knots)
-    service_speed_ballast: float = 15.0  # Service speed ballast (knots)
+    service_speed_laden: float = 13.0  # Service speed laden (knots)
+    service_speed_ballast: float = 13.0  # Service speed ballast (knots)
 
     # Frontal area for wind resistance
     frontal_area_laden: float = 450.0  # Above water frontal area laden (m²)
