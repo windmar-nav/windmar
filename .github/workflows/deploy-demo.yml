@@ -102,10 +102,13 @@ jobs:
               echo "WARNING: demo-snapshot.sql.gz was missing, created placeholder"
             fi
 
-            # Remove only the DB volume (snapshot-seeded, must be fresh).
-            # Keep caddy_data to preserve TLS certs and avoid Let's Encrypt rate limits.
+            # Stop containers; keep caddy_data to preserve TLS certs.
             docker compose -f docker-compose.demo.yml down
-            docker volume rm windmar-demo_postgres_data 2>/dev/null || true
+
+            # Remove only the DB volume (snapshot-seeded, must be fresh each deploy).
+            PGVOL=$(docker volume ls -q | grep postgres_data | head -1)
+            [ -n "$PGVOL" ] && docker volume rm "$PGVOL" && echo "Removed DB volume: $PGVOL"
+
             docker compose -f docker-compose.demo.yml up -d --force-recreate
 
             # Wait for DB to accept connections
