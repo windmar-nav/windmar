@@ -256,6 +256,7 @@ export default function ForecastTimeline({
       const bp = bounds ?? boundsRef.current ?? {};
       const data: ForecastFrames = await apiClient.getForecastFrames(bp);
       setWindFrames(data.frames);
+      windFramesRef.current = data.frames;
       setAvailableHours(deriveHoursFromFrames(data.frames));
       const rt = `${data.run_date} ${data.run_hour}Z`;
       setRunTime(rt);
@@ -299,6 +300,7 @@ export default function ForecastTimeline({
         }
       }
       setWaveFrameData(data);
+      waveFrameDataRef.current = data;
       setAvailableHours(deriveHoursFromFrames(data.frames));
       const rt = data.run_time;
       let rtFormatted = rt || '';
@@ -397,6 +399,7 @@ export default function ForecastTimeline({
       const frameKeys = Object.keys(data.frames);
       debugLog('info', 'CURRENT', `Loaded ${frameKeys.length} frames in ${dt}s, grid=${data.ny}x${data.nx}`);
       setCurrentFrameData(data);
+      currentFrameDataRef.current = data;
       setAvailableHours(deriveHoursFromFrames(data.frames));
       let rtFormatted = data.run_time || '';
       if (data.run_time) {
@@ -459,6 +462,7 @@ export default function ForecastTimeline({
       const frameKeys = Object.keys(data.frames);
       debugLog('info', 'ICE', `Loaded ${frameKeys.length} frames in ${dt}s, grid=${data.ny}x${data.nx}`);
       setIceFrameData(data);
+      iceFrameDataRef.current = data;
       setAvailableHours(deriveHoursFromFrames(data.frames));
       let rtFormatted = data.run_time || '';
       if (data.run_time) {
@@ -522,6 +526,7 @@ export default function ForecastTimeline({
       const frameKeys = Object.keys(data.frames);
       debugLog('info', 'SWELL', `Loaded ${frameKeys.length} frames in ${dt}s, grid=${data.ny}x${data.nx}`);
       setWaveFrameData(data);
+      waveFrameDataRef.current = data;
       const swellHours = deriveSwellHoursFromFrames(data.frames);
       debugLog('info', 'SWELL', `Swell-specific hours: ${swellHours.length} (wave hours: ${Object.keys(data.frames).length})`);
       setAvailableHours(swellHours);
@@ -577,6 +582,7 @@ export default function ForecastTimeline({
       const frameKeys = Object.keys(data.frames);
       debugLog('info', 'SST', `Loaded ${frameKeys.length} frames in ${dt}s, grid=${data.ny}x${data.nx}`);
       setSstFrameData(data);
+      sstFrameDataRef.current = data;
       setAvailableHours(deriveHoursFromFrames(data.frames));
       let rtFormatted = data.run_time || '';
       if (data.run_time) {
@@ -639,6 +645,7 @@ export default function ForecastTimeline({
       const frameKeys = Object.keys(data.frames);
       debugLog('info', 'VIS', `Loaded ${frameKeys.length} frames in ${dt}s, grid=${data.ny}x${data.nx}`);
       setVisFrameData(data);
+      visFrameDataRef.current = data;
       setAvailableHours(deriveHoursFromFrames(data.frames));
       let rtFormatted = data.run_time || '';
       if (data.run_time) {

@@ -13,6 +13,7 @@ Each layer supplies its own fetch + frame-building logic as a callback.
 """
 import gzip
 import json
+import os
 import logging
 import re
 import threading
@@ -202,13 +203,14 @@ class ForecastLayerManager:
     def cache_put(self, cache_key: str, data: dict) -> None:
         p = self.cache_path(cache_key)
         raw = json.dumps(data, allow_nan=False, default=str).encode()
-        # Write JSON
-        tmp = p.with_suffix(".tmp")
+        # Write JSON — per-PID tmp to avoid race between gunicorn workers
+        pid = os.getpid()
+        tmp = p.with_suffix(f".{pid}.tmp")
         tmp.write_bytes(raw)
         tmp.rename(p)  # atomic on same filesystem
         # Write pre-compressed copy for fast HTTP serving
         gz_path = p.with_name(p.name + ".gz")
-        gz_tmp = gz_path.with_suffix(".tmp")
+        gz_tmp = gz_path.with_suffix(f".{pid}.tmp")
         try:
             with gzip.open(gz_tmp, "wb", compresslevel=6) as f:
                 f.write(raw)

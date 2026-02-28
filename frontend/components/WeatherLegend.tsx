@@ -33,12 +33,15 @@ const CURRENT_STOPS = [
 ];
 
 const ICE_STOPS = [
-  { value: 0, color: 'rgb(0,100,255)' },
-  { value: 10, color: 'rgb(150,200,255)' },
-  { value: 30, color: 'rgb(140,255,160)' },
-  { value: 60, color: 'rgb(255,255,0)' },
-  { value: 80, color: 'rgb(255,125,7)' },
-  { value: 100, color: 'rgb(255,0,0)' },
+  { value: 0, color: 'rgb(80,160,255)' },
+  { value: 10, color: 'rgb(140,210,255)' },
+  { value: 30, color: 'rgb(80,200,200)' },
+  { value: 50, color: 'rgb(100,220,100)' },
+  { value: 70, color: 'rgb(230,220,40)' },
+  { value: 80, color: 'rgb(240,170,20)' },
+  { value: 90, color: 'rgb(210,80,30)' },
+  { value: 95, color: 'rgb(160,30,70)' },
+  { value: 100, color: 'rgb(255,255,255)' },
 ];
 
 const VIS_STOPS = [

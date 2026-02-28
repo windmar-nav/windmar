@@ -1337,17 +1337,17 @@ class CopernicusDataProvider:
                 if ds is None:
                     logger.error("CMEMS returned None for ice forecast")
                     return None
-                # Subsample to ~0.25° before loading if grid is large
+                # Subsample to ~0.166° before loading if grid is large
                 lat_count = ds.sizes.get('latitude', 0)
                 lon_count = ds.sizes.get('longitude', 0)
-                if lat_count > 500 or lon_count > 1000:
-                    sub_step = max(1, round(0.25 / 0.083))  # 3
+                if lat_count > 500 or lon_count > 2000:
+                    sub_step = max(1, round(0.166 / 0.083))  # 2
                     ds = ds.isel(
                         latitude=slice(None, None, sub_step),
                         longitude=slice(None, None, sub_step),
                     )
                     logger.info(
-                        "Ice forecast subsampled to ~0.25°: %s×%s",
+                        "Ice forecast subsampled to ~0.166°: %s×%s",
                         ds.sizes.get('latitude', '?'), ds.sizes.get('longitude', '?'),
                     )
                 logger.info("Loading ice forecast data into memory...")
