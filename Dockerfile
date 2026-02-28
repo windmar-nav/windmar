@@ -39,11 +39,14 @@ RUN pip install --no-cache-dir --target=/build/deps -r requirements.txt
 # -----------------------------------------------------------------------------
 FROM python:3.11-slim AS runtime
 
+ARG BUILD_COMMIT=unknown
+
 # Labels for container metadata
 LABEL org.opencontainers.image.title="WINDMAR API" \
       org.opencontainers.image.description="Maritime Route Optimization API" \
       org.opencontainers.image.vendor="SL Mar" \
       org.opencontainers.image.version="2.1.0" \
+      org.opencontainers.image.revision="${BUILD_COMMIT}" \
       org.opencontainers.image.licenses="Apache-2.0"
 
 # Security: Run as non-root user
@@ -55,6 +58,7 @@ ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1 \
     PYTHONPATH=/app:/app/deps \
     PATH="/app/deps/bin:$PATH" \
+    BUILD_COMMIT=${BUILD_COMMIT} \
     # Application defaults (override via environment)
     API_HOST=0.0.0.0 \
     API_PORT=8000 \

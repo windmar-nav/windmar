@@ -32,6 +32,7 @@ jobs:
           context: .
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_PREFIX }}-api:demo
+          build-args: "BUILD_COMMIT=${{ github.sha }}"
           no-cache: true
 
       - uses: docker/build-push-action@v6
