@@ -82,6 +82,21 @@ class DbWeatherProvider:
             if wd is not None:
                 _, _, wd_crop = self._crop_grid(wd[0], wd[1], wd[2], lat_min, lat_max, lon_min, lon_max)
 
+            # Wave decomposition: swell + wind-wave components
+            def _crop_optional(param_name):
+                raw = self._load_grid(conn, run_id, forecast_hour, param_name)
+                if raw is None:
+                    return None
+                _, _, cropped = self._crop_grid(raw[0], raw[1], raw[2], lat_min, lat_max, lon_min, lon_max)
+                return cropped
+
+            sw_hs = _crop_optional("swell_hs")
+            sw_tp = _crop_optional("swell_tp")
+            sw_dir = _crop_optional("swell_dir")
+            ww_hs = _crop_optional("windwave_hs")
+            ww_tp = _crop_optional("windwave_tp")
+            ww_dir = _crop_optional("windwave_dir")
+
             return WeatherData(
                 parameter="wave_height",
                 time=datetime.now(timezone.utc),
@@ -91,6 +106,12 @@ class DbWeatherProvider:
                 unit="m",
                 wave_period=tp_crop,
                 wave_direction=wd_crop,
+                swell_height=sw_hs,
+                swell_period=sw_tp,
+                swell_direction=sw_dir,
+                windwave_height=ww_hs,
+                windwave_period=ww_tp,
+                windwave_direction=ww_dir,
             ), ingested_at
         except Exception as e:
             logger.error(f"Failed to load wave data from DB: {e}")

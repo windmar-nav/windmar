@@ -28,7 +28,7 @@ from typing import Callable, Dict, List, Optional, Tuple
 
 import numpy as np
 
-from src.optimization.base_optimizer import BaseOptimizer, OptimizedRoute
+from src.optimization.base_optimizer import BaseOptimizer, OptimizedRoute, ParetoSolution
 from src.optimization.vessel_model import VesselModel, VesselSpecs
 from src.optimization.voyage import LegWeather
 from src.optimization.seakeeping import (
@@ -280,6 +280,221 @@ class DijkstraOptimizer(BaseOptimizer):
         )
 
     # ------------------------------------------------------------------
+    # Pareto front (multi-lambda sweep)
+    # ------------------------------------------------------------------
+
+    def optimize_route_pareto(
+        self,
+        origin: Tuple[float, float],
+        destination: Tuple[float, float],
+        departure_time: datetime,
+        calm_speed_kts: float,
+        is_laden: bool,
+        weather_provider: Callable[[float, float, datetime], LegWeather],
+        max_cells: int = DEFAULT_MAX_NODES,
+        avoid_land: bool = True,
+        max_time_factor: float = 1.30,
+        baseline_time_hours: Optional[float] = None,
+        baseline_fuel_mt: Optional[float] = None,
+        baseline_distance_nm: Optional[float] = None,
+        route_waypoints: Optional[List[Tuple[float, float]]] = None,
+        lambda_values: Optional[List[float]] = None,
+    ) -> OptimizedRoute:
+        """
+        Run Dijkstra with multiple lambda (time penalty) values, return Pareto front.
+
+        Builds the spatial grid ONCE, then runs Dijkstra with each lambda.
+        Filters dominated solutions to return only the Pareto front.
+        """
+        t0 = _time.time()
+
+        if lambda_values is None:
+            lambda_values = [0.0, 0.3, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0, 20.0]
+
+        self.weather_provider = weather_provider
+
+        # Compute service-speed fuel rate (used to scale lambda)
+        service_speed = (
+            self.vessel_model.specs.service_speed_laden if is_laden
+            else self.vessel_model.specs.service_speed_ballast
+        )
+        service_fuel_res = self.vessel_model.calculate_fuel_consumption(
+            speed_kts=service_speed, is_laden=is_laden,
+            weather=None, distance_nm=service_speed,
+        )
+        base_fuel_rate = service_fuel_res["fuel_mt"]
+
+        # Build grid ONCE
+        grid, grid_bounds = self._build_spatial_grid(origin, destination, filter_land=avoid_land)
+        start_rc = self._nearest_cell(origin, grid, grid_bounds)
+        end_rc = self._nearest_cell(destination, grid, grid_bounds)
+        if start_rc is None or end_rc is None:
+            raise ValueError("Origin or destination outside grid bounds")
+
+        # Time budget
+        gc_dist = self.haversine(origin[0], origin[1], destination[0], destination[1])
+        min_speed = self.SPEED_RANGE_KTS[0]
+        chebyshev = max(abs(start_rc[0] - end_rc[0]), abs(start_rc[1] - end_rc[1]))
+        gc_time_steps = int(math.ceil((gc_dist / min_speed) * 1.5 / self.time_step_hours))
+        max_time_steps = max(chebyshev * 2, gc_time_steps, 8)
+        direct_time_hours = gc_dist / max(calm_speed_kts, 0.1)
+        max_voyage_hours = direct_time_hours * max_time_factor
+
+        # Speed lookup for stats
+        def find_speed(dist, weather, bearing, is_laden_):
+            stw = min(calm_speed_kts, self.vessel_model.specs.service_speed_laden + 2
+                      if is_laden_ else self.vessel_model.specs.service_speed_ballast + 2)
+            weather_dict = {
+                'wind_speed_ms': weather.wind_speed_ms,
+                'wind_dir_deg': weather.wind_dir_deg,
+                'heading_deg': bearing,
+                'sig_wave_height_m': weather.sig_wave_height_m,
+                'wave_dir_deg': weather.wave_dir_deg,
+            }
+            res = self.vessel_model.calculate_fuel_consumption(
+                speed_kts=stw, is_laden=is_laden_,
+                weather=weather_dict, distance_nm=dist,
+            )
+            ce = self.current_effect(bearing, weather.current_speed_ms, weather.current_dir_deg)
+            sog = max(stw + ce, 0.1)
+            return stw, res['fuel_mt'], dist / sog
+
+        # Sweep lambdas
+        raw_solutions: List[ParetoSolution] = []
+        total_explored = 0
+        for lam in lambda_values:
+            lam_time = base_fuel_rate * lam
+            path, explored = self._dijkstra(
+                grid=grid,
+                start_rc=start_rc,
+                end_rc=end_rc,
+                departure_time=departure_time,
+                calm_speed_kts=calm_speed_kts,
+                is_laden=is_laden,
+                weather_provider=weather_provider,
+                max_time_steps=max_time_steps,
+                max_nodes=max_cells,
+                max_voyage_hours=max_voyage_hours,
+                lambda_time_override=lam_time,
+            )
+            total_explored += explored
+            if path is None:
+                continue
+
+            waypoints = [(n.lat, n.lon) for n in path]
+            waypoints = self.smooth_path(waypoints)
+            waypoints[0] = origin
+            waypoints[-1] = destination
+
+            fuel, time_h, distance, _, _, speeds = self.calculate_route_stats(
+                waypoints, departure_time, calm_speed_kts, is_laden,
+                weather_provider=weather_provider,
+                safety_constraints=self.safety_constraints,
+                find_optimal_speed=find_speed,
+            )
+
+            raw_solutions.append(ParetoSolution(
+                lambda_value=lam,
+                fuel_mt=fuel,
+                time_hours=time_h,
+                distance_nm=distance,
+                waypoints=waypoints,
+                speed_profile=speeds,
+            ))
+
+        # Pareto filter
+        pareto = self._pareto_filter(raw_solutions)
+
+        if not pareto:
+            raise ValueError("No valid Pareto solutions found (Dijkstra)")
+
+        # Select default: closest to baseline or highest-lambda
+        if baseline_fuel_mt and baseline_time_hours:
+            fuel_range = max(p.fuel_mt for p in pareto) - min(p.fuel_mt for p in pareto) or 1.0
+            time_range = max(p.time_hours for p in pareto) - min(p.time_hours for p in pareto) or 1.0
+            default_idx = min(range(len(pareto)), key=lambda i: (
+                ((pareto[i].fuel_mt - baseline_fuel_mt) / fuel_range) ** 2 +
+                ((pareto[i].time_hours - baseline_time_hours) / time_range) ** 2
+            ))
+        else:
+            default_idx = max(range(len(pareto)), key=lambda i: pareto[i].lambda_value)
+        pareto[default_idx].is_selected = True
+
+        selected = next(p for p in pareto if p.is_selected)
+
+        # Recalculate stats for selected using its own lambda
+        self._lambda_time_override = base_fuel_rate * selected.lambda_value
+
+        # Direct route for comparison
+        direct_fuel, direct_time, direct_dist, _, _, _ = self.calculate_route_stats(
+            [origin, destination], departure_time, calm_speed_kts, is_laden,
+            weather_provider=weather_provider,
+            safety_constraints=self.safety_constraints,
+            find_optimal_speed=find_speed,
+        )
+
+        opt_fuel, opt_time, opt_distance, leg_details, safety_summary, speed_profile = (
+            self.calculate_route_stats(
+                selected.waypoints, departure_time, calm_speed_kts, is_laden,
+                weather_provider=weather_provider,
+                safety_constraints=self.safety_constraints,
+                find_optimal_speed=find_speed,
+            )
+        )
+
+        elapsed_ms = (_time.time() - t0) * 1000
+        fuel_sav = ((direct_fuel - opt_fuel) / direct_fuel * 100) if direct_fuel > 0 else 0
+        time_sav = ((direct_time - opt_time) / direct_time * 100) if direct_time > 0 else 0
+        avg_speed = opt_distance / opt_time if opt_time > 0 else calm_speed_kts
+
+        return OptimizedRoute(
+            waypoints=selected.waypoints,
+            total_fuel_mt=opt_fuel,
+            total_time_hours=opt_time,
+            total_distance_nm=opt_distance,
+            direct_fuel_mt=direct_fuel,
+            direct_time_hours=direct_time,
+            fuel_savings_pct=fuel_sav,
+            time_savings_pct=time_sav,
+            leg_details=leg_details,
+            speed_profile=speed_profile,
+            avg_speed_kts=avg_speed,
+            safety_status=safety_summary["status"],
+            safety_warnings=safety_summary["warnings"],
+            max_roll_deg=safety_summary["max_roll_deg"],
+            max_pitch_deg=safety_summary["max_pitch_deg"],
+            max_accel_ms2=safety_summary["max_accel_ms2"],
+            grid_resolution_deg=self.resolution_deg,
+            cells_explored=total_explored,
+            optimization_time_ms=elapsed_ms,
+            variable_speed_enabled=True,
+            pareto_front=pareto,
+            baseline_fuel_mt=baseline_fuel_mt or 0.0,
+            baseline_time_hours=baseline_time_hours or 0.0,
+            baseline_distance_nm=baseline_distance_nm or 0.0,
+        )
+
+    @staticmethod
+    def _pareto_filter(solutions: List[ParetoSolution]) -> List[ParetoSolution]:
+        """Remove dominated solutions. A dominates B iff A.fuel <= B.fuel AND A.time <= B.time (strict on >= 1)."""
+        if len(solutions) <= 1:
+            return list(solutions)
+        non_dominated = []
+        for candidate in solutions:
+            dominated = False
+            for other in solutions:
+                if other is candidate:
+                    continue
+                if (other.fuel_mt <= candidate.fuel_mt and
+                    other.time_hours <= candidate.time_hours and
+                    (other.fuel_mt < candidate.fuel_mt or other.time_hours < candidate.time_hours)):
+                    dominated = True
+                    break
+            if not dominated:
+                non_dominated.append(candidate)
+        return sorted(non_dominated, key=lambda s: s.fuel_mt)
+
+    # ------------------------------------------------------------------
     # Graph construction
     # ------------------------------------------------------------------
 
@@ -362,6 +577,7 @@ class DijkstraOptimizer(BaseOptimizer):
         max_time_steps: int,
         max_nodes: int,
         max_voyage_hours: float = float("inf"),
+        lambda_time_override: Optional[float] = None,
     ) -> Tuple[Optional[List[_GraphNode]], int]:
         """
         A*-guided Dijkstra over the (row, col, time_step) graph.
@@ -388,7 +604,10 @@ class DijkstraOptimizer(BaseOptimizer):
             speed_kts=calm_speed_kts, is_laden=is_laden,
             weather=None, distance_nm=calm_speed_kts,  # 1 hour
         )
-        lambda_time = service_fuel_res["fuel_mt"] * self.TIME_PENALTY_WEIGHT
+        if lambda_time_override is not None:
+            lambda_time = lambda_time_override
+        else:
+            lambda_time = service_fuel_res["fuel_mt"] * self.TIME_PENALTY_WEIGHT
 
         # Compute admissible heuristic: min (fuel + time penalty) per nm
         # in calm conditions across all candidate speeds

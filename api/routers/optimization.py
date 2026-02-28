@@ -185,10 +185,24 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
         if request.route_waypoints and len(request.route_waypoints) > 2:
             route_wps = [(wp.lat, wp.lon) for wp in request.route_waypoints]
 
-        # A* engine accepts extra dev params; Dijkstra uses base interface
-        if engine_name == "dijkstra":
-            # Dijkstra needs a wider time budget than A* — its 3D graph
-            # (lat, lon, time) requires slack to explore alternate speeds.
+        # Both engines support Pareto and single-route modes.
+        # Dijkstra needs a wider time budget — its 3D graph requires slack.
+        if engine_name == "dijkstra" and request.pareto:
+            dijkstra_time_factor = max(request.max_time_factor, 1.30)
+            result = active_optimizer.optimize_route_pareto(
+                origin=(request.origin.lat, request.origin.lon),
+                destination=(request.destination.lat, request.destination.lon),
+                departure_time=departure,
+                calm_speed_kts=request.calm_speed_kts,
+                is_laden=request.is_laden,
+                weather_provider=wx_provider,
+                max_time_factor=dijkstra_time_factor,
+                baseline_time_hours=request.baseline_time_hours,
+                baseline_fuel_mt=request.baseline_fuel_mt,
+                baseline_distance_nm=request.baseline_distance_nm,
+                route_waypoints=route_wps,
+            )
+        elif engine_name == "dijkstra":
             dijkstra_time_factor = max(request.max_time_factor, 1.30)
             result = active_optimizer.optimize_route(
                 origin=(request.origin.lat, request.origin.lon),

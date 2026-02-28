@@ -308,18 +308,26 @@ export function useWeatherDisplay(
   }, []);
 
   // ---- Auto-reload on layer change ----
-  // Clear previous layer data immediately to free memory before loading new layer.
-  // Skip single-frame load when forecast timeline is active — the timeline
-  // manages extendedWeatherData directly and would be overwritten by the
-  // single-frame response arriving after the timeline restores its frames.
+  // Clear previous layer data when switching between different layers.
+  // When only forecastEnabled toggles (same layer), keep existing data visible
+  // to avoid a flash while the timeline loads its first frame.
+  const prevLayerForEffectRef = useRef(weatherLayer);
   useEffect(() => {
-    setExtendedWeatherData(null);
-    dataExtentRef.current = null; // Force refetch for new layer
-    if (viewport && weatherLayer !== 'none' && !forecastEnabled) {
-      loadWeatherData(viewport, weatherLayer);
-    }
+    const layerChanged = prevLayerForEffectRef.current !== weatherLayer;
+    prevLayerForEffectRef.current = weatherLayer;
+
     if (weatherLayer === 'none') {
+      setExtendedWeatherData(null);
+      dataExtentRef.current = null;
       setLayerIngestedAt(null);
+      return;
+    }
+    if (layerChanged) {
+      setExtendedWeatherData(null);
+      dataExtentRef.current = null;
+    }
+    if (viewport && !forecastEnabled) {
+      loadWeatherData(viewport, weatherLayer);
     }
   }, [weatherLayer, forecastEnabled]); // eslint-disable-line react-hooks/exhaustive-deps
 

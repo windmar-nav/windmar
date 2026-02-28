@@ -823,6 +823,7 @@ _SINGLE_FRAME_FETCHER = {
 _DB_FIRST_METHODS = {
     "wind": "get_wind_from_db",
     "waves": "get_wave_from_db",
+    "swell": "get_wave_from_db",
     "sst": "get_sst_from_db",
     "visibility": "get_visibility_from_db",
     "ice": "get_ice_from_db",
