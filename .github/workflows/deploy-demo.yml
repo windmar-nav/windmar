@@ -97,7 +97,7 @@ jobs:
               echo "WARNING: demo-snapshot.sql.gz was missing, created placeholder"
             fi
 
-            docker compose -f docker-compose.demo.yml down
+            docker compose -f docker-compose.demo.yml down -v
             docker compose -f docker-compose.demo.yml up -d --force-recreate
 
             # Wait for DB to accept connections
