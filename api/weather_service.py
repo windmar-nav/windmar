@@ -203,17 +203,24 @@ def build_ocean_mask_at_coords(lats, lons):
 def apply_ocean_mask_velocity(u: np.ndarray, v: np.ndarray, lats: np.ndarray, lons: np.ndarray) -> tuple:
     """Zero out U/V components over land so leaflet-velocity skips land areas.
 
-    Applies 1-cell erosion so coastal ocean cells adjacent to land are also
-    zeroed — prevents particles from drifting over land during animation.
+    Erosion depth adapts to grid resolution so narrow waterways (Gibraltar,
+    Messina, English Channel) are preserved at high resolution while coarser
+    grids still get a meaningful coastal buffer.
     """
     try:
         from global_land_mask import globe
         lon_grid, lat_grid = np.meshgrid(lons, lats)
         ocean = globe.is_ocean(lat_grid, lon_grid)
-        # Erode 3 cells: prevents animated particles from drifting onto land.
-        # At 0.25° grid resolution this creates ~83 km coastal buffer.
+
+        # Adaptive erosion: scale with grid spacing.
+        # 0.083° (CMEMS native) → 1 cell  (~9 km)
+        # 0.25°  (subsampled)   → 1 cell  (~28 km)
+        # 0.5°+  (GFS-class)    → 1 cell  (~55 km, already coarse)
+        dlat = abs(float(lats[1] - lats[0])) if len(lats) > 1 else 0.5
+        erosion_cells = 1 if dlat < 0.6 else 2
+
         eroded = ocean.copy()
-        for _ in range(3):
+        for _ in range(erosion_cells):
             buf = eroded.copy()
             buf[:-1, :] &= eroded[1:, :]
             buf[1:, :]  &= eroded[:-1, :]

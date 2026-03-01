@@ -293,7 +293,8 @@ def _rebuild_frames_from_db(field_name: str, cache_key: str,
                 v_sub = v_data[::STEP, ::STEP]
                 wind_lats = lats_full[::STEP]
                 wind_lons = lons_full[::STEP]
-                u_masked, v_masked = _apply_ocean_mask_velocity(u_sub, v_sub, wind_lats, wind_lons)
+                # Wind flows over land — no ocean masking needed
+                u_masked, v_masked = u_sub, v_sub
                 actual_dx = abs(float(wind_lons[1] - wind_lons[0])) if len(wind_lons) > 1 else 0.25
                 actual_dy = abs(float(wind_lats[1] - wind_lats[0])) if len(wind_lats) > 1 else 0.25
                 if len(wind_lats) > 1 and wind_lats[1] > wind_lats[0]:
@@ -729,10 +730,9 @@ def _build_wind_frames(lat_min, lat_max, lon_min, lon_max, run_date, run_hour):
         if wind_data is None:
             continue
 
-        u_masked, v_masked = _apply_ocean_mask_velocity(
-            wind_data.u_component, wind_data.v_component,
-            wind_data.lats, wind_data.lons,
-        )
+        # Wind flows over land — no ocean masking needed
+        u_masked = wind_data.u_component
+        v_masked = wind_data.v_component
 
         # Subsample to keep payload manageable for the browser
         if step is None:
@@ -1481,9 +1481,13 @@ async def api_get_velocity_format(
     else:
         data = get_current_field(lat_min, lat_max, lon_min, lon_max, resolution)
 
-    u_masked, v_masked = _apply_ocean_mask_velocity(
-        data.u_component, data.v_component, data.lats, data.lons,
-    )
+    if field == "currents":
+        u_masked, v_masked = _apply_ocean_mask_velocity(
+            data.u_component, data.v_component, data.lats, data.lons,
+        )
+    else:
+        # Wind flows over land — no ocean masking
+        u_masked, v_masked = data.u_component, data.v_component
 
     step = _overlay_step(data.lats, data.lons)
     if step > 1:
@@ -1736,7 +1740,8 @@ async def api_get_field_frames(
 # Resync endpoint (uses {field} path param — after static routes)
 # ============================================================================
 
-@router.post("/api/weather/{field}/resync")
+@router.post("/api/weather/{field}/resync",
+             dependencies=[Depends(require_not_demo("Weather data resync"))])
 async def api_weather_layer_resync(
     field: str,
     lat_min: Optional[float] = Query(None, ge=-90, le=90),

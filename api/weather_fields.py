@@ -82,8 +82,8 @@ _ICE_HOURS = tuple(range(0, 217, 24))       # 0, 24, 48, ..., 216 → 10 frames
 # Default bounding boxes
 # ---------------------------------------------------------------------------
 _GLOBAL_BBOX = (-85.0, 85.0, -179.75, 179.75)
-_CMEMS_BBOX = (20.0, 65.0, -35.0, 45.0)   # NE Atlantic + Med + Nordic
-_SST_BBOX = (20.0, 65.0, -35.0, 45.0)     # Same as CMEMS
+_CMEMS_BBOX = (15.0, 75.0, -35.0, 45.0)   # NE Atlantic + Med + Nordic + Barents
+_SST_BBOX = (15.0, 75.0, -35.0, 45.0)     # Same as CMEMS
 _ICE_BBOX = (55.0, 80.0, -35.0, 45.0)     # High latitude — wider for Arctic
 
 # ---------------------------------------------------------------------------
@@ -102,7 +102,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         expected_frames=41,
         default_bbox=_GLOBAL_BBOX,
         unit="m/s",
-        needs_ocean_mask=True,
+        needs_ocean_mask=False,   # Wind blows over land — no coastal masking
         colorscale_min=0, colorscale_max=30,
         colorscale_colors=("#3b82f6", "#22d3ee", "#a3e635", "#facc15", "#ef4444"),
         subsample_target=500,

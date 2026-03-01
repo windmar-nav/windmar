@@ -7,8 +7,9 @@ Handles RTZ file parsing and route creation from waypoints.
 import logging
 from typing import List
 
-from fastapi import APIRouter, File, HTTPException, Request, UploadFile
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile
 
+from api.demo import require_not_demo
 from api.rate_limit import limiter, get_rate_limit_string
 from api.schemas.common import Position
 from src.routes.rtz_parser import parse_rtz_string, create_route_from_waypoints
@@ -21,7 +22,7 @@ MAX_RTZ_SIZE_BYTES = 5 * 1024 * 1024
 router = APIRouter(prefix="/api/routes", tags=["routes"])
 
 
-@router.post("/parse-rtz")
+@router.post("/parse-rtz", dependencies=[Depends(require_not_demo("Route file upload"))])
 @limiter.limit(get_rate_limit_string())
 async def parse_rtz(
     request: Request,
