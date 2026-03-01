@@ -180,17 +180,17 @@ export default function MapComponent({
       <MapContainer
         center={DEFAULT_CENTER}
         zoom={DEFAULT_ZOOM}
-        minZoom={3}
+        minZoom={DEMO_MODE ? 4 : 3}
         zoomSnap={0.25}
         zoomDelta={0.5}
         maxBounds={DEMO_MODE ? DEMO_BOUNDS : [[-85, -180], [85, 180]]}
         maxBoundsViscosity={1.0}
         worldCopyJump={!DEMO_MODE}
-        dragging={!DEMO_MODE}
-        zoomControl={!DEMO_MODE}
-        scrollWheelZoom={!DEMO_MODE}
-        doubleClickZoom={!DEMO_MODE}
-        touchZoom={!DEMO_MODE}
+        dragging={true}
+        zoomControl={true}
+        scrollWheelZoom={true}
+        doubleClickZoom={true}
+        touchZoom={true}
         boxZoom={!DEMO_MODE}
         keyboard={!DEMO_MODE}
         style={{ height: '100%', width: '100%' }}

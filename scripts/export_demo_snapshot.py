@@ -21,9 +21,10 @@ from pathlib import Path
 
 import numpy as np
 
-# Demo bounding box (matches frontend/lib/demoMode.ts)
-LAT_MIN, LAT_MAX = 30.0, 60.0
-LON_MIN, LON_MAX = -30.0, 40.0
+# Snapshot bounding box — wider than the viewport (30-60°N, 30W-40E)
+# to cover screen edges and include Arctic ice coverage.
+LAT_MIN, LAT_MAX = 25.0, 66.0
+LON_MIN, LON_MAX = -35.0, 45.0
 
 # 3 days of forecast = hours 0..72 (3-hourly)
 MAX_FORECAST_HOUR = 72
