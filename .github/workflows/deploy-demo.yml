@@ -61,7 +61,7 @@ jobs:
           host: ${{ secrets.DEMO_VPS_HOST }}
           username: ${{ secrets.DEMO_VPS_USER }}
           key: ${{ secrets.DEMO_VPS_SSH_KEY }}
-          source: "docker-compose.demo.yml,Caddyfile,docker/init-db.sql,data/demo-engine-log-seed.sql"
+          source: "docker-compose.demo.yml,Caddyfile,docker/init-db.sql,data/demo-engine-log-seed.sql,data/demo-snapshot.sql.gz"
           target: /opt/windmar-demo
 
       - name: Deploy on VPS
