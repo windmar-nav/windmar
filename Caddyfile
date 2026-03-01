@@ -1,4 +1,6 @@
 demo-windmar.slmar.co {
+	tls /etc/caddy/certs/origin.pem /etc/caddy/certs/origin-key.pem
+
 	encode gzip
 
 	# Defense-in-depth security headers (backend also sets these)

@@ -69,11 +69,13 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           GH_ACTOR: ${{ github.actor }}
+          ORIGIN_CERT: ${{ secrets.DEMO_ORIGIN_CERT }}
+          ORIGIN_KEY: ${{ secrets.DEMO_ORIGIN_KEY }}
         with:
           host: ${{ secrets.DEMO_VPS_HOST }}
           username: ${{ secrets.DEMO_VPS_USER }}
           key: ${{ secrets.DEMO_VPS_SSH_KEY }}
-          envs: GH_TOKEN,GH_ACTOR
+          envs: GH_TOKEN,GH_ACTOR,ORIGIN_CERT,ORIGIN_KEY
           script: |
             cd /opt/windmar-demo
             cat > .env <<'ENVEOF'
@@ -88,6 +90,12 @@ jobs:
             DEMO_API_KEY_HASHES='${{ secrets.DEMO_API_KEY_HASHES }}'
             FULL_API_KEY_HASHES='${{ secrets.FULL_API_KEY_HASHES }}'
             HASHEOF
+
+            # Write Cloudflare Origin Certificate for TLS
+            mkdir -p certs
+            echo "${ORIGIN_CERT}" > certs/origin.pem
+            echo "${ORIGIN_KEY}" > certs/origin-key.pem
+            chmod 600 certs/origin-key.pem
 
             # Authenticate to GHCR on VPS for pulling private packages
             echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
