@@ -210,12 +210,16 @@ def apply_ocean_mask_velocity(u: np.ndarray, v: np.ndarray, lats: np.ndarray, lo
         from global_land_mask import globe
         lon_grid, lat_grid = np.meshgrid(lons, lats)
         ocean = globe.is_ocean(lat_grid, lon_grid)
-        # Erode: ocean cell must have all 4-connected neighbors also be ocean
+        # Erode 3 cells: prevents animated particles from drifting onto land.
+        # At 0.25° grid resolution this creates ~83 km coastal buffer.
         eroded = ocean.copy()
-        eroded[:-1, :] &= ocean[1:, :]
-        eroded[1:, :]  &= ocean[:-1, :]
-        eroded[:, :-1] &= ocean[:, 1:]
-        eroded[:, 1:]  &= ocean[:, :-1]
+        for _ in range(3):
+            buf = eroded.copy()
+            buf[:-1, :] &= eroded[1:, :]
+            buf[1:, :]  &= eroded[:-1, :]
+            buf[:, :-1] &= eroded[:, 1:]
+            buf[:, 1:]  &= eroded[:, :-1]
+            eroded = buf
         u_masked = np.where(eroded, u, 0.0)
         v_masked = np.where(eroded, v, 0.0)
         return u_masked, v_masked

@@ -145,4 +145,15 @@ jobs:
             sleep 10
             docker compose -f docker-compose.demo.yml ps
 
+            # Pre-warm weather caches — first request decompresses DB grids (~3-5s).
+            # Hitting each endpoint once during deploy means users get instant loads.
+            echo "Pre-warming weather caches..."
+            API="http://localhost:8003"
+            BOUNDS="lat_min=25&lat_max=66&lon_min=-35&lon_max=45"
+            for FIELD in wind waves currents ice sst swell visibility; do
+              CODE=$(curl -s -o /dev/null -w "%{http_code}" "${API}/api/weather/${FIELD}/frames?${BOUNDS}" || true)
+              echo "  ${FIELD}: ${CODE}"
+            done
+            echo "Cache warming complete."
+
             docker image prune -f

@@ -245,7 +245,7 @@ def _apply_ice_ramp(values: np.ndarray) -> np.ndarray:
     """Ice has a transparent cutoff below 1%."""
     ramp, alpha_low, alpha_high, alpha_default = FIELD_RAMP["ice"]
     rgba = _apply_ramp(values, ramp, alpha_low, alpha_high, alpha_default)
-    rgba[values < 0.15, 3] = 0  # transparent below 15% (CMEMS noise floor)
+    rgba[values < 0.005, 3] = 0  # transparent below 0.5% (noise floor)
     return rgba
 
 

@@ -87,9 +87,9 @@ function buildColorLUT(mode: string, vMin: number, vMax: number): Uint8Array {
     lut[off]     = r;
     lut[off + 1] = g;
     lut[off + 2] = b;
-    if (mode === 'ice' && value < 0.15) {
-      // Gradual fade-in: 0% at <=1%, full alpha at 15%
-      lut[off + 3] = value <= 0.01 ? 0 : Math.round(baseAlpha * ((value - 0.01) / 0.14));
+    if (mode === 'ice' && value < 0.05) {
+      // Gradual fade-in: 0% at <=0.1%, full alpha at 5%
+      lut[off + 3] = value <= 0.001 ? 0 : Math.round(baseAlpha * ((value - 0.001) / 0.049));
     } else if (mode === 'visibility') {
       lut[off + 3] = (value < 0 || value > 20) ? 0 : Math.round(220 * (1 - value / 20));
     } else {
