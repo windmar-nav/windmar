@@ -397,7 +397,7 @@ def _prefetch_all_weather():
         return
 
     try:
-        from api.routers.weather import _do_generic_prefetch, _get_layer_manager
+        from api.weather.prefetch import do_generic_prefetch, get_layer_manager
         from api.weather_fields import FIELD_NAMES
 
         t0 = time.monotonic()
@@ -410,16 +410,15 @@ def _prefetch_all_weather():
         def _prefetch_field(field_name: str):
             ft0 = time.monotonic()
             try:
-                mgr = _get_layer_manager(field_name)
+                mgr = get_layer_manager(field_name)
                 # Currents/SST/ice use open_dataset() — limit lon to avoid
                 # slow S3 chunk downloads.  Waves/wind/vis handle wider bbox.
                 lon_max = _MODERATE_LON_MAX if field_name in ("currents", "sst", "ice") else _DEFAULT_LON_MAX
-                _do_generic_prefetch(
+                do_generic_prefetch(
                     mgr,
                     _DEFAULT_LAT_MIN, _DEFAULT_LAT_MAX,
                     _DEFAULT_LON_MIN, lon_max,
                     _skip_clamp=True,
-                    _tile_resolution=True,
                 )
                 logger.info(
                     "Weather prefetch %s complete (%.0fs)",
@@ -480,7 +479,7 @@ from api.routers.engine_log import router as engine_log_router
 from api.routers.vessel import router as vessel_router
 from api.routers.voyage import router as voyage_router
 from api.routers.optimization import router as optimization_router
-from api.routers.weather import router as weather_router
+from api.weather.router import router as weather_router
 from api.routers.voyage_history import router as voyage_history_router
 from api.routers.charter_party import router as charter_party_router
 from api.routers.tiles import router as tiles_router

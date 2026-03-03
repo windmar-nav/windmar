@@ -56,6 +56,11 @@ class FieldConfig:
     # Subsample target: max grid points per axis in API responses
     subsample_target: int = 250
 
+    # Subsample target for multi-frame timeline (frames endpoint).
+    # Different from subsample_target because timeline sends ALL forecast
+    # hours at once — tighter cap keeps payload manageable.
+    frames_subsample_target: int = 200
+
     # Rounding precision for JSON output
     decimals: int = 2
 
@@ -106,6 +111,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         colorscale_min=0, colorscale_max=30,
         colorscale_colors=("#3b82f6", "#22d3ee", "#a3e635", "#facc15", "#ef4444"),
         subsample_target=500,
+        frames_subsample_target=200,
         decimals=2,
         cache_subdir="wind",
         fetch_method="fetch_wind_data",
@@ -128,6 +134,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         colorscale_min=0, colorscale_max=6,
         colorscale_colors=("#00ff00", "#ffff00", "#ff8800", "#ff0000", "#800000"),
         subsample_target=250,
+        frames_subsample_target=90,
         decimals=2,
         cache_subdir="wave",
         fetch_method="fetch_wave_forecast",
@@ -149,6 +156,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         colorscale_min=0, colorscale_max=6,
         colorscale_colors=("#00ff00", "#ffff00", "#ff8800", "#ff0000", "#800000"),
         subsample_target=250,
+        frames_subsample_target=90,
         decimals=2,
         cache_subdir="wave",  # shares wave cache
         fetch_method="fetch_wave_forecast",
@@ -169,6 +177,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         colorscale_min=0, colorscale_max=2,
         colorscale_colors=("#22d3ee", "#3b82f6", "#8b5cf6", "#d946ef"),
         subsample_target=250,
+        frames_subsample_target=200,
         decimals=2,
         cache_subdir="current",
         fetch_method="fetch_current_forecast",
@@ -190,6 +199,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         colorscale_min=-2, colorscale_max=32,
         colorscale_colors=("#0000ff", "#00ccff", "#00ff88", "#ffff00", "#ff8800", "#ff0000"),
         subsample_target=250,
+        frames_subsample_target=400,
         decimals=2,
         cache_subdir="sst",
         fetch_method="fetch_sst_forecast",
@@ -211,6 +221,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         colorscale_min=0, colorscale_max=50,
         colorscale_colors=("#ff0000", "#ff8800", "#ffff00", "#88ff00", "#00ff00"),
         subsample_target=250,
+        frames_subsample_target=400,
         decimals=1,
         cache_subdir="vis",
         fetch_method="fetch_visibility_forecast",
@@ -232,6 +243,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         colorscale_min=0, colorscale_max=1,
         colorscale_colors=("#ffffff", "#ccddff", "#6688ff", "#0033cc", "#001166"),
         subsample_target=250,
+        frames_subsample_target=400,
         decimals=4,
         cache_subdir="ice",
         fetch_method="fetch_ice_forecast",
