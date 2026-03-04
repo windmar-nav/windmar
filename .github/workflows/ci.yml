@@ -67,7 +67,6 @@ jobs:
           pip install flake8 black mypy
           flake8 api/ src/ --count --select=E9,F63,F7,F82 --show-source --statistics
           black --check api/ src/
-          # mypy api/ src/ --ignore-missing-imports
 
       - name: Run unit tests
         run: |
@@ -236,7 +235,7 @@ jobs:
 
       - name: Create .env file
         run: |
-          cat > .env << EOF
+          cat > .env <<'EOF'
           DB_USER=windmar
           DB_PASSWORD=test_password
           DB_NAME=windmar
@@ -249,11 +248,11 @@ jobs:
           EOF
 
       - name: Start services
-        run: docker-compose up -d
+        run: docker compose up -d
 
       - name: Wait for services to be healthy
         run: |
-          timeout 120 bash -c 'until docker-compose ps | grep -q "healthy"; do sleep 2; done'
+          timeout 120 bash -c 'until docker compose ps | grep -q "healthy"; do sleep 2; done'
 
       - name: Test API health
         run: |
@@ -265,11 +264,11 @@ jobs:
 
       - name: Show logs on failure
         if: failure()
-        run: docker-compose logs
+        run: docker compose logs
 
       - name: Stop services
         if: always()
-        run: docker-compose down -v
+        run: docker compose down -v
 
   # Code quality
   code-quality:

@@ -30,7 +30,7 @@ export default function AnalysisTab({
         </h3>
         <p className="text-sm text-gray-500">
           Go to the Route tab, set waypoints and parameters, then click
-          "Calculate Voyage" to create an analysis.
+          &quot;Calculate Voyage&quot; to create an analysis.
         </p>
       </div>
     );

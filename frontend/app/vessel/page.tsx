@@ -483,7 +483,7 @@ function CalibrationSection() {
       </Card>
 
       <div className="text-xs text-gray-500">
-        Calibration adjusts the theoretical Holtrop-Mennen model to match your vessel's
+        Calibration adjusts the theoretical Holtrop-Mennen model to match your vessel&apos;s
         actual performance. Upload noon reports with actual fuel consumption to derive
         calibration factors for hull fouling, wind, and wave response.
       </div>
