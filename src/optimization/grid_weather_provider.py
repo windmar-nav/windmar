@@ -23,8 +23,15 @@ logger = logging.getLogger(__name__)
 class GridWeatherProvider:
     """Pre-fetched grid weather for fast A* optimization."""
 
-    def __init__(self, wind_data, wave_data, current_data,
-                 sst_data=None, visibility_data=None, ice_data=None):
+    def __init__(
+        self,
+        wind_data,
+        wave_data,
+        current_data,
+        sst_data=None,
+        visibility_data=None,
+        ice_data=None,
+    ):
         """
         Initialize from WeatherData objects returned by get_wind_field(),
         get_wave_field(), get_current_field(), etc.
@@ -61,32 +68,32 @@ class GridWeatherProvider:
         # Swell decomposition (SPEC-P1) — from CMEMS partitioned wave data
         self.swell_hs = (
             np.asarray(wave_data.swell_height, dtype=np.float64)
-            if getattr(wave_data, 'swell_height', None) is not None
+            if getattr(wave_data, "swell_height", None) is not None
             else None
         )
         self.swell_period = (
             np.asarray(wave_data.swell_period, dtype=np.float64)
-            if getattr(wave_data, 'swell_period', None) is not None
+            if getattr(wave_data, "swell_period", None) is not None
             else None
         )
         self.swell_direction = (
             np.asarray(wave_data.swell_direction, dtype=np.float64)
-            if getattr(wave_data, 'swell_direction', None) is not None
+            if getattr(wave_data, "swell_direction", None) is not None
             else None
         )
         self.windsea_hs = (
             np.asarray(wave_data.windwave_height, dtype=np.float64)
-            if getattr(wave_data, 'windwave_height', None) is not None
+            if getattr(wave_data, "windwave_height", None) is not None
             else None
         )
         self.windsea_period = (
             np.asarray(wave_data.windwave_period, dtype=np.float64)
-            if getattr(wave_data, 'windwave_period', None) is not None
+            if getattr(wave_data, "windwave_period", None) is not None
             else None
         )
         self.windsea_direction = (
             np.asarray(wave_data.windwave_direction, dtype=np.float64)
-            if getattr(wave_data, 'windwave_direction', None) is not None
+            if getattr(wave_data, "windwave_direction", None) is not None
             else None
         )
         self._has_swell_decomposition = self.swell_hs is not None
@@ -157,17 +164,25 @@ class GridWeatherProvider:
         wave_period = 0.0
         wave_dir = 0.0
         if self.wave_period is not None:
-            wave_period = self._interp(lat, lon, self.wave_lats, self.wave_lons, self.wave_period)
+            wave_period = self._interp(
+                lat, lon, self.wave_lats, self.wave_lons, self.wave_period
+            )
         if self.wave_direction is not None:
-            wave_dir = self._interp(lat, lon, self.wave_lats, self.wave_lons, self.wave_direction)
+            wave_dir = self._interp(
+                lat, lon, self.wave_lats, self.wave_lons, self.wave_direction
+            )
 
         # Fallback wave period estimate if no data
         if wave_period <= 0 and wave_hs > 0:
             wave_period = 5.0 + wave_hs
 
         # Currents
-        cu = self._interp(lat, lon, self.current_lats, self.current_lons, self.current_u)
-        cv = self._interp(lat, lon, self.current_lats, self.current_lons, self.current_v)
+        cu = self._interp(
+            lat, lon, self.current_lats, self.current_lons, self.current_u
+        )
+        cv = self._interp(
+            lat, lon, self.current_lats, self.current_lons, self.current_v
+        )
         current_speed = math.sqrt(cu * cu + cv * cv)
         current_dir = (270.0 - math.degrees(math.atan2(cv, cu))) % 360.0
 
@@ -190,12 +205,42 @@ class GridWeatherProvider:
         # Swell decomposition (SPEC-P1) — with fallback from total Hs
         has_decomp = False
         if self._has_swell_decomposition:
-            sw_hs = self._interp(lat, lon, self.wave_lats, self.wave_lons, self.swell_hs)
-            sw_tp = self._interp(lat, lon, self.wave_lats, self.wave_lons, self.swell_period) if self.swell_period is not None else 0.0
-            sw_dir = self._interp(lat, lon, self.wave_lats, self.wave_lons, self.swell_direction) if self.swell_direction is not None else 0.0
-            ww_hs = self._interp(lat, lon, self.wave_lats, self.wave_lons, self.windsea_hs) if self.windsea_hs is not None else 0.0
-            ww_tp = self._interp(lat, lon, self.wave_lats, self.wave_lons, self.windsea_period) if self.windsea_period is not None else 0.0
-            ww_dir = self._interp(lat, lon, self.wave_lats, self.wave_lons, self.windsea_direction) if self.windsea_direction is not None else 0.0
+            sw_hs = self._interp(
+                lat, lon, self.wave_lats, self.wave_lons, self.swell_hs
+            )
+            sw_tp = (
+                self._interp(
+                    lat, lon, self.wave_lats, self.wave_lons, self.swell_period
+                )
+                if self.swell_period is not None
+                else 0.0
+            )
+            sw_dir = (
+                self._interp(
+                    lat, lon, self.wave_lats, self.wave_lons, self.swell_direction
+                )
+                if self.swell_direction is not None
+                else 0.0
+            )
+            ww_hs = (
+                self._interp(lat, lon, self.wave_lats, self.wave_lons, self.windsea_hs)
+                if self.windsea_hs is not None
+                else 0.0
+            )
+            ww_tp = (
+                self._interp(
+                    lat, lon, self.wave_lats, self.wave_lons, self.windsea_period
+                )
+                if self.windsea_period is not None
+                else 0.0
+            )
+            ww_dir = (
+                self._interp(
+                    lat, lon, self.wave_lats, self.wave_lons, self.windsea_direction
+                )
+                if self.windsea_direction is not None
+                else 0.0
+            )
             has_decomp = True
         else:
             # Fallback: derive from total Hs (SPEC-P1 §2.1)
@@ -231,8 +276,10 @@ class GridWeatherProvider:
 
     @staticmethod
     def _interp(
-        lat: float, lon: float,
-        lats: np.ndarray, lons: np.ndarray,
+        lat: float,
+        lon: float,
+        lats: np.ndarray,
+        lons: np.ndarray,
         data: np.ndarray,
     ) -> float:
         """

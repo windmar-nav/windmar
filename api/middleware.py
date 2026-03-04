@@ -8,6 +8,7 @@ Provides:
 - Request/response timing metrics
 - Error handling and sanitization
 """
+
 import time
 import uuid
 import logging
@@ -49,7 +50,7 @@ class StructuredLogger:
             "message": message,
             "service": "windmar-api",
             "request_id": get_request_id(),
-            **kwargs
+            **kwargs,
         }
 
         # Remove None values
@@ -292,11 +293,7 @@ class MetricsCollector:
         self.start_time = datetime.now(timezone.utc)
 
     def record_request(
-        self,
-        method: str,
-        path: str,
-        status_code: int,
-        duration_seconds: float
+        self, method: str, path: str, status_code: int, duration_seconds: float
     ):
         """Record a completed request."""
         # Normalize path (remove IDs for aggregation)
@@ -307,9 +304,7 @@ class MetricsCollector:
         self.request_duration_sum[key] = (
             self.request_duration_sum.get(key, 0) + duration_seconds
         )
-        self.request_duration_count[key] = (
-            self.request_duration_count.get(key, 0) + 1
-        )
+        self.request_duration_count[key] = self.request_duration_count.get(key, 0) + 1
 
         if status_code >= 500:
             error_key = f"{method}:{normalized_path}"
@@ -318,15 +313,16 @@ class MetricsCollector:
     def _normalize_path(self, path: str) -> str:
         """Normalize path by replacing UUIDs and IDs with placeholders."""
         import re
+
         # Replace UUIDs
         path = re.sub(
-            r'[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}',
-            '{id}',
+            r"[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}",
+            "{id}",
             path,
-            flags=re.IGNORECASE
+            flags=re.IGNORECASE,
         )
         # Replace numeric IDs
-        path = re.sub(r'/\d+(?=/|$)', '/{id}', path)
+        path = re.sub(r"/\d+(?=/|$)", "/{id}", path)
         return path
 
     def get_metrics(self) -> dict:

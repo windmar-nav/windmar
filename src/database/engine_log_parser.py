@@ -247,9 +247,7 @@ class EngineLogParser:
                 f"Sheet '{sheet}' not found. Available: {available_sheets}"
             )
 
-        self._raw_df = pd.read_excel(
-            self.excel_file, sheet_name=sheet, header=None
-        )
+        self._raw_df = pd.read_excel(self.excel_file, sheet_name=sheet, header=None)
         logger.info(f"Raw shape: {self._raw_df.shape}")
 
         self._validate_layout()
@@ -268,9 +266,7 @@ class EngineLogParser:
                 logger.warning(f"Row {row_idx}: skipped ({e})")
                 skipped += 1
 
-        logger.info(
-            f"Parsed {len(self._entries)} entries, skipped {skipped} rows"
-        )
+        logger.info(f"Parsed {len(self._entries)} entries, skipped {skipped} rows")
         self._statistics = None
         return self._entries
 
@@ -296,7 +292,9 @@ class EngineLogParser:
         self, row: pd.Series, row_idx: int, sheet: str
     ) -> Optional[Dict[str, Any]]:
         """Parse a single data row into an entry dict."""
-        raw_date = row.iloc[COLUMN_MAP["date"]] if COLUMN_MAP["date"] < len(row) else None
+        raw_date = (
+            row.iloc[COLUMN_MAP["date"]] if COLUMN_MAP["date"] < len(row) else None
+        )
         if pd.isna(raw_date):
             return None
 
@@ -329,13 +327,17 @@ class EngineLogParser:
         extended: Dict[str, Any] = {}
         for field_name, col_idx in COLUMN_MAP.items():
             if field_name in PRIMARY_FIELDS or field_name in (
-                "date", "time", "datetime_combined",
+                "date",
+                "time",
+                "datetime_combined",
             ):
                 continue
             val = self._cell_idx(row, col_idx)
             if pd.notna(val) if not isinstance(val, str) else bool(val):
                 coerced = _safe_float(val)
-                extended[field_name] = coerced if coerced is not None else _safe_str(val)
+                extended[field_name] = (
+                    coerced if coerced is not None else _safe_str(val)
+                )
 
         entry["extended_data"] = extended if extended else None
         entry["source_sheet"] = sheet
@@ -364,6 +366,7 @@ class EngineLogParser:
                 if pd.notna(time_val):
                     try:
                         from datetime import time as dt_time
+
                         if isinstance(time_val, dt_time):
                             dt = dt.replace(
                                 hour=time_val.hour,
@@ -373,7 +376,9 @@ class EngineLogParser:
                         else:
                             t = pd.to_datetime(str(time_val))
                             dt = dt.replace(
-                                hour=t.hour, minute=t.minute, second=t.second,
+                                hour=t.hour,
+                                minute=t.minute,
+                                second=t.second,
                             )
                     except (ValueError, TypeError):
                         pass
@@ -419,27 +424,34 @@ class EngineLogParser:
             event_counts[ev] = event_counts.get(ev, 0) + 1
 
         hfo_total = sum(
-            e["hfo_total_mt"] for e in self._entries
+            e["hfo_total_mt"]
+            for e in self._entries
             if e.get("hfo_total_mt") is not None
         )
         mgo_total = sum(
-            e["mgo_total_mt"] for e in self._entries
+            e["mgo_total_mt"]
+            for e in self._entries
             if e.get("mgo_total_mt") is not None
         )
         methanol_total = sum(
-            e["methanol_me_mt"] for e in self._entries
+            e["methanol_me_mt"]
+            for e in self._entries
             if e.get("methanol_me_mt") is not None
         )
 
         sea_rpms = [
-            e["rpm"] for e in self._entries
+            e["rpm"]
+            for e in self._entries
             if e.get("event") == "NOON" and e.get("rpm") is not None and e["rpm"] > 0
         ]
         avg_rpm_at_sea = sum(sea_rpms) / len(sea_rpms) if sea_rpms else None
 
         sea_speeds = [
-            e["speed_stw"] for e in self._entries
-            if e.get("event") == "NOON" and e.get("speed_stw") is not None and e["speed_stw"] > 0
+            e["speed_stw"]
+            for e in self._entries
+            if e.get("event") == "NOON"
+            and e.get("speed_stw") is not None
+            and e["speed_stw"] > 0
         ]
         avg_speed_stw = sum(sea_speeds) / len(sea_speeds) if sea_speeds else None
 

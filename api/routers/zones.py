@@ -14,7 +14,11 @@ from api.demo import require_not_demo
 from api.rate_limit import limiter, get_rate_limit_string
 from api.schemas.zones import CreateZoneRequest, ZoneCoordinate, ZoneResponse
 from src.data.regulatory_zones import (
-    get_zone_checker, Zone, ZoneProperties, ZoneType, ZoneInteraction,
+    get_zone_checker,
+    Zone,
+    ZoneProperties,
+    ZoneType,
+    ZoneInteraction,
 )
 
 router = APIRouter(prefix="/api/zones", tags=["zones"])
@@ -37,14 +41,16 @@ async def list_zones():
     zone_checker = get_zone_checker()
     zones = []
     for zone in zone_checker.get_all_zones():
-        zones.append({
-            "id": zone.id,
-            "name": zone.properties.name,
-            "zone_type": zone.properties.zone_type.value,
-            "interaction": zone.properties.interaction.value,
-            "penalty_factor": zone.properties.penalty_factor,
-            "is_builtin": zone.is_builtin,
-        })
+        zones.append(
+            {
+                "id": zone.id,
+                "name": zone.properties.name,
+                "zone_type": zone.properties.zone_type.value,
+                "interaction": zone.properties.interaction.value,
+                "penalty_factor": zone.properties.penalty_factor,
+                "is_builtin": zone.is_builtin,
+            }
+        )
     return {"zones": zones, "count": len(zones)}
 
 
@@ -68,7 +74,7 @@ async def get_zones_at_point(
                 "penalty_factor": z.properties.penalty_factor,
             }
             for z in zones
-        ]
+        ],
     }
 
 
@@ -90,14 +96,11 @@ async def check_path_zones(
             "to": {"lat": lat2, "lon": lon2},
         },
         "zones": {
-            interaction: [
-                {"id": z.id, "name": z.properties.name}
-                for z in zones
-            ]
+            interaction: [{"id": z.id, "name": z.properties.name} for z in zones]
             for interaction, zones in zones_by_type.items()
         },
-        "penalty_factor": penalty if penalty != float('inf') else None,
-        "is_forbidden": penalty == float('inf'),
+        "penalty_factor": penalty if penalty != float("inf") else None,
+        "is_forbidden": penalty == float("inf"),
         "warnings": warnings,
     }
 
@@ -114,7 +117,11 @@ async def get_zone(zone_id: str):
     return zone.to_geojson()
 
 
-@router.post("", response_model=ZoneResponse, dependencies=[Depends(require_not_demo("Zone creation"))])
+@router.post(
+    "",
+    response_model=ZoneResponse,
+    dependencies=[Depends(require_not_demo("Zone creation"))],
+)
 @limiter.limit(get_rate_limit_string())
 async def create_zone(
     http_request: Request,
@@ -137,7 +144,7 @@ async def create_zone(
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid zone_type. Valid values: {[t.value for t in ZoneType]}"
+            detail=f"Invalid zone_type. Valid values: {[t.value for t in ZoneType]}",
         )
 
     # Validate interaction
@@ -146,7 +153,7 @@ async def create_zone(
     except ValueError:
         raise HTTPException(
             status_code=400,
-            detail=f"Invalid interaction. Valid values: {[i.value for i in ZoneInteraction]}"
+            detail=f"Invalid interaction. Valid values: {[i.value for i in ZoneInteraction]}",
         )
 
     # Convert coordinates

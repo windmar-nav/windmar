@@ -27,6 +27,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class WeatherAssessmentResult:
     """Result of assessing weather data needs for a voyage."""
+
     # Voyage estimate
     estimated_passage_hours: float
     weather_window_hours: float  # passage + safety margin
@@ -35,7 +36,9 @@ class WeatherAssessmentResult:
     required_forecast_hours: List[int]
 
     # Corridor bounding box (with margin)
-    corridor_bbox: Tuple[float, float, float, float]  # (lat_min, lat_max, lon_min, lon_max)
+    corridor_bbox: Tuple[
+        float, float, float, float
+    ]  # (lat_min, lat_max, lon_min, lon_max)
 
     # Per-source availability
     availability: Dict[str, Dict]  # source -> {run_time, available_hours, coverage_pct}
@@ -79,7 +82,10 @@ class RouteWeatherAssessment:
         lat2, lon2 = math.radians(destination[0]), math.radians(destination[1])
         dlat = lat2 - lat1
         dlon = lon2 - lon1
-        a = math.sin(dlat / 2) ** 2 + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+        a = (
+            math.sin(dlat / 2) ** 2
+            + math.cos(lat1) * math.cos(lat2) * math.sin(dlon / 2) ** 2
+        )
         c = 2 * math.asin(math.sqrt(a))
         distance_nm = c * 3440.065  # Earth radius in nm
 
@@ -104,11 +110,15 @@ class RouteWeatherAssessment:
         # Check availability per source
         availability = {}
         for source in ["gfs", "cmems_wave", "cmems_current"]:
-            run_time, avail_hours = self.db_weather.get_available_hours_by_source(source)
+            run_time, avail_hours = self.db_weather.get_available_hours_by_source(
+                source
+            )
             if run_time is not None:
                 avail_set = set(avail_hours)
                 covered = len(avail_set.intersection(required_hours))
-                coverage_pct = (covered / len(required_hours) * 100) if required_hours else 0
+                coverage_pct = (
+                    (covered / len(required_hours) * 100) if required_hours else 0
+                )
                 availability[source] = {
                     "run_time": run_time,
                     "available_hours": avail_hours,
@@ -173,13 +183,17 @@ class RouteWeatherAssessment:
                     run_time = rt
 
         if run_time is None:
-            logger.warning("No weather data available in DB — cannot provision temporal provider")
+            logger.warning(
+                "No weather data available in DB — cannot provision temporal provider"
+            )
             return None
 
         # Load wind grids
         wind_grids = self.db_weather.get_grids_for_timeline(
-            "gfs", self.WIND_PARAMS,
-            *bbox, required_hours,
+            "gfs",
+            self.WIND_PARAMS,
+            *bbox,
+            required_hours,
         )
         for param in self.WIND_PARAMS:
             if param in wind_grids and wind_grids[param]:
@@ -188,8 +202,10 @@ class RouteWeatherAssessment:
         # Load wave grids (combined + decomposition)
         all_wave_params = self.WAVE_PARAMS + self.SWELL_PARAMS + self.WINDWAVE_PARAMS
         wave_grids = self.db_weather.get_grids_for_timeline(
-            "cmems_wave", all_wave_params,
-            *bbox, required_hours,
+            "cmems_wave",
+            all_wave_params,
+            *bbox,
+            required_hours,
         )
         for param in all_wave_params:
             if param in wave_grids and wave_grids[param]:
@@ -197,8 +213,10 @@ class RouteWeatherAssessment:
 
         # Load current grids
         current_grids = self.db_weather.get_grids_for_timeline(
-            "cmems_current", self.CURRENT_PARAMS,
-            *bbox, required_hours,
+            "cmems_current",
+            self.CURRENT_PARAMS,
+            *bbox,
+            required_hours,
         )
         for param in self.CURRENT_PARAMS:
             if param in current_grids and current_grids[param]:
@@ -223,7 +241,9 @@ class RouteWeatherAssessment:
                 if p in grids:
                     max_hours = max(max_hours, max(grids[p].keys(), default=0))
             if max_hours > 0:
-                provenance[source] = WeatherProvenance.from_lead_hours(max_hours, source)
+                provenance[source] = WeatherProvenance.from_lead_hours(
+                    max_hours, source
+                )
 
         total_grids = sum(len(v) for v in grids.values())
         logger.info(

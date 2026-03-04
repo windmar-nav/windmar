@@ -8,14 +8,23 @@ per IMO MEPC.354(78) and MEPC.355(78).
 from fastapi import APIRouter, HTTPException, Query
 
 from api.schemas.cii import (
-    CIICalculateRequest, CIIProjectRequest, CIIReductionRequest,
-    CIISpeedSweepRequest, CIISpeedSweepResponse, CIISpeedSweepPoint,
-    CIIThresholdsResponse, CIIThresholdYear,
-    CIIFleetRequest, CIIFleetResponse, CIIFleetResult,
+    CIICalculateRequest,
+    CIIProjectRequest,
+    CIIReductionRequest,
+    CIISpeedSweepRequest,
+    CIISpeedSweepResponse,
+    CIISpeedSweepPoint,
+    CIIThresholdsResponse,
+    CIIThresholdYear,
+    CIIFleetRequest,
+    CIIFleetResponse,
+    CIIFleetResult,
 )
 from api.state import get_app_state
 from src.compliance.cii import (
-    CIICalculator, VesselType as CIIVesselType, CIIRating,
+    CIICalculator,
+    VesselType as CIIVesselType,
+    CIIRating,
 )
 
 router = APIRouter(prefix="/api/cii", tags=["CII Compliance"])
@@ -23,12 +32,16 @@ router = APIRouter(prefix="/api/cii", tags=["CII Compliance"])
 
 # ---- helpers (CII-only) ---------------------------------------------------
 
+
 def _resolve_vessel_type(name: str) -> CIIVesselType:
     """Resolve vessel type string to enum."""
     mapping = {vt.value: vt for vt in CIIVesselType}
     if name in mapping:
         return mapping[name]
-    raise HTTPException(status_code=400, detail=f"Unknown vessel type: {name}. Valid: {list(mapping.keys())}")
+    raise HTTPException(
+        status_code=400,
+        detail=f"Unknown vessel type: {name}. Valid: {list(mapping.keys())}",
+    )
 
 
 def _resolve_target_rating(name: str) -> CIIRating:
@@ -36,7 +49,9 @@ def _resolve_target_rating(name: str) -> CIIRating:
     mapping = {r.value: r for r in CIIRating}
     if name.upper() in mapping:
         return mapping[name.upper()]
-    raise HTTPException(status_code=400, detail=f"Unknown rating: {name}. Valid: A, B, C, D, E")
+    raise HTTPException(
+        status_code=400, detail=f"Unknown rating: {name}. Valid: A, B, C, D, E"
+    )
 
 
 def _compliance_status(rating: CIIRating) -> str:
@@ -49,6 +64,7 @@ def _compliance_status(rating: CIIRating) -> str:
 
 
 # ---- endpoints -------------------------------------------------------------
+
 
 @router.get("/vessel-types")
 async def get_cii_vessel_types():
@@ -74,11 +90,19 @@ async def get_cii_fuel_types():
 async def calculate_cii(request: CIICalculateRequest):
     """Calculate CII rating for given fuel consumption and distance."""
     vtype = _resolve_vessel_type(request.vessel_type)
-    gt = request.gt if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER) else None
+    gt = (
+        request.gt
+        if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER)
+        else None
+    )
 
     try:
-        calc = CIICalculator(vessel_type=vtype, dwt=request.dwt, year=request.year, gt=gt)
-        result = calc.calculate(request.fuel_consumption_mt.to_dict(), request.total_distance_nm)
+        calc = CIICalculator(
+            vessel_type=vtype, dwt=request.dwt, year=request.year, gt=gt
+        )
+        result = calc.calculate(
+            request.fuel_consumption_mt.to_dict(), request.total_distance_nm
+        )
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
@@ -103,10 +127,16 @@ async def calculate_cii(request: CIICalculateRequest):
 async def project_cii(request: CIIProjectRequest):
     """Project CII rating across multiple years with optional efficiency improvements."""
     vtype = _resolve_vessel_type(request.vessel_type)
-    gt = request.gt if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER) else None
+    gt = (
+        request.gt
+        if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER)
+        else None
+    )
 
     try:
-        calc = CIICalculator(vessel_type=vtype, dwt=request.dwt, year=request.start_year, gt=gt)
+        calc = CIICalculator(
+            vessel_type=vtype, dwt=request.dwt, year=request.start_year, gt=gt
+        )
         years = list(range(request.start_year, request.end_year + 1))
         projections = calc.project_rating(
             request.annual_fuel_mt.to_dict(),
@@ -133,20 +163,28 @@ async def project_cii(request: CIIProjectRequest):
     current_rating = projections[0].rating.value if projections else "?"
     final_rating = projections[-1].rating.value if projections else "?"
     years_until_d = next(
-        (p.year - projections[0].year for p in projections if p.rating in (CIIRating.D, CIIRating.E)),
-        "N/A"
+        (
+            p.year - projections[0].year
+            for p in projections
+            if p.rating in (CIIRating.D, CIIRating.E)
+        ),
+        "N/A",
     )
     years_until_e = next(
         (p.year - projections[0].year for p in projections if p.rating == CIIRating.E),
-        "N/A"
+        "N/A",
     )
 
     if final_rating in ("D", "E"):
         recommendation = f"Action required: rating degrades to {final_rating} by {projections[-1].year}."
     elif final_rating == "C":
-        recommendation = "Borderline: rating reaches C. Consider efficiency improvements."
+        recommendation = (
+            "Borderline: rating reaches C. Consider efficiency improvements."
+        )
     else:
-        recommendation = f"On track: rating remains {final_rating} through {projections[-1].year}."
+        recommendation = (
+            f"On track: rating remains {final_rating} through {projections[-1].year}."
+        )
 
     return {
         "projections": proj_list,
@@ -165,10 +203,16 @@ async def calculate_cii_reduction(request: CIIReductionRequest):
     """Calculate fuel reduction needed to achieve a target CII rating."""
     vtype = _resolve_vessel_type(request.vessel_type)
     target = _resolve_target_rating(request.target_rating)
-    gt = request.gt if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER) else None
+    gt = (
+        request.gt
+        if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER)
+        else None
+    )
 
     try:
-        calc = CIICalculator(vessel_type=vtype, dwt=request.dwt, year=request.target_year, gt=gt)
+        calc = CIICalculator(
+            vessel_type=vtype, dwt=request.dwt, year=request.target_year, gt=gt
+        )
         result = calc.calculate_required_reduction(
             request.current_fuel_mt.to_dict(),
             request.current_distance_nm,
@@ -188,7 +232,9 @@ async def calculate_cii_reduction(request: CIIReductionRequest):
 async def speed_sweep(request: CIISpeedSweepRequest):
     """Compute CII across a range of speeds using the vessel physics model."""
     if request.speed_min_kts >= request.speed_max_kts:
-        raise HTTPException(status_code=400, detail="speed_min_kts must be less than speed_max_kts")
+        raise HTTPException(
+            status_code=400, detail="speed_min_kts must be less than speed_max_kts"
+        )
 
     vtype = _resolve_vessel_type(request.vessel_type)
     vessel_model = get_app_state().vessel.model
@@ -262,7 +308,11 @@ async def get_thresholds(
 ):
     """Return A-E rating boundary values for each year from 2019 to 2035."""
     vtype = _resolve_vessel_type(vessel_type)
-    gt_val = gt if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER) else None
+    gt_val = (
+        gt
+        if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER)
+        else None
+    )
 
     try:
         calc = CIICalculator(vessel_type=vtype, dwt=dwt, year=2024, gt=gt_val)
@@ -272,12 +322,14 @@ async def get_thresholds(
     years_out: list[CIIThresholdYear] = []
     for yr in range(2019, 2036):
         info = calc.get_rating_boundaries_for_year(yr)
-        years_out.append(CIIThresholdYear(
-            year=yr,
-            required_cii=info["required_cii"],
-            boundaries=info["boundaries"],
-            reduction_factor=info["reduction_factor"],
-        ))
+        years_out.append(
+            CIIThresholdYear(
+                year=yr,
+                required_cii=info["required_cii"],
+                boundaries=info["boundaries"],
+                reduction_factor=info["reduction_factor"],
+            )
+        )
 
     return CIIThresholdsResponse(
         years=years_out,
@@ -290,30 +342,47 @@ async def get_thresholds(
 async def calculate_fleet_cii(request: CIIFleetRequest):
     """Batch CII calculation for multiple vessels."""
     results: list[CIIFleetResult] = []
-    summary: dict[str, int] = {"A": 0, "B": 0, "C": 0, "D": 0, "E": 0, "total": len(request.vessels)}
+    summary: dict[str, int] = {
+        "A": 0,
+        "B": 0,
+        "C": 0,
+        "D": 0,
+        "E": 0,
+        "total": len(request.vessels),
+    }
 
     for vessel in request.vessels:
         vtype = _resolve_vessel_type(vessel.vessel_type)
-        gt_val = vessel.gt if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER) else None
+        gt_val = (
+            vessel.gt
+            if vtype in (CIIVesselType.CRUISE_PASSENGER, CIIVesselType.RO_RO_PASSENGER)
+            else None
+        )
 
         try:
-            calc = CIICalculator(vessel_type=vtype, dwt=vessel.dwt, year=vessel.year, gt=gt_val)
-            cii_result = calc.calculate(vessel.fuel_consumption_mt, vessel.total_distance_nm, year=vessel.year)
+            calc = CIICalculator(
+                vessel_type=vtype, dwt=vessel.dwt, year=vessel.year, gt=gt_val
+            )
+            cii_result = calc.calculate(
+                vessel.fuel_consumption_mt, vessel.total_distance_nm, year=vessel.year
+            )
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"Vessel '{vessel.name}': {e}")
 
         rating = cii_result.rating.value
         summary[rating] = summary.get(rating, 0) + 1
 
-        results.append(CIIFleetResult(
-            name=vessel.name,
-            rating=rating,
-            attained_cii=cii_result.attained_cii,
-            required_cii=cii_result.required_cii,
-            compliance_status=_compliance_status(cii_result.rating),
-            total_co2_mt=cii_result.total_co2_mt,
-            margin_to_downgrade=cii_result.margin_to_downgrade,
-            margin_to_upgrade=cii_result.margin_to_upgrade,
-        ))
+        results.append(
+            CIIFleetResult(
+                name=vessel.name,
+                rating=rating,
+                attained_cii=cii_result.attained_cii,
+                required_cii=cii_result.required_cii,
+                compliance_status=_compliance_status(cii_result.rating),
+                total_co2_mt=cii_result.total_co2_mt,
+                margin_to_downgrade=cii_result.margin_to_downgrade,
+                margin_to_upgrade=cii_result.margin_to_upgrade,
+            )
+        )
 
     return CIIFleetResponse(results=results, summary=summary)

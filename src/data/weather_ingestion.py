@@ -55,9 +55,14 @@ class WeatherIngestionService:
     ICE_DEFAULT_LON_MIN = -80.0
     ICE_DEFAULT_LON_MAX = 80.0
 
-    def ingest_all(self, force: bool = False,
-                   lat_min: Optional[float] = None, lat_max: Optional[float] = None,
-                   lon_min: Optional[float] = None, lon_max: Optional[float] = None):
+    def ingest_all(
+        self,
+        force: bool = False,
+        lat_min: Optional[float] = None,
+        lat_max: Optional[float] = None,
+        lon_min: Optional[float] = None,
+        lon_max: Optional[float] = None,
+    ):
         """Run full ingestion cycle: wind + waves + currents + ice + sst + visibility.
 
         Downloads GFS wind and visibility globally (0.5° resolution).
@@ -84,14 +89,34 @@ class WeatherIngestionService:
 
         logger.info(f"Starting weather ingestion cycle (force={force})")
         self.ingest_wind(force=force)
-        self.ingest_waves(force=force, lat_min=_lat_min, lat_max=_lat_max,
-                          lon_min=_lon_min, lon_max=_lon_max)
-        self.ingest_currents(force=force, lat_min=_lat_min, lat_max=_lat_max,
-                             lon_min=_lon_min, lon_max=_lon_max)
-        self.ingest_ice(force=force, lat_min=_ice_lat_min, lat_max=_ice_lat_max,
-                        lon_min=_ice_lon_min, lon_max=_ice_lon_max)
-        self.ingest_sst(force=force, lat_min=_sst_lat_min, lat_max=_sst_lat_max,
-                        lon_min=_sst_lon_min, lon_max=_sst_lon_max)
+        self.ingest_waves(
+            force=force,
+            lat_min=_lat_min,
+            lat_max=_lat_max,
+            lon_min=_lon_min,
+            lon_max=_lon_max,
+        )
+        self.ingest_currents(
+            force=force,
+            lat_min=_lat_min,
+            lat_max=_lat_max,
+            lon_min=_lon_min,
+            lon_max=_lon_max,
+        )
+        self.ingest_ice(
+            force=force,
+            lat_min=_ice_lat_min,
+            lat_max=_ice_lat_max,
+            lon_min=_ice_lon_min,
+            lon_max=_ice_lon_max,
+        )
+        self.ingest_sst(
+            force=force,
+            lat_min=_sst_lat_min,
+            lat_max=_sst_lat_max,
+            lon_min=_sst_lon_min,
+            lon_max=_sst_lon_max,
+        )
         self.ingest_visibility(force=force)
         self._supersede_old_runs()
         self.cleanup_orphaned_grid_data()
@@ -113,7 +138,9 @@ class WeatherIngestionService:
         source = "gfs"
 
         if not force and self._has_multistep_run(source):
-            logger.debug("Skipping wind ingestion — multi-timestep GFS run exists in DB")
+            logger.debug(
+                "Skipping wind ingestion — multi-timestep GFS run exists in DB"
+            )
             return
 
         # Count hours in existing best run (for deferred supersede)
@@ -131,9 +158,16 @@ class WeatherIngestionService:
                     lat_min, lat_max, lon_min, lon_max, forecast_hours)
                    VALUES (%s, %s, 'ingesting', %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
-                (source, run_time, self.GRID_RESOLUTION,
-                 self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
-                 self.gfs_provider.FORECAST_HOURS),
+                (
+                    source,
+                    run_time,
+                    self.GRID_RESOLUTION,
+                    self.LAT_MIN,
+                    self.LAT_MAX,
+                    self.LON_MIN,
+                    self.LON_MAX,
+                    self.gfs_provider.FORECAST_HOURS,
+                ),
             )
             run_id = cur.fetchone()[0]
             conn.commit()
@@ -142,8 +176,10 @@ class WeatherIngestionService:
             for i, fh in enumerate(self.gfs_provider.FORECAST_HOURS):
                 try:
                     wind_data = self.gfs_provider.fetch_wind_data(
-                        self.LAT_MIN, self.LAT_MAX,
-                        self.LON_MIN, self.LON_MAX,
+                        self.LAT_MIN,
+                        self.LAT_MAX,
+                        self.LON_MIN,
+                        self.LON_MAX,
                         forecast_hour=fh,
                     )
                     if wind_data is None:
@@ -172,13 +208,23 @@ class WeatherIngestionService:
                                             lons = EXCLUDED.lons,
                                             shape_rows = EXCLUDED.shape_rows,
                                             shape_cols = EXCLUDED.shape_cols""",
-                            (run_id, fh, param, lats_blob, lons_blob,
-                             self._compress(np.asarray(arr)), rows, cols),
+                            (
+                                run_id,
+                                fh,
+                                param,
+                                lats_blob,
+                                lons_blob,
+                                self._compress(np.asarray(arr)),
+                                rows,
+                                cols,
+                            ),
                         )
 
                     ingested_hours.append(fh)
                     conn.commit()
-                    logger.debug(f"Ingested GFS wind f{fh:03d} ({i+1}/{len(self.gfs_provider.FORECAST_HOURS)})")
+                    logger.debug(
+                        f"Ingested GFS wind f{fh:03d} ({i+1}/{len(self.gfs_provider.FORECAST_HOURS)})"
+                    )
 
                     # Rate-limit NOMADS requests (2s between downloads)
                     if i < len(self.gfs_provider.FORECAST_HOURS) - 1:
@@ -196,7 +242,9 @@ class WeatherIngestionService:
                     (source, run_id),
                 )
                 status = "complete" if ingested_hours else "failed"
-                logger.info(f"GFS wind: new run ({len(ingested_hours)}h) >= old ({old_hour_count}h) — superseded old runs")
+                logger.info(
+                    f"GFS wind: new run ({len(ingested_hours)}h) >= old ({old_hour_count}h) — superseded old runs"
+                )
             else:
                 # New run has fewer hours — mark it failed, keep old run
                 status = "failed"
@@ -210,7 +258,9 @@ class WeatherIngestionService:
                 (status, ingested_hours, run_id),
             )
             conn.commit()
-            logger.info(f"GFS wind ingestion {status}: {len(ingested_hours)}/{len(self.gfs_provider.FORECAST_HOURS)} hours")
+            logger.info(
+                f"GFS wind ingestion {status}: {len(ingested_hours)}/{len(self.gfs_provider.FORECAST_HOURS)} hours"
+            )
 
         except Exception as e:
             logger.error(f"Wind ingestion failed: {e}")
@@ -262,9 +312,14 @@ class WeatherIngestionService:
         finally:
             conn.close()
 
-    def ingest_waves(self, force: bool = False,
-                     lat_min: Optional[float] = None, lat_max: Optional[float] = None,
-                     lon_min: Optional[float] = None, lon_max: Optional[float] = None):
+    def ingest_waves(
+        self,
+        force: bool = False,
+        lat_min: Optional[float] = None,
+        lat_max: Optional[float] = None,
+        lon_min: Optional[float] = None,
+        lon_max: Optional[float] = None,
+    ):
         """Fetch CMEMS wave forecast (0-120h, 3-hourly) and store all frames.
 
         Downloads the full multi-timestep wave forecast including swell
@@ -287,7 +342,10 @@ class WeatherIngestionService:
         logger.info("CMEMS wave forecast ingestion starting")
         try:
             result = self.copernicus_provider.fetch_wave_forecast(
-                _lat_min, _lat_max, _lon_min, _lon_max,
+                _lat_min,
+                _lat_max,
+                _lon_min,
+                _lon_max,
             )
             if not result:
                 logger.warning("CMEMS wave forecast fetch returned empty")
@@ -296,9 +354,14 @@ class WeatherIngestionService:
         except Exception as e:
             logger.error(f"Wave forecast ingestion failed: {e}")
 
-    def ingest_currents(self, force: bool = False,
-                        lat_min: Optional[float] = None, lat_max: Optional[float] = None,
-                        lon_min: Optional[float] = None, lon_max: Optional[float] = None):
+    def ingest_currents(
+        self,
+        force: bool = False,
+        lat_min: Optional[float] = None,
+        lat_max: Optional[float] = None,
+        lon_min: Optional[float] = None,
+        lon_max: Optional[float] = None,
+    ):
         """Fetch CMEMS current forecast (0-120h, 3-hourly) and store all frames.
 
         Downloads the full multi-timestep current forecast (u/v components).
@@ -321,7 +384,10 @@ class WeatherIngestionService:
         logger.info("CMEMS current forecast ingestion starting")
         try:
             result = self.copernicus_provider.fetch_current_forecast(
-                _lat_min, _lat_max, _lon_min, _lon_max,
+                _lat_min,
+                _lat_max,
+                _lon_min,
+                _lon_max,
             )
             if not result:
                 logger.warning("CMEMS current forecast fetch returned empty")
@@ -330,9 +396,14 @@ class WeatherIngestionService:
         except Exception as e:
             logger.error(f"Current forecast ingestion failed: {e}")
 
-    def ingest_ice(self, force: bool = False,
-                   lat_min: Optional[float] = None, lat_max: Optional[float] = None,
-                   lon_min: Optional[float] = None, lon_max: Optional[float] = None):
+    def ingest_ice(
+        self,
+        force: bool = False,
+        lat_min: Optional[float] = None,
+        lat_max: Optional[float] = None,
+        lon_min: Optional[float] = None,
+        lon_max: Optional[float] = None,
+    ):
         """Fetch CMEMS ice forecast (10-day daily) and store all frames.
 
         Downloads multi-timestep ice concentration forecast (0, 24, 48, ..., 216h).
@@ -355,7 +426,10 @@ class WeatherIngestionService:
         logger.info("CMEMS ice forecast ingestion starting")
         try:
             result = self.copernicus_provider.fetch_ice_forecast(
-                _lat_min, _lat_max, _lon_min, _lon_max,
+                _lat_min,
+                _lat_max,
+                _lon_min,
+                _lon_max,
             )
             if not result:
                 logger.warning("CMEMS ice forecast fetch returned empty")
@@ -390,9 +464,16 @@ class WeatherIngestionService:
                     lat_min, lat_max, lon_min, lon_max, forecast_hours)
                    VALUES (%s, %s, 'ingesting', %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
-                (source, run_time, 0.083,
-                 self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
-                 forecast_hours),
+                (
+                    source,
+                    run_time,
+                    0.083,
+                    self.LAT_MIN,
+                    self.LAT_MAX,
+                    self.LON_MIN,
+                    self.LON_MAX,
+                    forecast_hours,
+                ),
             )
             run_id = cur.fetchone()[0]
             conn.commit()
@@ -429,8 +510,16 @@ class WeatherIngestionService:
                                             lons = EXCLUDED.lons,
                                             shape_rows = EXCLUDED.shape_rows,
                                             shape_cols = EXCLUDED.shape_cols""",
-                            (run_id, fh, param, lats_blob, lons_blob,
-                             self._compress(np.asarray(arr)), rows, cols),
+                            (
+                                run_id,
+                                fh,
+                                param,
+                                lats_blob,
+                                lons_blob,
+                                self._compress(np.asarray(arr)),
+                                rows,
+                                cols,
+                            ),
                         )
 
                     ingested_count += 1
@@ -493,9 +582,16 @@ class WeatherIngestionService:
                     lat_min, lat_max, lon_min, lon_max, forecast_hours)
                    VALUES (%s, %s, 'ingesting', %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
-                (source, run_time, 0.083,
-                 self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
-                 forecast_hours),
+                (
+                    source,
+                    run_time,
+                    0.083,
+                    self.LAT_MIN,
+                    self.LAT_MAX,
+                    self.LON_MIN,
+                    self.LON_MAX,
+                    forecast_hours,
+                ),
             )
             run_id = cur.fetchone()[0]
             conn.commit()
@@ -525,8 +621,16 @@ class WeatherIngestionService:
                                             lons = EXCLUDED.lons,
                                             shape_rows = EXCLUDED.shape_rows,
                                             shape_cols = EXCLUDED.shape_cols""",
-                            (run_id, fh, param, lats_blob, lons_blob,
-                             self._compress(np.asarray(arr)), rows, cols),
+                            (
+                                run_id,
+                                fh,
+                                param,
+                                lats_blob,
+                                lons_blob,
+                                self._compress(np.asarray(arr)),
+                                rows,
+                                cols,
+                            ),
                         )
 
                     ingested_count += 1
@@ -591,9 +695,16 @@ class WeatherIngestionService:
                     lat_min, lat_max, lon_min, lon_max, forecast_hours)
                    VALUES (%s, %s, 'ingesting', %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
-                (source, run_time, 0.083,
-                 self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
-                 forecast_hours),
+                (
+                    source,
+                    run_time,
+                    0.083,
+                    self.LAT_MIN,
+                    self.LAT_MAX,
+                    self.LON_MIN,
+                    self.LON_MAX,
+                    forecast_hours,
+                ),
             )
             run_id = cur.fetchone()[0]
             conn.commit()
@@ -607,7 +718,11 @@ class WeatherIngestionService:
                     rows = len(wd.lats)
                     cols = len(wd.lons)
 
-                    arr = wd.ice_concentration if wd.ice_concentration is not None else wd.values
+                    arr = (
+                        wd.ice_concentration
+                        if wd.ice_concentration is not None
+                        else wd.values
+                    )
                     if arr is None:
                         continue
                     cur.execute(
@@ -620,8 +735,16 @@ class WeatherIngestionService:
                                         lons = EXCLUDED.lons,
                                         shape_rows = EXCLUDED.shape_rows,
                                         shape_cols = EXCLUDED.shape_cols""",
-                        (run_id, fh, "ice_siconc", lats_blob, lons_blob,
-                         self._compress(np.asarray(arr)), rows, cols),
+                        (
+                            run_id,
+                            fh,
+                            "ice_siconc",
+                            lats_blob,
+                            lons_blob,
+                            self._compress(np.asarray(arr)),
+                            rows,
+                            cols,
+                        ),
                     )
 
                     ingested_count += 1
@@ -659,9 +782,14 @@ class WeatherIngestionService:
         finally:
             conn.close()
 
-    def ingest_sst(self, force: bool = False,
-                   lat_min: Optional[float] = None, lat_max: Optional[float] = None,
-                   lon_min: Optional[float] = None, lon_max: Optional[float] = None):
+    def ingest_sst(
+        self,
+        force: bool = False,
+        lat_min: Optional[float] = None,
+        lat_max: Optional[float] = None,
+        lon_min: Optional[float] = None,
+        lon_max: Optional[float] = None,
+    ):
         """Fetch CMEMS SST forecast (0-120h, 3-hourly) and store in PostgreSQL.
 
         Downloads viewport-bounded data via open_dataset() at native 0.083° —
@@ -684,7 +812,10 @@ class WeatherIngestionService:
         logger.info("CMEMS SST forecast ingestion starting")
         try:
             result = self.copernicus_provider.fetch_sst_forecast(
-                _lat_min, _lat_max, _lon_min, _lon_max,
+                _lat_min,
+                _lat_max,
+                _lon_min,
+                _lon_max,
             )
             if not result:
                 logger.warning("CMEMS SST forecast fetch returned empty")
@@ -700,13 +831,18 @@ class WeatherIngestionService:
         """
         source = "gfs_visibility"
         if not force and self._has_multistep_run(source):
-            logger.debug("Skipping visibility ingestion — multi-timestep run exists in DB")
+            logger.debug(
+                "Skipping visibility ingestion — multi-timestep run exists in DB"
+            )
             return
 
         logger.info("GFS visibility forecast ingestion starting")
         try:
             result = self.gfs_provider.fetch_visibility_forecast(
-                self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
+                self.LAT_MIN,
+                self.LAT_MAX,
+                self.LON_MIN,
+                self.LON_MAX,
             )
             if not result:
                 logger.warning("GFS visibility forecast fetch returned empty")
@@ -739,9 +875,16 @@ class WeatherIngestionService:
                     lat_min, lat_max, lon_min, lon_max, forecast_hours)
                    VALUES (%s, %s, 'ingesting', %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
-                (source, run_time, 0.083,
-                 self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
-                 forecast_hours),
+                (
+                    source,
+                    run_time,
+                    0.083,
+                    self.LAT_MIN,
+                    self.LAT_MAX,
+                    self.LON_MIN,
+                    self.LON_MAX,
+                    forecast_hours,
+                ),
             )
             run_id = cur.fetchone()[0]
             conn.commit()
@@ -768,8 +911,16 @@ class WeatherIngestionService:
                                         lons = EXCLUDED.lons,
                                         shape_rows = EXCLUDED.shape_rows,
                                         shape_cols = EXCLUDED.shape_cols""",
-                        (run_id, fh, "sst", lats_blob, lons_blob,
-                         self._compress(np.asarray(arr)), rows, cols),
+                        (
+                            run_id,
+                            fh,
+                            "sst",
+                            lats_blob,
+                            lons_blob,
+                            self._compress(np.asarray(arr)),
+                            rows,
+                            cols,
+                        ),
                     )
 
                     ingested_count += 1
@@ -831,9 +982,16 @@ class WeatherIngestionService:
                     lat_min, lat_max, lon_min, lon_max, forecast_hours)
                    VALUES (%s, %s, 'ingesting', %s, %s, %s, %s, %s, %s)
                    RETURNING id""",
-                (source, run_time, self.GRID_RESOLUTION,
-                 self.LAT_MIN, self.LAT_MAX, self.LON_MIN, self.LON_MAX,
-                 forecast_hours),
+                (
+                    source,
+                    run_time,
+                    self.GRID_RESOLUTION,
+                    self.LAT_MIN,
+                    self.LAT_MAX,
+                    self.LON_MIN,
+                    self.LON_MAX,
+                    forecast_hours,
+                ),
             )
             run_id = cur.fetchone()[0]
             conn.commit()
@@ -860,8 +1018,16 @@ class WeatherIngestionService:
                                         lons = EXCLUDED.lons,
                                         shape_rows = EXCLUDED.shape_rows,
                                         shape_cols = EXCLUDED.shape_cols""",
-                        (run_id, fh, "visibility", lats_blob, lons_blob,
-                         self._compress(np.asarray(arr)), rows, cols),
+                        (
+                            run_id,
+                            fh,
+                            "visibility",
+                            lats_blob,
+                            lons_blob,
+                            self._compress(np.asarray(arr)),
+                            rows,
+                            cols,
+                        ),
                     )
 
                     ingested_count += 1
@@ -1045,8 +1211,12 @@ class WeatherIngestionService:
                 "runs": [
                     {
                         "source": r["source"],
-                        "run_time": r["run_time"].isoformat() if r["run_time"] else None,
-                        "ingested_at": r["ingested_at"].isoformat() if r["ingested_at"] else None,
+                        "run_time": (
+                            r["run_time"].isoformat() if r["run_time"] else None
+                        ),
+                        "ingested_at": (
+                            r["ingested_at"].isoformat() if r["ingested_at"] else None
+                        ),
                         "status": r["status"],
                         "forecast_hours": r["forecast_hours"],
                         "grid_resolution": r["grid_resolution"],

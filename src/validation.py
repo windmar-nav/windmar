@@ -21,6 +21,7 @@ class ValidationError(Exception):
 @dataclass
 class ValidationResult:
     """Result of a validation check."""
+
     is_valid: bool
     errors: List[ValidationError]
 
@@ -54,14 +55,16 @@ def validate_speed(speed_kts: float, field_name: str = "speed_kts") -> None:
         raise ValidationError(
             field_name,
             "Speed must be positive (got {:.2f} kts)".format(speed_kts),
-            speed_kts
+            speed_kts,
         )
 
     if speed_kts > 25:
         raise ValidationError(
             field_name,
-            "Speed exceeds maximum safe limit of 25 knots (got {:.2f} kts)".format(speed_kts),
-            speed_kts
+            "Speed exceeds maximum safe limit of 25 knots (got {:.2f} kts)".format(
+                speed_kts
+            ),
+            speed_kts,
         )
 
 
@@ -86,22 +89,21 @@ def validate_distance(distance_nm: float, field_name: str = "distance_nm") -> No
         raise ValidationError(
             field_name,
             "Distance cannot be negative (got {:.2f} nm)".format(distance_nm),
-            distance_nm
+            distance_nm,
         )
 
     if distance_nm > 20000:
         raise ValidationError(
             field_name,
-            "Distance exceeds maximum reasonable value of 20000 nm (got {:.2f} nm)".format(distance_nm),
-            distance_nm
+            "Distance exceeds maximum reasonable value of 20000 nm (got {:.2f} nm)".format(
+                distance_nm
+            ),
+            distance_nm,
         )
 
 
 def validate_coordinates(
-    lat: float,
-    lon: float,
-    lat_field: str = "latitude",
-    lon_field: str = "longitude"
+    lat: float, lon: float, lat_field: str = "latitude", lon_field: str = "longitude"
 ) -> None:
     """
     Validate geographic coordinates.
@@ -131,20 +133,19 @@ def validate_coordinates(
         raise ValidationError(
             lat_field,
             "Latitude must be between -90 and 90 degrees (got {:.4f})".format(lat),
-            lat
+            lat,
         )
 
     if lon < -180 or lon > 180:
         raise ValidationError(
             lon_field,
             "Longitude must be between -180 and 180 degrees (got {:.4f})".format(lon),
-            lon
+            lon,
         )
 
 
 def validate_position(
-    position: Tuple[float, float],
-    field_name: str = "position"
+    position: Tuple[float, float], field_name: str = "position"
 ) -> None:
     """
     Validate a position tuple (lat, lon).
@@ -161,16 +162,11 @@ def validate_position(
 
     if not isinstance(position, (tuple, list)) or len(position) != 2:
         raise ValidationError(
-            field_name,
-            "Position must be a tuple of (latitude, longitude)",
-            position
+            field_name, "Position must be a tuple of (latitude, longitude)", position
         )
 
     validate_coordinates(
-        position[0],
-        position[1],
-        f"{field_name}.latitude",
-        f"{field_name}.longitude"
+        position[0], position[1], f"{field_name}.latitude", f"{field_name}.longitude"
     )
 
 
@@ -195,21 +191,21 @@ def validate_weather(weather: Optional[Dict[str, float]]) -> None:
         wind_speed = weather["wind_speed_ms"]
         if not isinstance(wind_speed, (int, float)):
             raise ValidationError(
-                "wind_speed_ms",
-                "Wind speed must be a number",
-                wind_speed
+                "wind_speed_ms", "Wind speed must be a number", wind_speed
             )
         if wind_speed < 0:
             raise ValidationError(
                 "wind_speed_ms",
                 "Wind speed cannot be negative (got {:.2f} m/s)".format(wind_speed),
-                wind_speed
+                wind_speed,
             )
         if wind_speed > 50:
             raise ValidationError(
                 "wind_speed_ms",
-                "Wind speed exceeds hurricane force (got {:.2f} m/s, max 50 m/s)".format(wind_speed),
-                wind_speed
+                "Wind speed exceeds hurricane force (got {:.2f} m/s, max 50 m/s)".format(
+                    wind_speed
+                ),
+                wind_speed,
             )
 
     # Validate wind direction
@@ -217,9 +213,7 @@ def validate_weather(weather: Optional[Dict[str, float]]) -> None:
         wind_dir = weather["wind_dir_deg"]
         if not isinstance(wind_dir, (int, float)):
             raise ValidationError(
-                "wind_dir_deg",
-                "Wind direction must be a number",
-                wind_dir
+                "wind_dir_deg", "Wind direction must be a number", wind_dir
             )
 
     # Validate wave height
@@ -227,21 +221,21 @@ def validate_weather(weather: Optional[Dict[str, float]]) -> None:
         wave_height = weather["sig_wave_height_m"]
         if not isinstance(wave_height, (int, float)):
             raise ValidationError(
-                "sig_wave_height_m",
-                "Wave height must be a number",
-                wave_height
+                "sig_wave_height_m", "Wave height must be a number", wave_height
             )
         if wave_height < 0:
             raise ValidationError(
                 "sig_wave_height_m",
                 "Wave height cannot be negative (got {:.2f} m)".format(wave_height),
-                wave_height
+                wave_height,
             )
         if wave_height > 20:
             raise ValidationError(
                 "sig_wave_height_m",
-                "Wave height exceeds extreme conditions (got {:.2f} m, max 20 m)".format(wave_height),
-                wave_height
+                "Wave height exceeds extreme conditions (got {:.2f} m, max 20 m)".format(
+                    wave_height
+                ),
+                wave_height,
             )
 
     # Validate wave direction
@@ -249,20 +243,14 @@ def validate_weather(weather: Optional[Dict[str, float]]) -> None:
         wave_dir = weather["wave_dir_deg"]
         if not isinstance(wave_dir, (int, float)):
             raise ValidationError(
-                "wave_dir_deg",
-                "Wave direction must be a number",
-                wave_dir
+                "wave_dir_deg", "Wave direction must be a number", wave_dir
             )
 
     # Validate heading
     if "heading_deg" in weather:
         heading = weather["heading_deg"]
         if not isinstance(heading, (int, float)):
-            raise ValidationError(
-                "heading_deg",
-                "Heading must be a number",
-                heading
-            )
+            raise ValidationError("heading_deg", "Heading must be a number", heading)
 
 
 def validate_vessel_specs(specs: Dict) -> None:
@@ -293,17 +281,13 @@ def validate_vessel_specs(specs: Dict) -> None:
 
         value = specs[field]
         if not isinstance(value, (int, float)):
-            raise ValidationError(
-                field,
-                f"{field} must be a number",
-                value
-            )
+            raise ValidationError(field, f"{field} must be a number", value)
 
         if value < min_val or value > max_val:
             raise ValidationError(
                 field,
                 f"{field} must be between {min_val} and {max_val} {unit} (got {value})",
-                value
+                value,
             )
 
     # Cross-field validations
@@ -314,5 +298,5 @@ def validate_vessel_specs(specs: Dict) -> None:
                 "Laden draft ({:.1f}m) must be greater than ballast draft ({:.1f}m)".format(
                     specs["draft_laden"], specs["draft_ballast"]
                 ),
-                specs["draft_laden"]
+                specs["draft_laden"],
             )

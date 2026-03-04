@@ -54,25 +54,27 @@ def generate_noon_reports(voyage: Voyage) -> List[dict]:
         distance_since_last = cumulative_distance - last_report_distance
         fuel_since_last = cumulative_fuel - last_report_fuel
 
-        reports.append({
-            "report_number": report_num,
-            "timestamp": report_time,
-            "lat": round(point["lat"], 4),
-            "lon": round(point["lon"], 4),
-            "sog_kts": point.get("sog_kts"),
-            "stw_kts": point.get("stw_kts"),
-            "course_deg": point.get("bearing_deg"),
-            "distance_since_last_nm": round(distance_since_last, 2),
-            "fuel_since_last_mt": round(fuel_since_last, 2),
-            "cumulative_distance_nm": round(cumulative_distance, 2),
-            "cumulative_fuel_mt": round(cumulative_fuel, 2),
-            "wind_speed_kts": point.get("wind_speed_kts"),
-            "wind_dir_deg": point.get("wind_dir_deg"),
-            "wave_height_m": point.get("wave_height_m"),
-            "wave_dir_deg": point.get("wave_dir_deg"),
-            "current_speed_ms": point.get("current_speed_ms"),
-            "current_dir_deg": point.get("current_dir_deg"),
-        })
+        reports.append(
+            {
+                "report_number": report_num,
+                "timestamp": report_time,
+                "lat": round(point["lat"], 4),
+                "lon": round(point["lon"], 4),
+                "sog_kts": point.get("sog_kts"),
+                "stw_kts": point.get("stw_kts"),
+                "course_deg": point.get("bearing_deg"),
+                "distance_since_last_nm": round(distance_since_last, 2),
+                "fuel_since_last_mt": round(fuel_since_last, 2),
+                "cumulative_distance_nm": round(cumulative_distance, 2),
+                "cumulative_fuel_mt": round(cumulative_fuel, 2),
+                "wind_speed_kts": point.get("wind_speed_kts"),
+                "wind_dir_deg": point.get("wind_dir_deg"),
+                "wave_height_m": point.get("wave_height_m"),
+                "wave_dir_deg": point.get("wave_dir_deg"),
+                "current_speed_ms": point.get("current_speed_ms"),
+                "current_dir_deg": point.get("current_dir_deg"),
+            }
+        )
 
         last_report_distance = cumulative_distance
         last_report_fuel = cumulative_fuel
@@ -92,22 +94,24 @@ def _build_timeline(legs: List[VoyageLeg], departure: datetime) -> List[dict]:
         leg_dep = leg.departure_time or (departure + timedelta(hours=cum_hours))
 
         # Start point of leg
-        timeline.append({
-            "time": leg_dep,
-            "lat": leg.from_lat,
-            "lon": leg.from_lon,
-            "cumulative_distance_nm": cum_distance,
-            "cumulative_fuel_mt": cum_fuel,
-            "sog_kts": leg.sog_kts,
-            "stw_kts": leg.stw_kts,
-            "bearing_deg": leg.bearing_deg,
-            "wind_speed_kts": leg.wind_speed_kts,
-            "wind_dir_deg": leg.wind_dir_deg,
-            "wave_height_m": leg.wave_height_m,
-            "wave_dir_deg": leg.wave_dir_deg,
-            "current_speed_ms": leg.current_speed_ms,
-            "current_dir_deg": leg.current_dir_deg,
-        })
+        timeline.append(
+            {
+                "time": leg_dep,
+                "lat": leg.from_lat,
+                "lon": leg.from_lon,
+                "cumulative_distance_nm": cum_distance,
+                "cumulative_fuel_mt": cum_fuel,
+                "sog_kts": leg.sog_kts,
+                "stw_kts": leg.stw_kts,
+                "bearing_deg": leg.bearing_deg,
+                "wind_speed_kts": leg.wind_speed_kts,
+                "wind_dir_deg": leg.wind_dir_deg,
+                "wave_height_m": leg.wave_height_m,
+                "wave_dir_deg": leg.wave_dir_deg,
+                "current_speed_ms": leg.current_speed_ms,
+                "current_dir_deg": leg.current_dir_deg,
+            }
+        )
 
         cum_distance += leg.distance_nm
         cum_fuel += leg.fuel_mt
@@ -116,22 +120,24 @@ def _build_timeline(legs: List[VoyageLeg], departure: datetime) -> List[dict]:
         leg_arr = leg.arrival_time or (departure + timedelta(hours=cum_hours))
 
         # End point of leg
-        timeline.append({
-            "time": leg_arr,
-            "lat": leg.to_lat,
-            "lon": leg.to_lon,
-            "cumulative_distance_nm": cum_distance,
-            "cumulative_fuel_mt": cum_fuel,
-            "sog_kts": leg.sog_kts,
-            "stw_kts": leg.stw_kts,
-            "bearing_deg": leg.bearing_deg,
-            "wind_speed_kts": leg.wind_speed_kts,
-            "wind_dir_deg": leg.wind_dir_deg,
-            "wave_height_m": leg.wave_height_m,
-            "wave_dir_deg": leg.wave_dir_deg,
-            "current_speed_ms": leg.current_speed_ms,
-            "current_dir_deg": leg.current_dir_deg,
-        })
+        timeline.append(
+            {
+                "time": leg_arr,
+                "lat": leg.to_lat,
+                "lon": leg.to_lon,
+                "cumulative_distance_nm": cum_distance,
+                "cumulative_fuel_mt": cum_fuel,
+                "sog_kts": leg.sog_kts,
+                "stw_kts": leg.stw_kts,
+                "bearing_deg": leg.bearing_deg,
+                "wind_speed_kts": leg.wind_speed_kts,
+                "wind_dir_deg": leg.wind_dir_deg,
+                "wave_height_m": leg.wave_height_m,
+                "wave_dir_deg": leg.wave_dir_deg,
+                "current_speed_ms": leg.current_speed_ms,
+                "current_dir_deg": leg.current_dir_deg,
+            }
+        )
 
     return timeline
 
@@ -154,15 +160,25 @@ def _interpolate_at_time(timeline: List[dict], target_time: datetime) -> Optiona
             frac = (target_time - t0).total_seconds() / total_secs
 
             return {
-                "lat": timeline[i]["lat"] + frac * (timeline[i + 1]["lat"] - timeline[i]["lat"]),
-                "lon": timeline[i]["lon"] + frac * (timeline[i + 1]["lon"] - timeline[i]["lon"]),
+                "lat": timeline[i]["lat"]
+                + frac * (timeline[i + 1]["lat"] - timeline[i]["lat"]),
+                "lon": timeline[i]["lon"]
+                + frac * (timeline[i + 1]["lon"] - timeline[i]["lon"]),
                 "cumulative_distance_nm": (
                     timeline[i]["cumulative_distance_nm"]
-                    + frac * (timeline[i + 1]["cumulative_distance_nm"] - timeline[i]["cumulative_distance_nm"])
+                    + frac
+                    * (
+                        timeline[i + 1]["cumulative_distance_nm"]
+                        - timeline[i]["cumulative_distance_nm"]
+                    )
                 ),
                 "cumulative_fuel_mt": (
                     timeline[i]["cumulative_fuel_mt"]
-                    + frac * (timeline[i + 1]["cumulative_fuel_mt"] - timeline[i]["cumulative_fuel_mt"])
+                    + frac
+                    * (
+                        timeline[i + 1]["cumulative_fuel_mt"]
+                        - timeline[i]["cumulative_fuel_mt"]
+                    )
                 ),
                 "sog_kts": timeline[i].get("sog_kts"),
                 "stw_kts": timeline[i].get("stw_kts"),

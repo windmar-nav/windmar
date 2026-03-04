@@ -198,7 +198,12 @@ class Voyage(Base):
     )
 
     # Relationships
-    legs = relationship("VoyageLeg", back_populates="voyage", cascade="all, delete-orphan", order_by="VoyageLeg.leg_index")
+    legs = relationship(
+        "VoyageLeg",
+        back_populates="voyage",
+        cascade="all, delete-orphan",
+        order_by="VoyageLeg.leg_index",
+    )
 
     def __repr__(self):
         return f"<Voyage(id={self.id}, name='{self.name}')>"
@@ -242,9 +247,7 @@ class VoyageLeg(Base):
     # Relationships
     voyage = relationship("Voyage", back_populates="legs")
 
-    __table_args__ = (
-        Index("ix_voyage_legs_voyage_id", "voyage_id"),
-    )
+    __table_args__ = (Index("ix_voyage_legs_voyage_id", "voyage_id"),)
 
     def __repr__(self):
         return f"<VoyageLeg(voyage_id={self.voyage_id}, leg_index={self.leg_index})>"

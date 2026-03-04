@@ -31,6 +31,7 @@ import uvicorn
 
 # Import WINDMAR modules
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from api.config import settings
@@ -41,7 +42,7 @@ from api.state import get_app_state, get_vessel_state
 # Configure structured logging for production
 logging.basicConfig(
     level=getattr(logging, settings.log_level.upper(), logging.INFO),
-    format='%(message)s',  # JSON logs are self-contained
+    format="%(message)s",  # JSON logs are self-contained
 )
 logger = logging.getLogger(__name__)
 
@@ -49,6 +50,7 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 # Application Factory
 # =============================================================================
+
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
@@ -64,13 +66,17 @@ async def lifespan(application: FastAPI):
 
     # Load persisted vessel specs from DB (survives container restarts)
     from api.routers.vessel import load_vessel_specs_from_db
+
     _vs = get_vessel_state()
     try:
         saved_specs = load_vessel_specs_from_db()
         if saved_specs is not None:
             _vs.update_specs(saved_specs)
-            logger.info("Vessel specs loaded from DB: %s kW / %s kts",
-                        saved_specs.get("mcr_kw"), saved_specs.get("service_speed_laden"))
+            logger.info(
+                "Vessel specs loaded from DB: %s kW / %s kts",
+                saved_specs.get("mcr_kw"),
+                saved_specs.get("service_speed_laden"),
+            )
     except Exception as e:
         logger.warning("Could not load vessel specs from DB (using defaults): %s", e)
 
@@ -81,7 +87,9 @@ async def lifespan(application: FastAPI):
             _vs.update_calibration(_saved_cal)
             logger.info(
                 "Auto-loaded calibration: calm_water=%.4f, sfoc_factor=%.4f, reports=%d",
-                _saved_cal.calm_water, _saved_cal.sfoc_factor, _saved_cal.num_reports_used,
+                _saved_cal.calm_water,
+                _saved_cal.sfoc_factor,
+                _saved_cal.num_reports_used,
             )
     except Exception as e:
         logger.warning("Could not auto-load calibration (using theoretical): %s", e)
@@ -179,9 +187,9 @@ Contact: contact@slmar.co
             content={
                 "error": "Rate limit exceeded",
                 "detail": str(exc.detail),
-                "retry_after": getattr(exc, 'retry_after', 60),
+                "retry_after": getattr(exc, "retry_after", 60),
             },
-            headers={"Retry-After": str(getattr(exc, 'retry_after', 60))},
+            headers={"Retry-After": str(getattr(exc, "retry_after", 60))},
         )
 
     return application
@@ -190,6 +198,7 @@ Contact: contact@slmar.co
 # =============================================================================
 # Database Migration Runner
 # =============================================================================
+
 
 def _run_weather_migrations():
     """Apply weather table migrations if they don't exist yet."""
@@ -226,7 +235,12 @@ def _run_weather_migrations():
                 return
 
             # Apply migration
-            migration_path = Path(__file__).parent.parent / "docker" / "migrations" / "001_weather_tables.sql"
+            migration_path = (
+                Path(__file__).parent.parent
+                / "docker"
+                / "migrations"
+                / "001_weather_tables.sql"
+            )
             if migration_path.exists():
                 sql = migration_path.read_text()
                 cur.execute(sql)
@@ -273,7 +287,12 @@ def _run_voyage_migrations():
                 logger.info("Voyage tables already exist")
                 return
 
-            migration_path = Path(__file__).parent.parent / "docker" / "migrations" / "002_voyage_tables.sql"
+            migration_path = (
+                Path(__file__).parent.parent
+                / "docker"
+                / "migrations"
+                / "002_voyage_tables.sql"
+            )
             if migration_path.exists():
                 sql = migration_path.read_text()
                 cur.execute(sql)
@@ -323,7 +342,9 @@ def _run_engine_log_seed():
                 )
                 count = cur.fetchone()[0]
                 if count > 0:
-                    logger.info("Engine log demo data already loaded (%d entries)", count)
+                    logger.info(
+                        "Engine log demo data already loaded (%d entries)", count
+                    )
                     return
             except Exception:
                 # Table doesn't exist yet — seed SQL will create it
@@ -407,19 +428,25 @@ def _prefetch_all_weather():
                 lat_min, lat_max, lon_min, lon_max = cfg.default_bbox
                 do_generic_prefetch(
                     mgr,
-                    lat_min, lat_max, lon_min, lon_max,
+                    lat_min,
+                    lat_max,
+                    lon_min,
+                    lon_max,
                     db_only=True,
                 )
                 logger.info(
                     "Weather prefetch %s complete (%.0fs)",
-                    field_name, time.monotonic() - ft0,
+                    field_name,
+                    time.monotonic() - ft0,
                 )
             except Exception as e:
                 logger.error("Weather prefetch %s failed: %s", field_name, e)
 
         # Rebuild file caches from DB data only — no provider downloads.
         # Provider downloads are triggered exclusively via manual /resync.
-        with ThreadPoolExecutor(max_workers=3, thread_name_prefix="wx-prefetch") as pool:
+        with ThreadPoolExecutor(
+            max_workers=3, thread_name_prefix="wx-prefetch"
+        ) as pool:
             pool.map(_prefetch_field, FIELD_NAMES)
 
         # Clear tile cache so tiles re-render from fresh data
@@ -432,7 +459,8 @@ def _prefetch_all_weather():
 
         logger.info(
             "Weather prefetch ALL COMPLETE: %d fields in %.0fs",
-            len(FIELD_NAMES), time.monotonic() - t0,
+            len(FIELD_NAMES),
+            time.monotonic() - t0,
         )
     except Exception as e:
         logger.error("Weather prefetch failed: %s", e)
@@ -453,9 +481,12 @@ app = create_app()
 # Include live sensor API router
 try:
     from api.live import include_in_app as include_live_routes
+
     include_live_routes(app)
 except ImportError:
-    logging.getLogger(__name__).info("Live sensor module not available, skipping live routes")
+    logging.getLogger(__name__).info(
+        "Live sensor module not available, skipping live routes"
+    )
 
 # Include domain routers
 from api.routers.zones import router as zones_router
@@ -471,6 +502,7 @@ from api.weather.router import router as weather_router
 from api.routers.voyage_history import router as voyage_history_router
 from api.routers.charter_party import router as charter_party_router
 from api.routers.tiles import router as tiles_router
+
 app.include_router(zones_router)
 app.include_router(cii_router)
 app.include_router(fueleu_router)
@@ -492,7 +524,9 @@ _ = get_app_state()
 @app.exception_handler(RequestValidationError)
 async def validation_exception_handler(request: Request, exc: RequestValidationError):
     body = await request.body()
-    logging.error(f"Validation error on {request.method} {request.url.path}: {exc.errors()}")
+    logging.error(
+        f"Validation error on {request.method} {request.url.path}: {exc.errors()}"
+    )
     logging.error(f"Request body: {body[:500]}")
     return JSONResponse(status_code=422, content={"detail": exc.errors()})
 

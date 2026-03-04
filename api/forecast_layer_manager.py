@@ -11,6 +11,7 @@ Eliminates ~2,000 LOC of near-identical boilerplate across 6 weather layers
 
 Each layer supplies its own fetch + frame-building logic as a callback.
 """
+
 import gzip
 import json
 import logging
@@ -27,6 +28,7 @@ _CACHE_ROOT = Path("/tmp/windmar_cache")
 # ---------------------------------------------------------------------------
 # Shared utilities
 # ---------------------------------------------------------------------------
+
 
 def is_cache_complete(cache_file: Path) -> bool:
     """Check if a forecast cache file has all expected frames.
@@ -118,13 +120,22 @@ def find_covering_cache(
     Cache filenames follow the pattern: {prefix}_{lat_min}_{lat_max}_{lon_min}_{lon_max}.json
     Returns the first file whose bounds enclose the requested area, or None.
     """
-    pattern = re.compile(rf"^{re.escape(prefix)}_(-?\d+)_(-?\d+)_(-?\d+)_(-?\d+)\.json$")
+    pattern = re.compile(
+        rf"^{re.escape(prefix)}_(-?\d+)_(-?\d+)_(-?\d+)_(-?\d+)\.json$"
+    )
     for f in cache_dir.glob(f"{prefix}_*.json"):
         m = pattern.match(f.name)
         if not m:
             continue
-        c_lat_min, c_lat_max, c_lon_min, c_lon_max = (float(m.group(i)) for i in range(1, 5))
-        if c_lat_min <= lat_min and c_lat_max >= lat_max and c_lon_min <= lon_min and c_lon_max >= lon_max:
+        c_lat_min, c_lat_max, c_lon_min, c_lon_max = (
+            float(m.group(i)) for i in range(1, 5)
+        )
+        if (
+            c_lat_min <= lat_min
+            and c_lat_max >= lat_max
+            and c_lon_min <= lon_min
+            and c_lon_max >= lon_max
+        ):
             return f
     return None
 
@@ -132,6 +143,7 @@ def find_covering_cache(
 # ---------------------------------------------------------------------------
 # ForecastLayerManager
 # ---------------------------------------------------------------------------
+
 
 class ForecastLayerManager:
     """Per-layer state + cache management for forecast prefetch pipelines.
@@ -166,6 +178,7 @@ class ForecastLayerManager:
         """Check if prefetch is running (Redis first, local fallback)."""
         if self._use_redis:
             from api.weather_service import _get_redis
+
             r = _get_redis()
             if r is not None:
                 try:
@@ -184,7 +197,9 @@ class ForecastLayerManager:
     def cache_dir(self) -> Path:
         return self._cache_dir
 
-    def make_cache_key(self, lat_min: float, lat_max: float, lon_min: float, lon_max: float) -> str:
+    def make_cache_key(
+        self, lat_min: float, lat_max: float, lon_min: float, lon_max: float
+    ) -> str:
         return f"{self.name}_{lat_min:.0f}_{lat_max:.0f}_{lon_min:.0f}_{lon_max:.0f}"
 
     def cache_path(self, cache_key: str) -> Path:
@@ -240,6 +255,7 @@ class ForecastLayerManager:
         r = None
         if self._use_redis:
             from api.weather_service import _get_redis
+
             r = _get_redis()
 
         try:
@@ -276,15 +292,26 @@ class ForecastLayerManager:
     ) -> dict:
         """Standard trigger-prefetch response: check running → lock → start."""
         if self.is_running:
-            return {"status": "already_running", "message": f"{self.name.capitalize()} prefetch is already in progress"}
+            return {
+                "status": "already_running",
+                "message": f"{self.name.capitalize()} prefetch is already in progress",
+            }
 
         lock = self.get_lock()
         if not lock.acquire(blocking=False):
-            return {"status": "already_running", "message": f"{self.name.capitalize()} prefetch is already in progress"}
+            return {
+                "status": "already_running",
+                "message": f"{self.name.capitalize()} prefetch is already in progress",
+            }
         lock.release()
 
-        background_tasks.add_task(self.run_prefetch, do_fn, lat_min, lat_max, lon_min, lon_max)
-        return {"status": "started", "message": f"{self.name.capitalize()} forecast prefetch triggered in background"}
+        background_tasks.add_task(
+            self.run_prefetch, do_fn, lat_min, lat_max, lon_min, lon_max
+        )
+        return {
+            "status": "started",
+            "message": f"{self.name.capitalize()} forecast prefetch triggered in background",
+        }
 
     def serve_frames_file(
         self,
@@ -304,11 +331,17 @@ class ForecastLayerManager:
 
         cache_file = self.cache_path(cache_key)
         if not cache_file.exists() and use_covering:
-            cache_file = find_covering_cache(self._cache_dir, self.name, lat_min, lat_max, lon_min, lon_max)
+            cache_file = find_covering_cache(
+                self._cache_dir, self.name, lat_min, lat_max, lon_min, lon_max
+            )
 
         if cache_file and cache_file.exists():
             if not is_cache_complete(cache_file):
-                logger.warning("%s cache %s is partial — removing", self.name.capitalize(), cache_file.name)
+                logger.warning(
+                    "%s cache %s is partial — removing",
+                    self.name.capitalize(),
+                    cache_file.name,
+                )
                 cache_file.unlink(missing_ok=True)
                 return None
             # Prefer pre-compressed file (Content-Encoding: gzip skips GZipMiddleware)
@@ -319,7 +352,9 @@ class ForecastLayerManager:
                     media_type="application/json",
                     headers={"Content-Encoding": "gzip"},
                 )
-            return RawResponse(content=cache_file.read_bytes(), media_type="application/json")
+            return RawResponse(
+                content=cache_file.read_bytes(), media_type="application/json"
+            )
 
         return None
 

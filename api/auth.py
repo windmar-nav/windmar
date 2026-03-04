@@ -1,6 +1,7 @@
 """
 Authentication and authorization for WINDMAR API.
 """
+
 from fastapi import HTTPException, Security, status, Depends
 from fastapi.security import APIKeyHeader
 from sqlalchemy.orm import Session
@@ -16,10 +17,7 @@ from api.config import settings
 logger = logging.getLogger(__name__)
 
 # API Key security scheme
-api_key_header = APIKeyHeader(
-    name=settings.api_key_header,
-    auto_error=False
-)
+api_key_header = APIKeyHeader(name=settings.api_key_header, auto_error=False)
 
 
 def generate_api_key() -> str:
@@ -43,9 +41,8 @@ def hash_api_key(api_key: str) -> str:
         str: Hashed API key
     """
     return bcrypt.hashpw(
-        api_key.encode('utf-8'),
-        bcrypt.gensalt(rounds=settings.bcrypt_rounds)
-    ).decode('utf-8')
+        api_key.encode("utf-8"), bcrypt.gensalt(rounds=settings.bcrypt_rounds)
+    ).decode("utf-8")
 
 
 def verify_api_key(plain_key: str, hashed_key: str) -> bool:
@@ -60,18 +57,14 @@ def verify_api_key(plain_key: str, hashed_key: str) -> bool:
         bool: True if key matches hash
     """
     try:
-        return bcrypt.checkpw(
-            plain_key.encode('utf-8'),
-            hashed_key.encode('utf-8')
-        )
+        return bcrypt.checkpw(plain_key.encode("utf-8"), hashed_key.encode("utf-8"))
     except Exception as e:
         logger.error(f"API key verification error: {e}")
         return False
 
 
 async def get_api_key(
-    api_key: str = Security(api_key_header),
-    db: Session = Depends(get_db)
+    api_key: str = Security(api_key_header), db: Session = Depends(get_db)
 ) -> APIKey:
     """
     Validate API key from request header.
@@ -100,9 +93,7 @@ async def get_api_key(
         )
 
     # Query all active API keys
-    api_keys = db.query(APIKey).filter(
-        APIKey.is_active == True
-    ).all()
+    api_keys = db.query(APIKey).filter(APIKey.is_active == True).all()
 
     # Check each key
     for key_obj in api_keys:
@@ -130,8 +121,7 @@ async def get_api_key(
 
 
 async def get_optional_api_key(
-    api_key: str = Security(api_key_header),
-    db: Session = Depends(get_db)
+    api_key: str = Security(api_key_header), db: Session = Depends(get_db)
 ) -> APIKey | None:
     """
     Validate API key but don't require it.
@@ -158,7 +148,7 @@ def create_api_key_in_db(
     name: str,
     rate_limit: int = 1000,
     expires_at: datetime = None,
-    metadata: dict = None
+    metadata: dict = None,
 ) -> tuple[str, APIKey]:
     """
     Create a new API key in the database.
@@ -183,7 +173,7 @@ def create_api_key_in_db(
         name=name,
         rate_limit=rate_limit,
         expires_at=expires_at,
-        metadata=metadata or {}
+        metadata=metadata or {},
     )
 
     db.add(api_key_obj)

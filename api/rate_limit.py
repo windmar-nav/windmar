@@ -1,6 +1,7 @@
 """
 Rate limiting for WINDMAR API using Redis and SlowAPI.
 """
+
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -17,9 +18,7 @@ redis_client = None
 if settings.redis_enabled:
     try:
         redis_client = redis.from_url(
-            settings.redis_url,
-            decode_responses=True,
-            socket_connect_timeout=5
+            settings.redis_url, decode_responses=True, socket_connect_timeout=5
         )
         # Test connection
         redis_client.ping()
@@ -56,7 +55,7 @@ limiter = Limiter(
     key_func=get_api_key_identifier,
     enabled=settings.rate_limit_enabled and redis_client is not None,
     storage_uri=settings.redis_url if redis_client else None,
-    strategy="fixed-window"  # or "moving-window" for more sophisticated limiting
+    strategy="fixed-window",  # or "moving-window" for more sophisticated limiting
 )
 
 
@@ -80,7 +79,9 @@ def get_rate_limit_hourly_string() -> str:
     return f"{settings.rate_limit_per_hour}/hour"
 
 
-async def check_rate_limit(request: Request, redis_key: str, limit: int, window: int) -> bool:
+async def check_rate_limit(
+    request: Request, redis_key: str, limit: int, window: int
+) -> bool:
     """
     Check if request is within rate limit.
 
@@ -133,10 +134,7 @@ async def get_rate_limit_status(identifier: str) -> dict:
         dict: Rate limit status information
     """
     if not redis_client or not settings.rate_limit_enabled:
-        return {
-            "enabled": False,
-            "message": "Rate limiting is disabled"
-        }
+        return {"enabled": False, "message": "Rate limiting is disabled"}
 
     try:
         # Check minute window
@@ -153,19 +151,20 @@ async def get_rate_limit_status(identifier: str) -> dict:
             "enabled": True,
             "per_minute": {
                 "limit": settings.rate_limit_per_minute,
-                "remaining": max(0, settings.rate_limit_per_minute - int(minute_count or 0)),
-                "reset_in": minute_ttl if minute_ttl > 0 else 0
+                "remaining": max(
+                    0, settings.rate_limit_per_minute - int(minute_count or 0)
+                ),
+                "reset_in": minute_ttl if minute_ttl > 0 else 0,
             },
             "per_hour": {
                 "limit": settings.rate_limit_per_hour,
-                "remaining": max(0, settings.rate_limit_per_hour - int(hour_count or 0)),
-                "reset_in": hour_ttl if hour_ttl > 0 else 0
-            }
+                "remaining": max(
+                    0, settings.rate_limit_per_hour - int(hour_count or 0)
+                ),
+                "reset_in": hour_ttl if hour_ttl > 0 else 0,
+            },
         }
 
     except Exception as e:
         logger.error(f"Error getting rate limit status: {e}")
-        return {
-            "enabled": True,
-            "error": str(e)
-        }
+        return {"enabled": True, "error": str(e)}

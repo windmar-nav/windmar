@@ -54,7 +54,9 @@ class ECAZone:
                 if lat <= max(p1_lat, p2_lat):
                     if lon <= max(p1_lon, p2_lon):
                         if p1_lat != p2_lat:
-                            lon_inters = (lat - p1_lat) * (p2_lon - p1_lon) / (p2_lat - p1_lat) + p1_lon
+                            lon_inters = (lat - p1_lat) * (p2_lon - p1_lon) / (
+                                p2_lat - p1_lat
+                            ) + p1_lon
                         if p1_lon == p2_lon or lon <= lon_inters:
                             inside = not inside
             p1_lat, p1_lon = p2_lat, p2_lon
@@ -97,24 +99,24 @@ BALTIC_SEA_ECA = ECAZone(
     zone_type="seca",
     polygon=[
         # Simplified boundary covering Baltic Sea
-        (53.5, 9.5),    # SW - near Kiel
-        (54.0, 10.0),   # Denmark straits
-        (54.5, 12.0),   # South Denmark
-        (54.0, 14.5),   # Poland
-        (54.5, 19.5),   # Kaliningrad
-        (55.5, 21.0),   # Lithuania
-        (56.5, 21.0),   # Latvia
-        (58.0, 24.5),   # Estonia
-        (60.5, 28.5),   # Gulf of Finland
-        (60.5, 30.5),   # East end
-        (66.0, 26.0),   # Gulf of Bothnia north
-        (66.0, 22.0),   # Sweden north
-        (63.0, 18.0),   # Sweden mid
-        (59.5, 17.5),   # Stockholm area
-        (57.5, 12.0),   # South Sweden
+        (53.5, 9.5),  # SW - near Kiel
+        (54.0, 10.0),  # Denmark straits
+        (54.5, 12.0),  # South Denmark
+        (54.0, 14.5),  # Poland
+        (54.5, 19.5),  # Kaliningrad
+        (55.5, 21.0),  # Lithuania
+        (56.5, 21.0),  # Latvia
+        (58.0, 24.5),  # Estonia
+        (60.5, 28.5),  # Gulf of Finland
+        (60.5, 30.5),  # East end
+        (66.0, 26.0),  # Gulf of Bothnia north
+        (66.0, 22.0),  # Sweden north
+        (63.0, 18.0),  # Sweden mid
+        (59.5, 17.5),  # Stockholm area
+        (57.5, 12.0),  # South Sweden
         (57.75, 10.5),  # Skagen
-        (56.0, 8.0),    # Jutland west
-        (53.5, 9.5),    # Back to start
+        (56.0, 8.0),  # Jutland west
+        (53.5, 9.5),  # Back to start
     ],
 )
 
@@ -129,24 +131,24 @@ NORTH_SEA_ECA = ECAZone(
     zone_type="seca",
     polygon=[
         # Simplified boundary covering North Sea and English Channel
-        (48.0, -6.0),    # SW - Atlantic approach
-        (49.0, -5.0),    # English Channel west
-        (50.0, -2.0),    # Channel mid
-        (50.5, 1.0),     # Dover Strait
-        (51.0, 3.0),     # Belgium coast
-        (52.0, 5.0),     # Netherlands (Rotterdam area)
-        (53.5, 7.0),     # Germany
-        (55.0, 9.0),     # Denmark
-        (57.5, 10.0),    # Denmark/Skagen
-        (58.5, 10.5),    # Sweden
-        (62.0, 3.0),     # Norway north
-        (62.0, -2.0),    # Norwegian Sea
-        (60.0, -4.0),    # Scotland north
-        (58.5, -5.0),    # Scotland west
-        (55.0, -6.0),    # Ireland
-        (52.0, -6.0),    # Celtic Sea
-        (50.0, -6.0),    # SW approach
-        (48.0, -6.0),    # Back to start
+        (48.0, -6.0),  # SW - Atlantic approach
+        (49.0, -5.0),  # English Channel west
+        (50.0, -2.0),  # Channel mid
+        (50.5, 1.0),  # Dover Strait
+        (51.0, 3.0),  # Belgium coast
+        (52.0, 5.0),  # Netherlands (Rotterdam area)
+        (53.5, 7.0),  # Germany
+        (55.0, 9.0),  # Denmark
+        (57.5, 10.0),  # Denmark/Skagen
+        (58.5, 10.5),  # Sweden
+        (62.0, 3.0),  # Norway north
+        (62.0, -2.0),  # Norwegian Sea
+        (60.0, -4.0),  # Scotland north
+        (58.5, -5.0),  # Scotland west
+        (55.0, -6.0),  # Ireland
+        (52.0, -6.0),  # Celtic Sea
+        (50.0, -6.0),  # SW approach
+        (48.0, -6.0),  # Back to start
     ],
 )
 
@@ -161,20 +163,20 @@ NORTH_AMERICAN_ECA = ECAZone(
     nox_tier=3,
     polygon=[
         # Atlantic coast simplified
-        (50.0, -67.0),   # Canada/Maine
-        (45.0, -64.0),   # Nova Scotia
-        (42.0, -66.0),   # Massachusetts
-        (40.0, -70.0),   # New York
-        (37.0, -73.0),   # Virginia
-        (33.0, -76.0),   # Carolinas
-        (30.0, -78.0),   # Georgia
-        (26.0, -78.0),   # Florida
-        (24.5, -80.0),   # Florida Keys
-        (24.5, -84.0),   # Gulf of Mexico
-        (26.0, -86.0),   # Gulf
-        (29.0, -89.0),   # Louisiana
-        (29.0, -94.0),   # Texas
-        (26.0, -97.0),   # South Texas
+        (50.0, -67.0),  # Canada/Maine
+        (45.0, -64.0),  # Nova Scotia
+        (42.0, -66.0),  # Massachusetts
+        (40.0, -70.0),  # New York
+        (37.0, -73.0),  # Virginia
+        (33.0, -76.0),  # Carolinas
+        (30.0, -78.0),  # Georgia
+        (26.0, -78.0),  # Florida
+        (24.5, -80.0),  # Florida Keys
+        (24.5, -84.0),  # Gulf of Mexico
+        (26.0, -86.0),  # Gulf
+        (29.0, -89.0),  # Louisiana
+        (29.0, -94.0),  # Texas
+        (26.0, -97.0),  # South Texas
         # Offshore boundary (200nm approximation)
         (24.0, -99.0),
         (27.0, -98.0),

@@ -8,6 +8,7 @@ from pydantic import BaseModel
 
 class WindDataPoint(BaseModel):
     """Wind data at a point."""
+
     lat: float
     lon: float
     u: float  # U component (m/s)
@@ -18,6 +19,7 @@ class WindDataPoint(BaseModel):
 
 class WeatherGridResponse(BaseModel):
     """Weather grid data for visualization."""
+
     parameter: str
     time: datetime
     bbox: Dict[str, float]
@@ -31,6 +33,7 @@ class WeatherGridResponse(BaseModel):
 
 class VelocityDataResponse(BaseModel):
     """Wind velocity data in leaflet-velocity format."""
+
     header: Dict
     data_u: List[float]
     data_v: List[float]

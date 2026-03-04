@@ -32,6 +32,7 @@ logger = logging.getLogger(__name__)
 
 class SafetyStatus(Enum):
     """Safety assessment result."""
+
     SAFE = "safe"
     MARGINAL = "marginal"
     DANGEROUS = "dangerous"
@@ -45,6 +46,7 @@ class SeakeepingSpecs:
     These are typically determined by naval architect or from
     stability booklet. Default values for MR tanker.
     """
+
     # Metacentric height (m)
     gm_laden: float = 2.5  # GM laden (m)
     gm_ballast: float = 4.0  # GM ballast (m)
@@ -77,6 +79,7 @@ class SeakeepingSpecs:
 @dataclass
 class MotionResponse:
     """Ship motion response at a given condition."""
+
     # Roll motion
     roll_amplitude_deg: float  # Maximum roll angle (degrees)
     roll_period_s: float  # Roll period (s)
@@ -103,6 +106,7 @@ class MotionResponse:
 @dataclass
 class SafetyAssessment:
     """Safety assessment for a voyage leg."""
+
     status: SafetyStatus
     roll_status: SafetyStatus
     pitch_status: SafetyStatus
@@ -138,14 +142,15 @@ class SafetyLimits:
     - IMO MSC.1/Circ.1228 "Revised Guidance for Avoiding Dangerous Situations"
     - ISO 2631-3:1985 "Evaluation of human exposure to whole-body vibration"
     """
+
     # ── Hard avoidance limits (instant rejection, no motion calc needed) ──
     # These are absolute no-go thresholds for an MR Product Tanker (~50k DWT).
-    max_wave_height_m: float = 6.0    # Hs ≥ 6 m → forbidden (BF 9+)
+    max_wave_height_m: float = 6.0  # Hs ≥ 6 m → forbidden (BF 9+)
     max_wind_speed_kts: float = 70.0  # ≥ 70 kts → forbidden (storm force 12)
 
     # ── Roll limits (degrees) — motion-based graduated penalties ──
-    max_roll_safe: float = 15.0       # Normal operations
-    max_roll_marginal: float = 25.0   # Reduced operations
+    max_roll_safe: float = 15.0  # Normal operations
+    max_roll_marginal: float = 25.0  # Reduced operations
     max_roll_dangerous: float = 30.0  # Dangerous
 
     # ── Pitch limits (degrees) ──
@@ -154,12 +159,12 @@ class SafetyLimits:
     max_pitch_dangerous: float = 12.0
 
     # ── Vertical acceleration limits (m/s²) — at bridge ──
-    max_accel_safe: float = 0.2 * 9.81   # ~2 m/s² — comfortable
+    max_accel_safe: float = 0.2 * 9.81  # ~2 m/s² — comfortable
     max_accel_marginal: float = 0.3 * 9.81  # ~3 m/s² — tolerable
     max_accel_dangerous: float = 0.5 * 9.81  # ~5 m/s² — severe
 
     # ── Slamming probability limits ──
-    max_slam_safe: float = 0.03   # 3% — occasional
+    max_slam_safe: float = 0.03  # 3% — occasional
     max_slam_marginal: float = 0.10  # 10% — frequent
 
     # ── Parametric roll risk ──
@@ -232,7 +237,10 @@ class SeakeepingModel:
         omega_wave = 2 * math.pi / wave_period_s
 
         # Encounter frequency (positive for head seas)
-        omega_e = abs(omega_wave - omega_wave**2 * speed_ms * math.cos(encounter_angle_rad) / self.G)
+        omega_e = abs(
+            omega_wave
+            - omega_wave**2 * speed_ms * math.cos(encounter_angle_rad) / self.G
+        )
         if omega_e < 0.01:
             omega_e = 0.01  # Avoid division by zero
 
@@ -240,17 +248,28 @@ class SeakeepingModel:
 
         # Get loading-dependent parameters
         gm = self.specs.gm_laden if is_laden else self.specs.gm_ballast
-        roll_period = self.specs.roll_period_laden if is_laden else self.specs.roll_period_ballast
+        roll_period = (
+            self.specs.roll_period_laden if is_laden else self.specs.roll_period_ballast
+        )
         kg = self.specs.kg_laden if is_laden else self.specs.kg_ballast
-        bow_freeboard = self.specs.bow_freeboard_laden if is_laden else self.specs.bow_freeboard_ballast
+        bow_freeboard = (
+            self.specs.bow_freeboard_laden
+            if is_laden
+            else self.specs.bow_freeboard_ballast
+        )
 
         # Natural roll frequency
         omega_roll = 2 * math.pi / roll_period
 
         # Calculate roll response
         roll_amplitude = self._calculate_roll(
-            wave_height_m, wave_period_s, wave_length_m,
-            encounter_angle_rad, omega_e, omega_roll, gm
+            wave_height_m,
+            wave_period_s,
+            wave_length_m,
+            encounter_angle_rad,
+            omega_e,
+            omega_roll,
+            gm,
         )
 
         # Calculate pitch response
@@ -273,8 +292,12 @@ class SeakeepingModel:
 
         # Calculate slamming probability
         slam_prob = self._calculate_slamming_probability(
-            wave_height_m, wave_period_s, bow_freeboard, speed_ms,
-            encounter_angle_rad, pitch_amplitude
+            wave_height_m,
+            wave_period_s,
+            bow_freeboard,
+            speed_ms,
+            encounter_angle_rad,
+            pitch_amplitude,
         )
 
         # Calculate green water probability
@@ -338,29 +361,57 @@ class SeakeepingModel:
         """
         # Calculate response to each wave system
         ww_response = self.calculate_motions(
-            windwave_height_m, windwave_period_s, windwave_dir_deg,
-            heading_deg, speed_kts, is_laden
+            windwave_height_m,
+            windwave_period_s,
+            windwave_dir_deg,
+            heading_deg,
+            speed_kts,
+            is_laden,
         )
         sw_response = self.calculate_motions(
-            swell_height_m, swell_period_s, swell_dir_deg,
-            heading_deg, speed_kts, is_laden
+            swell_height_m,
+            swell_period_s,
+            swell_dir_deg,
+            heading_deg,
+            speed_kts,
+            is_laden,
         )
 
         # Combine using RSS (root sum of squares) for motion amplitudes.
         # This approximates spectral superposition of independent systems.
-        combined_roll = math.sqrt(ww_response.roll_amplitude_deg**2 + sw_response.roll_amplitude_deg**2)
-        combined_pitch = math.sqrt(ww_response.pitch_amplitude_deg**2 + sw_response.pitch_amplitude_deg**2)
-        combined_heave = math.sqrt(ww_response.heave_accel_ms2**2 + sw_response.heave_accel_ms2**2)
-        combined_bow = math.sqrt(ww_response.bow_accel_ms2**2 + sw_response.bow_accel_ms2**2)
-        combined_bridge = math.sqrt(ww_response.bridge_accel_ms2**2 + sw_response.bridge_accel_ms2**2)
+        combined_roll = math.sqrt(
+            ww_response.roll_amplitude_deg**2 + sw_response.roll_amplitude_deg**2
+        )
+        combined_pitch = math.sqrt(
+            ww_response.pitch_amplitude_deg**2 + sw_response.pitch_amplitude_deg**2
+        )
+        combined_heave = math.sqrt(
+            ww_response.heave_accel_ms2**2 + sw_response.heave_accel_ms2**2
+        )
+        combined_bow = math.sqrt(
+            ww_response.bow_accel_ms2**2 + sw_response.bow_accel_ms2**2
+        )
+        combined_bridge = math.sqrt(
+            ww_response.bridge_accel_ms2**2 + sw_response.bridge_accel_ms2**2
+        )
 
         # For risk indicators, take worst case
-        combined_slam = max(ww_response.slamming_probability, sw_response.slamming_probability)
-        combined_greenwater = max(ww_response.green_water_probability, sw_response.green_water_probability)
-        combined_param_roll = max(ww_response.parametric_roll_risk, sw_response.parametric_roll_risk)
+        combined_slam = max(
+            ww_response.slamming_probability, sw_response.slamming_probability
+        )
+        combined_greenwater = max(
+            ww_response.green_water_probability, sw_response.green_water_probability
+        )
+        combined_param_roll = max(
+            ww_response.parametric_roll_risk, sw_response.parametric_roll_risk
+        )
 
         # Use the dominant system's encounter values (the one with larger roll)
-        dominant = sw_response if sw_response.roll_amplitude_deg > ww_response.roll_amplitude_deg else ww_response
+        dominant = (
+            sw_response
+            if sw_response.roll_amplitude_deg > ww_response.roll_amplitude_deg
+            else ww_response
+        )
 
         return MotionResponse(
             roll_amplitude_deg=min(combined_roll, 45.0),
@@ -410,9 +461,7 @@ class SeakeepingModel:
         # RAO = 1 / sqrt((1 - r²)² + (2*zeta*r)²)
         zeta = self.specs.roll_damping
 
-        denominator = math.sqrt(
-            (1 - freq_ratio**2)**2 + (2 * zeta * freq_ratio)**2
-        )
+        denominator = math.sqrt((1 - freq_ratio**2) ** 2 + (2 * zeta * freq_ratio) ** 2)
         if denominator < 0.1:
             denominator = 0.1  # Avoid extreme resonance
 
@@ -482,7 +531,7 @@ class SeakeepingModel:
 
         # Reduce for beam seas (mostly roll)
         beam_factor = abs(math.cos(encounter_angle_rad))
-        heave_accel *= (0.3 + 0.7 * beam_factor)
+        heave_accel *= 0.3 + 0.7 * beam_factor
 
         return heave_accel
 
@@ -692,14 +741,24 @@ class SafetyConstraints:
         # Calculate motions — use decomposed data when available
         if has_decomposition and windwave_height_m > 0 and swell_height_m > 0:
             motions = self.seakeeping.calculate_motions_decomposed(
-                windwave_height_m, windwave_period_s, windwave_dir_deg,
-                swell_height_m, swell_period_s, swell_dir_deg,
-                heading_deg, speed_kts, is_laden,
+                windwave_height_m,
+                windwave_period_s,
+                windwave_dir_deg,
+                swell_height_m,
+                swell_period_s,
+                swell_dir_deg,
+                heading_deg,
+                speed_kts,
+                is_laden,
             )
         else:
             motions = self.seakeeping.calculate_motions(
-                wave_height_m, wave_period_s, wave_dir_deg,
-                heading_deg, speed_kts, is_laden,
+                wave_height_m,
+                wave_period_s,
+                wave_dir_deg,
+                heading_deg,
+                speed_kts,
+                is_laden,
             )
 
         warnings = []
@@ -707,17 +766,25 @@ class SafetyConstraints:
         # Assess roll
         roll_status, roll_exceeded = self._assess_roll(motions.roll_amplitude_deg)
         if roll_exceeded:
-            warnings.append(f"Excessive roll: {motions.roll_amplitude_deg:.1f}° (limit: {self.limits.max_roll_safe}°)")
+            warnings.append(
+                f"Excessive roll: {motions.roll_amplitude_deg:.1f}° (limit: {self.limits.max_roll_safe}°)"
+            )
 
         # Assess pitch
         pitch_status, pitch_exceeded = self._assess_pitch(motions.pitch_amplitude_deg)
         if pitch_exceeded:
-            warnings.append(f"Excessive pitch: {motions.pitch_amplitude_deg:.1f}° (limit: {self.limits.max_pitch_safe}°)")
+            warnings.append(
+                f"Excessive pitch: {motions.pitch_amplitude_deg:.1f}° (limit: {self.limits.max_pitch_safe}°)"
+            )
 
         # Assess acceleration
-        accel_status, accel_exceeded = self._assess_acceleration(motions.bridge_accel_ms2)
+        accel_status, accel_exceeded = self._assess_acceleration(
+            motions.bridge_accel_ms2
+        )
         if accel_exceeded:
-            warnings.append(f"High vertical acceleration: {motions.bridge_accel_ms2:.1f} m/s²")
+            warnings.append(
+                f"High vertical acceleration: {motions.bridge_accel_ms2:.1f} m/s²"
+            )
 
         # Assess slamming
         slam_status, slam_exceeded = self._assess_slamming(motions.slamming_probability)
@@ -726,11 +793,15 @@ class SafetyConstraints:
 
         # Parametric roll warning
         if motions.parametric_roll_risk > self.limits.max_param_roll_risk:
-            warnings.append(f"Parametric roll risk: {motions.parametric_roll_risk*100:.0f}%")
+            warnings.append(
+                f"Parametric roll risk: {motions.parametric_roll_risk*100:.0f}%"
+            )
 
         # Green water warning
         if motions.green_water_probability > 0.1:
-            warnings.append(f"Green water risk: {motions.green_water_probability*100:.0f}%")
+            warnings.append(
+                f"Green water risk: {motions.green_water_probability*100:.0f}%"
+            )
 
         # Overall status (worst of all categories)
         status_values = [roll_status, pitch_status, accel_status, slam_status]
@@ -747,12 +818,15 @@ class SafetyConstraints:
 
         if overall_status != SafetyStatus.SAFE:
             max_safe_speed = self._find_safe_speed(
-                wave_height_m, wave_period_s, wave_dir_deg,
-                heading_deg, is_laden
+                wave_height_m, wave_period_s, wave_dir_deg, heading_deg, is_laden
             )
             heading_change = self._suggest_heading_change(
-                wave_height_m, wave_period_s, wave_dir_deg,
-                heading_deg, speed_kts, is_laden
+                wave_height_m,
+                wave_period_s,
+                wave_dir_deg,
+                heading_deg,
+                speed_kts,
+                is_laden,
             )
 
         return SafetyAssessment(
@@ -825,8 +899,12 @@ class SafetyConstraints:
         or _suggest_heading_change called the full assess_safety method.
         """
         motions = self.seakeeping.calculate_motions(
-            wave_height_m, wave_period_s, wave_dir_deg,
-            heading_deg, speed_kts, is_laden,
+            wave_height_m,
+            wave_period_s,
+            wave_dir_deg,
+            heading_deg,
+            speed_kts,
+            is_laden,
         )
 
         roll_status, _ = self._assess_roll(motions.roll_amplitude_deg)
@@ -861,8 +939,12 @@ class SafetyConstraints:
         # Try decreasing speeds
         for speed in range(15, int(min_speed) - 1, -1):
             status, _ = self._quick_status(
-                wave_height_m, wave_period_s, wave_dir_deg,
-                heading_deg, float(speed), is_laden
+                wave_height_m,
+                wave_period_s,
+                wave_dir_deg,
+                heading_deg,
+                float(speed),
+                is_laden,
             )
             if status != SafetyStatus.DANGEROUS:
                 return float(speed)
@@ -884,8 +966,7 @@ class SafetyConstraints:
         Returns degrees to alter course (positive = starboard).
         """
         current_status, current_motions = self._quick_status(
-            wave_height_m, wave_period_s, wave_dir_deg,
-            heading_deg, speed_kts, is_laden
+            wave_height_m, wave_period_s, wave_dir_deg, heading_deg, speed_kts, is_laden
         )
 
         if current_status == SafetyStatus.SAFE:
@@ -898,8 +979,12 @@ class SafetyConstraints:
         for change in [10, -10, 20, -20, 30, -30, 45, -45]:
             new_heading = (heading_deg + change) % 360
             status, motions = self._quick_status(
-                wave_height_m, wave_period_s, wave_dir_deg,
-                new_heading, speed_kts, is_laden
+                wave_height_m,
+                wave_period_s,
+                wave_dir_deg,
+                new_heading,
+                speed_kts,
+                is_laden,
             )
 
             if status == SafetyStatus.SAFE:
@@ -938,26 +1023,33 @@ class SafetyConstraints:
         """
         # ── Hard avoidance: instant rejection (or heavy penalty) ──
         if wave_height_m >= self.limits.max_wave_height_m:
-            return 10.0 if skip_hard_limits else float('inf')
+            return 10.0 if skip_hard_limits else float("inf")
         if wind_speed_kts >= self.limits.max_wind_speed_kts:
-            return 10.0 if skip_hard_limits else float('inf')
+            return 10.0 if skip_hard_limits else float("inf")
 
         # ── Motion-based graduated penalties ──
         assessment = self.assess_safety(
-            wave_height_m, wave_period_s, wave_dir_deg,
-            heading_deg, speed_kts, is_laden
+            wave_height_m, wave_period_s, wave_dir_deg, heading_deg, speed_kts, is_laden
         )
 
         if assessment.status == SafetyStatus.DANGEROUS:
             # Graduated penalty based on severity of exceedance.
             # Compute worst exceedance ratio across roll, pitch, accel.
-            roll_ratio = assessment.motions.roll_amplitude_deg / self.limits.max_roll_dangerous if self.limits.max_roll_dangerous > 0 else 0
-            pitch_ratio = assessment.motions.pitch_amplitude_deg / self.limits.max_pitch_dangerous if self.limits.max_pitch_dangerous > 0 else 0
+            roll_ratio = (
+                assessment.motions.roll_amplitude_deg / self.limits.max_roll_dangerous
+                if self.limits.max_roll_dangerous > 0
+                else 0
+            )
+            pitch_ratio = (
+                assessment.motions.pitch_amplitude_deg / self.limits.max_pitch_dangerous
+                if self.limits.max_pitch_dangerous > 0
+                else 0
+            )
             exceedance = max(roll_ratio, pitch_ratio)
 
             if exceedance > 1.5:
                 # Extreme conditions (>1.5x dangerous threshold) — block
-                return float('inf')
+                return float("inf")
             elif exceedance > 1.0:
                 # Scale penalty 2.0 → 5.0 as exceedance goes 1.0 → 1.5
                 penalty = 2.0 + (exceedance - 1.0) / 0.5 * 3.0
@@ -967,8 +1059,19 @@ class SafetyConstraints:
                 return 2.0
         elif assessment.status == SafetyStatus.MARGINAL:
             # Penalty based on how marginal
-            roll_penalty = max(0, assessment.motions.roll_amplitude_deg - self.limits.max_roll_safe) / 10
-            pitch_penalty = max(0, assessment.motions.pitch_amplitude_deg - self.limits.max_pitch_safe) / 5
+            roll_penalty = (
+                max(
+                    0, assessment.motions.roll_amplitude_deg - self.limits.max_roll_safe
+                )
+                / 10
+            )
+            pitch_penalty = (
+                max(
+                    0,
+                    assessment.motions.pitch_amplitude_deg - self.limits.max_pitch_safe,
+                )
+                / 5
+            )
             return 1.0 + roll_penalty + pitch_penalty
         else:
             return 1.0  # Safe, no penalty

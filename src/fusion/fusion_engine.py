@@ -44,6 +44,7 @@ class FusedState:
     This is the primary output of the fusion engine, providing
     a complete picture of vessel and environmental conditions.
     """
+
     timestamp: datetime
 
     # Vessel position and motion (from SBG)
@@ -60,9 +61,9 @@ class FusedState:
     heave_rate_ms: float = 0.0
 
     # Measured waves (from FFT of heave)
-    measured_hs_m: float = 0.0      # Significant wave height
-    measured_tp_s: float = 0.0      # Peak period
-    measured_tm_s: float = 0.0      # Mean period
+    measured_hs_m: float = 0.0  # Significant wave height
+    measured_tp_s: float = 0.0  # Peak period
+    measured_tm_s: float = 0.0  # Mean period
     wave_confidence: float = 0.0
 
     # Forecast waves (from Copernicus)
@@ -88,55 +89,55 @@ class FusedState:
     forecast_age_minutes: float = 0.0
 
     # Deltas (measured - forecast) for calibration
-    hs_delta_m: float = 0.0         # Wave height difference
-    tp_delta_s: float = 0.0         # Period difference
+    hs_delta_m: float = 0.0  # Wave height difference
+    tp_delta_s: float = 0.0  # Period difference
 
     def to_dict(self) -> dict:
         """Convert to dictionary for JSON serialization."""
         return {
-            'timestamp': self.timestamp.isoformat(),
-            'position': {
-                'latitude': self.latitude,
-                'longitude': self.longitude,
+            "timestamp": self.timestamp.isoformat(),
+            "position": {
+                "latitude": self.latitude,
+                "longitude": self.longitude,
             },
-            'motion': {
-                'speed_kts': self.speed_kts,
-                'heading_deg': self.heading_deg,
-                'course_deg': self.course_deg,
+            "motion": {
+                "speed_kts": self.speed_kts,
+                "heading_deg": self.heading_deg,
+                "course_deg": self.course_deg,
             },
-            'attitude': {
-                'roll_deg': self.roll_deg,
-                'pitch_deg': self.pitch_deg,
-                'heave_m': self.heave_m,
+            "attitude": {
+                "roll_deg": self.roll_deg,
+                "pitch_deg": self.pitch_deg,
+                "heave_m": self.heave_m,
             },
-            'waves_measured': {
-                'hs_m': self.measured_hs_m,
-                'tp_s': self.measured_tp_s,
-                'tm_s': self.measured_tm_s,
-                'confidence': self.wave_confidence,
+            "waves_measured": {
+                "hs_m": self.measured_hs_m,
+                "tp_s": self.measured_tp_s,
+                "tm_s": self.measured_tm_s,
+                "confidence": self.wave_confidence,
             },
-            'waves_forecast': {
-                'hs_m': self.forecast_hs_m,
-                'tp_s': self.forecast_tp_s,
-                'direction_deg': self.forecast_wave_dir_deg,
+            "waves_forecast": {
+                "hs_m": self.forecast_hs_m,
+                "tp_s": self.forecast_tp_s,
+                "direction_deg": self.forecast_wave_dir_deg,
             },
-            'current': {
-                'speed_ms': self.forecast_current_ms,
-                'direction_deg': self.forecast_current_dir_deg,
+            "current": {
+                "speed_ms": self.forecast_current_ms,
+                "direction_deg": self.forecast_current_dir_deg,
             },
-            'wind': {
-                'speed_ms': self.forecast_wind_ms,
-                'direction_deg': self.forecast_wind_dir_deg,
+            "wind": {
+                "speed_ms": self.forecast_wind_ms,
+                "direction_deg": self.forecast_wind_dir_deg,
             },
-            'deltas': {
-                'hs_delta_m': self.hs_delta_m,
-                'tp_delta_s': self.tp_delta_s,
+            "deltas": {
+                "hs_delta_m": self.hs_delta_m,
+                "tp_delta_s": self.tp_delta_s,
             },
-            'quality': {
-                'sbg_valid': self.sbg_valid,
-                'wave_estimate_valid': self.wave_estimate_valid,
-                'forecast_valid': self.forecast_valid,
-                'forecast_age_minutes': self.forecast_age_minutes,
+            "quality": {
+                "sbg_valid": self.sbg_valid,
+                "wave_estimate_valid": self.wave_estimate_valid,
+                "forecast_valid": self.forecast_valid,
+                "forecast_age_minutes": self.forecast_age_minutes,
             },
         }
 
@@ -149,10 +150,11 @@ class CalibrationSignal:
     Contains the measured-vs-forecast deltas that can be used
     to update model coefficients.
     """
+
     timestamp: datetime
 
     # Wave calibration
-    wave_hs_error: float = 0.0      # (measured - forecast) / forecast
+    wave_hs_error: float = 0.0  # (measured - forecast) / forecast
     wave_tp_error: float = 0.0
 
     # Position/speed for fuel tracking
@@ -270,11 +272,13 @@ class FusionEngine:
 
             # Track position for distance calculation
             if motion.latitude != 0 and motion.longitude != 0:
-                self._position_history.append({
-                    'time': motion.timestamp,
-                    'lat': motion.latitude,
-                    'lon': motion.longitude,
-                })
+                self._position_history.append(
+                    {
+                        "time": motion.timestamp,
+                        "lat": motion.latitude,
+                        "lon": motion.longitude,
+                    }
+                )
 
         # Check if we should update forecast
         self._maybe_update_forecast(motion.latitude, motion.longitude)
@@ -292,8 +296,8 @@ class FusionEngine:
 
         # Fetch if no forecast or stale
         should_fetch = (
-            self._ocean_fetch_time is None or
-            (now - self._ocean_fetch_time).total_seconds() > 3600  # 1 hour
+            self._ocean_fetch_time is None
+            or (now - self._ocean_fetch_time).total_seconds() > 3600  # 1 hour
         )
 
         if should_fetch:
@@ -353,7 +357,9 @@ class FusionEngine:
             if len(self._sbg_history) >= 2:
                 recent = list(self._sbg_history)[-5:]
                 heaves = [s.heave_m for s in recent]
-                state.heave_rate_ms = (heaves[-1] - heaves[0]) / (len(heaves) / self.sample_rate)
+                state.heave_rate_ms = (heaves[-1] - heaves[0]) / (
+                    len(heaves) / self.sample_rate
+                )
 
         # Wave estimate
         if self._latest_wave_estimate:
@@ -421,8 +427,12 @@ class FusionEngine:
 
         # Relative directions
         if state.heading_deg:
-            signal.relative_wave_dir_deg = (state.forecast_wave_dir_deg - state.heading_deg) % 360
-            signal.relative_wind_dir_deg = (state.forecast_wind_dir_deg - state.heading_deg) % 360
+            signal.relative_wave_dir_deg = (
+                state.forecast_wave_dir_deg - state.heading_deg
+            ) % 360
+            signal.relative_wind_dir_deg = (
+                state.forecast_wind_dir_deg - state.heading_deg
+            ) % 360
 
         # Average speed
         signal.average_speed_kts = state.speed_kts
@@ -450,13 +460,16 @@ class FusionEngine:
             p2 = positions[i]
 
             # Haversine distance
-            lat1, lon1 = np.radians(p1['lat']), np.radians(p1['lon'])
-            lat2, lon2 = np.radians(p2['lat']), np.radians(p2['lon'])
+            lat1, lon1 = np.radians(p1["lat"]), np.radians(p1["lon"])
+            lat2, lon2 = np.radians(p2["lat"]), np.radians(p2["lon"])
 
             dlat = lat2 - lat1
             dlon = lon2 - lon1
 
-            a = np.sin(dlat/2)**2 + np.cos(lat1) * np.cos(lat2) * np.sin(dlon/2)**2
+            a = (
+                np.sin(dlat / 2) ** 2
+                + np.cos(lat1) * np.cos(lat2) * np.sin(dlon / 2) ** 2
+            )
             c = 2 * np.arcsin(np.sqrt(a))
 
             # Earth radius in nm
@@ -549,9 +562,13 @@ def test_fusion_engine():
             state = engine.get_state()
             print(f"\n[{i+1:3d}s] State update:")
             print(f"  Position: {state.latitude:.4f}°N, {state.longitude:.4f}°E")
-            print(f"  Speed: {state.speed_kts:.1f} kts, Heading: {state.heading_deg:.0f}°")
+            print(
+                f"  Speed: {state.speed_kts:.1f} kts, Heading: {state.heading_deg:.0f}°"
+            )
             print(f"  Roll: {state.roll_deg:+.1f}°, Pitch: {state.pitch_deg:+.1f}°")
-            print(f"  Measured Hs: {state.measured_hs_m:.2f}m (conf: {state.wave_confidence:.0%})")
+            print(
+                f"  Measured Hs: {state.measured_hs_m:.2f}m (conf: {state.wave_confidence:.0%})"
+            )
             print(f"  Forecast Hs: {state.forecast_hs_m:.2f}m")
             print(f"  Delta Hs: {state.hs_delta_m:+.2f}m")
 

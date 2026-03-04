@@ -23,10 +23,11 @@ except ImportError:
     # Fallback with security warning - should never happen in production
     import xml.etree.ElementTree as ET
     import warnings
+
     warnings.warn(
         "defusedxml not installed! XML parsing is vulnerable to XXE attacks. "
         "Install with: pip install defusedxml",
-        UserWarning
+        UserWarning,
     )
 
 logger = logging.getLogger(__name__)
@@ -35,6 +36,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class Waypoint:
     """A waypoint in a route."""
+
     id: int
     name: str
     lat: float
@@ -45,6 +47,7 @@ class Waypoint:
 @dataclass
 class RouteLeg:
     """A leg between two waypoints."""
+
     from_wp: Waypoint
     to_wp: Waypoint
     distance_nm: float
@@ -54,6 +57,7 @@ class RouteLeg:
 @dataclass
 class Route:
     """A complete route with waypoints."""
+
     name: str
     waypoints: List[Waypoint]
 
@@ -95,8 +99,10 @@ def haversine_distance(lat1: float, lon1: float, lat2: float, lon2: float) -> fl
     dlat = math.radians(lat2 - lat1)
     dlon = math.radians(lon2 - lon1)
 
-    a = (math.sin(dlat / 2) ** 2 +
-         math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2)
+    a = (
+        math.sin(dlat / 2) ** 2
+        + math.cos(lat1_rad) * math.cos(lat2_rad) * math.sin(dlon / 2) ** 2
+    )
     c = 2 * math.atan2(math.sqrt(a), math.sqrt(1 - a))
 
     return R * c
@@ -120,8 +126,9 @@ def calculate_bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> flo
     dlon = math.radians(lon2 - lon1)
 
     x = math.sin(dlon) * math.cos(lat2_rad)
-    y = (math.cos(lat1_rad) * math.sin(lat2_rad) -
-         math.sin(lat1_rad) * math.cos(lat2_rad) * math.cos(dlon))
+    y = math.cos(lat1_rad) * math.sin(lat2_rad) - math.sin(lat1_rad) * math.cos(
+        lat2_rad
+    ) * math.cos(dlon)
 
     bearing = math.degrees(math.atan2(x, y))
     return (bearing + 360) % 360
@@ -144,51 +151,53 @@ def parse_rtz_file(file_path: Path) -> Route:
     root = tree.getroot()
 
     # Handle namespace
-    ns = {'rtz': 'http://www.cirm.org/RTZ/1/1'}
+    ns = {"rtz": "http://www.cirm.org/RTZ/1/1"}
 
     # Try with namespace first, then without
-    route_info = root.find('.//rtz:routeInfo', ns)
+    route_info = root.find(".//rtz:routeInfo", ns)
     if route_info is None:
-        route_info = root.find('.//routeInfo')
+        route_info = root.find(".//routeInfo")
 
     route_name = "Unnamed Route"
     if route_info is not None:
-        route_name = route_info.get('routeName', 'Unnamed Route')
+        route_name = route_info.get("routeName", "Unnamed Route")
 
     # Find waypoints
-    waypoints_elem = root.find('.//rtz:waypoints', ns)
+    waypoints_elem = root.find(".//rtz:waypoints", ns)
     if waypoints_elem is None:
-        waypoints_elem = root.find('.//waypoints')
+        waypoints_elem = root.find(".//waypoints")
 
     if waypoints_elem is None:
         raise ValueError("No waypoints found in RTZ file")
 
     waypoints = []
-    wp_list = waypoints_elem.findall('rtz:waypoint', ns)
+    wp_list = waypoints_elem.findall("rtz:waypoint", ns)
     if not wp_list:
-        wp_list = waypoints_elem.findall('waypoint')
+        wp_list = waypoints_elem.findall("waypoint")
 
     for i, wp_elem in enumerate(wp_list):
         # Get position element
-        pos = wp_elem.find('rtz:position', ns)
+        pos = wp_elem.find("rtz:position", ns)
         if pos is None:
-            pos = wp_elem.find('position')
+            pos = wp_elem.find("position")
 
         if pos is None:
             continue
 
-        lat = float(pos.get('lat', 0))
-        lon = float(pos.get('lon', 0))
-        name = wp_elem.get('name', f'WP{i+1}')
-        radius = wp_elem.get('radius')
+        lat = float(pos.get("lat", 0))
+        lon = float(pos.get("lon", 0))
+        name = wp_elem.get("name", f"WP{i+1}")
+        radius = wp_elem.get("radius")
 
-        waypoints.append(Waypoint(
-            id=i,
-            name=name,
-            lat=lat,
-            lon=lon,
-            radius=float(radius) if radius else None
-        ))
+        waypoints.append(
+            Waypoint(
+                id=i,
+                name=name,
+                lat=lat,
+                lon=lon,
+                radius=float(radius) if radius else None,
+            )
+        )
 
     if not waypoints:
         raise ValueError("No valid waypoints found in RTZ file")
@@ -210,53 +219,47 @@ def parse_rtz_string(rtz_content: str) -> Route:
     root = ET.fromstring(rtz_content)
 
     # Handle namespace
-    ns = {'rtz': 'http://www.cirm.org/RTZ/1/1'}
+    ns = {"rtz": "http://www.cirm.org/RTZ/1/1"}
 
-    route_info = root.find('.//rtz:routeInfo', ns)
+    route_info = root.find(".//rtz:routeInfo", ns)
     if route_info is None:
-        route_info = root.find('.//routeInfo')
+        route_info = root.find(".//routeInfo")
 
     route_name = "Unnamed Route"
     if route_info is not None:
-        route_name = route_info.get('routeName', 'Unnamed Route')
+        route_name = route_info.get("routeName", "Unnamed Route")
 
-    waypoints_elem = root.find('.//rtz:waypoints', ns)
+    waypoints_elem = root.find(".//rtz:waypoints", ns)
     if waypoints_elem is None:
-        waypoints_elem = root.find('.//waypoints')
+        waypoints_elem = root.find(".//waypoints")
 
     if waypoints_elem is None:
         raise ValueError("No waypoints found in RTZ content")
 
     waypoints = []
-    wp_list = waypoints_elem.findall('rtz:waypoint', ns)
+    wp_list = waypoints_elem.findall("rtz:waypoint", ns)
     if not wp_list:
-        wp_list = waypoints_elem.findall('waypoint')
+        wp_list = waypoints_elem.findall("waypoint")
 
     for i, wp_elem in enumerate(wp_list):
-        pos = wp_elem.find('rtz:position', ns)
+        pos = wp_elem.find("rtz:position", ns)
         if pos is None:
-            pos = wp_elem.find('position')
+            pos = wp_elem.find("position")
 
         if pos is None:
             continue
 
-        lat = float(pos.get('lat', 0))
-        lon = float(pos.get('lon', 0))
-        name = wp_elem.get('name', f'WP{i+1}')
+        lat = float(pos.get("lat", 0))
+        lon = float(pos.get("lon", 0))
+        name = wp_elem.get("name", f"WP{i+1}")
 
-        waypoints.append(Waypoint(
-            id=i,
-            name=name,
-            lat=lat,
-            lon=lon
-        ))
+        waypoints.append(Waypoint(id=i, name=name, lat=lat, lon=lon))
 
     return Route(name=route_name, waypoints=waypoints)
 
 
 def create_route_from_waypoints(
-    waypoints: List[Tuple[float, float]],
-    name: str = "Custom Route"
+    waypoints: List[Tuple[float, float]], name: str = "Custom Route"
 ) -> Route:
     """
     Create a Route from a list of (lat, lon) tuples.
@@ -269,7 +272,7 @@ def create_route_from_waypoints(
         Route object
     """
     wps = [
-        Waypoint(id=i, name=f'WP{i+1}', lat=lat, lon=lon)
+        Waypoint(id=i, name=f"WP{i+1}", lat=lat, lon=lon)
         for i, (lat, lon) in enumerate(waypoints)
     ]
     return Route(name=name, waypoints=wps)

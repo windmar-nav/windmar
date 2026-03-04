@@ -7,6 +7,7 @@ from pydantic import BaseModel, Field
 
 class CIIFuelConsumption(BaseModel):
     """Fuel consumption by type in metric tons."""
+
     hfo: float = Field(0, ge=0, description="Heavy Fuel Oil (MT)")
     lfo: float = Field(0, ge=0, description="Light Fuel Oil (MT)")
     vlsfo: float = Field(0, ge=0, description="Very Low Sulphur Fuel Oil (MT)")
@@ -24,28 +25,35 @@ class CIIFuelConsumption(BaseModel):
 
 class CIICalculateRequest(BaseModel):
     """Request for CII calculation."""
+
     fuel_consumption_mt: CIIFuelConsumption
     total_distance_nm: float = Field(..., gt=0)
     dwt: float = Field(..., gt=0)
     vessel_type: str = Field("tanker", description="IMO vessel type category")
     year: int = Field(2024, ge=2019, le=2040)
-    gt: Optional[float] = Field(None, gt=0, description="Gross tonnage (for cruise/ro-ro passenger)")
+    gt: Optional[float] = Field(
+        None, gt=0, description="Gross tonnage (for cruise/ro-ro passenger)"
+    )
 
 
 class CIIProjectRequest(BaseModel):
     """Request for multi-year CII projection."""
+
     annual_fuel_mt: CIIFuelConsumption
     annual_distance_nm: float = Field(..., gt=0)
     dwt: float = Field(..., gt=0)
     vessel_type: str = Field("tanker")
     start_year: int = Field(2024, ge=2019, le=2040)
     end_year: int = Field(2030, ge=2019, le=2040)
-    fuel_efficiency_improvement_pct: float = Field(0, ge=0, le=20, description="Annual efficiency improvement %")
+    fuel_efficiency_improvement_pct: float = Field(
+        0, ge=0, le=20, description="Annual efficiency improvement %"
+    )
     gt: Optional[float] = Field(None, gt=0)
 
 
 class CIIReductionRequest(BaseModel):
     """Request for CII reduction calculation."""
+
     current_fuel_mt: CIIFuelConsumption
     current_distance_nm: float = Field(..., gt=0)
     dwt: float = Field(..., gt=0)
@@ -59,8 +67,10 @@ class CIIReductionRequest(BaseModel):
 # Speed Sweep (Simulator tab)
 # ---------------------------------------------------------------------------
 
+
 class CIISpeedSweepRequest(BaseModel):
     """Request for CII speed sweep simulation."""
+
     dwt: float = Field(..., gt=0)
     vessel_type: str = Field("tanker")
     distance_nm: float = Field(..., gt=0, description="Single-voyage distance (nm)")
@@ -75,6 +85,7 @@ class CIISpeedSweepRequest(BaseModel):
 
 class CIISpeedSweepPoint(BaseModel):
     """Single data point in the speed sweep curve."""
+
     speed_kts: float
     fuel_per_voyage_mt: float
     annual_fuel_mt: float
@@ -86,6 +97,7 @@ class CIISpeedSweepPoint(BaseModel):
 
 class CIISpeedSweepResponse(BaseModel):
     """Response for CII speed sweep."""
+
     points: List[CIISpeedSweepPoint]
     optimal_speed_kts: float
     rating_boundaries: Dict[str, float]
@@ -95,8 +107,10 @@ class CIISpeedSweepResponse(BaseModel):
 # Thresholds (Projection chart enhancement)
 # ---------------------------------------------------------------------------
 
+
 class CIIThresholdYear(BaseModel):
     """Rating boundaries for a single year."""
+
     year: int
     required_cii: float
     boundaries: Dict[str, float]
@@ -105,6 +119,7 @@ class CIIThresholdYear(BaseModel):
 
 class CIIThresholdsResponse(BaseModel):
     """Multi-year rating boundary thresholds."""
+
     years: List[CIIThresholdYear]
     vessel_type: str
     capacity: float
@@ -114,12 +129,16 @@ class CIIThresholdsResponse(BaseModel):
 # Fleet comparison
 # ---------------------------------------------------------------------------
 
+
 class CIIFleetVessel(BaseModel):
     """Single vessel in a fleet CII batch request."""
+
     name: str = Field(..., min_length=1, max_length=100)
     dwt: float = Field(..., gt=0)
     vessel_type: str = Field("tanker")
-    fuel_consumption_mt: Dict[str, float] = Field(..., description="Fuel type -> MT consumed annually")
+    fuel_consumption_mt: Dict[str, float] = Field(
+        ..., description="Fuel type -> MT consumed annually"
+    )
     total_distance_nm: float = Field(..., gt=0)
     year: int = Field(2026, ge=2019, le=2040)
     gt: Optional[float] = Field(None, gt=0)
@@ -127,11 +146,13 @@ class CIIFleetVessel(BaseModel):
 
 class CIIFleetRequest(BaseModel):
     """Batch CII calculation for multiple vessels."""
+
     vessels: List[CIIFleetVessel] = Field(..., min_length=1, max_length=20)
 
 
 class CIIFleetResult(BaseModel):
     """CII result for one vessel in a fleet batch."""
+
     name: str
     rating: str
     attained_cii: float
@@ -144,5 +165,6 @@ class CIIFleetResult(BaseModel):
 
 class CIIFleetResponse(BaseModel):
     """Batch CII results for the fleet."""
+
     results: List[CIIFleetResult]
     summary: Dict[str, int]

@@ -14,16 +14,30 @@ import numpy as np
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Query, Request
 from starlette.responses import Response
 
-from api.demo import require_not_demo, is_demo, is_demo_user, demo_mode_response, limit_demo_frames
+from api.demo import (
+    require_not_demo,
+    is_demo,
+    is_demo_user,
+    demo_mode_response,
+    limit_demo_frames,
+)
 from api.state import get_app_state
 from api.weather_fields import (
-    WEATHER_FIELDS, FIELD_NAMES, LAYER_TO_SOURCE,
-    get_field, validate_field_name, FieldConfig,
+    WEATHER_FIELDS,
+    FIELD_NAMES,
+    LAYER_TO_SOURCE,
+    get_field,
+    validate_field_name,
+    FieldConfig,
     CACHE_SCHEMA_VERSION,
 )
 from api.weather_service import (
-    get_wind_field, get_wave_field, get_current_field,
-    get_sst_field, get_visibility_field, get_ice_field,
+    get_wind_field,
+    get_wave_field,
+    get_current_field,
+    get_sst_field,
+    get_visibility_field,
+    get_ice_field,
     get_weather_at_point,
 )
 from api.weather.grid_processor import clamp_bbox, compute_step
@@ -31,10 +45,18 @@ from api.weather.ocean_mask import build_ice_ocean_mask
 from api.weather.frame_builder import build_frames_from_db
 from api.weather.formatters import format_single_frame, format_velocity_response
 from api.weather.prefetch import (
-    get_layer_manager, do_generic_prefetch, cleanup_stale_caches,
-    _get_providers, _db_weather, _weather_ingestion,
-    acquire_resync, release_resync, get_resync_status,
-    OCEAN_AREA_PRESETS, get_ocean_bbox, get_ice_bbox,
+    get_layer_manager,
+    do_generic_prefetch,
+    cleanup_stale_caches,
+    _get_providers,
+    _db_weather,
+    _weather_ingestion,
+    acquire_resync,
+    release_resync,
+    get_resync_status,
+    OCEAN_AREA_PRESETS,
+    get_ocean_bbox,
+    get_ice_bbox,
 )
 
 from src.data.copernicus import GFSDataProvider
@@ -50,28 +72,66 @@ router = APIRouter(tags=["Weather"])
 
 _SINGLE_FRAME_FETCHER = {
     "wind": lambda params, time: get_wind_field(
-        params["lat_min"], params["lat_max"], params["lon_min"], params["lon_max"],
-        params["resolution"], time),
-    "waves": lambda params, time: get_wave_field(
-        params["lat_min"], params["lat_max"], params["lon_min"], params["lon_max"],
+        params["lat_min"],
+        params["lat_max"],
+        params["lon_min"],
+        params["lon_max"],
         params["resolution"],
-        get_wind_field(params["lat_min"], params["lat_max"], params["lon_min"], params["lon_max"],
-                       params["resolution"], time)),
+        time,
+    ),
+    "waves": lambda params, time: get_wave_field(
+        params["lat_min"],
+        params["lat_max"],
+        params["lon_min"],
+        params["lon_max"],
+        params["resolution"],
+        get_wind_field(
+            params["lat_min"],
+            params["lat_max"],
+            params["lon_min"],
+            params["lon_max"],
+            params["resolution"],
+            time,
+        ),
+    ),
     "swell": lambda params, time: get_wave_field(
-        params["lat_min"], params["lat_max"], params["lon_min"], params["lon_max"],
-        params["resolution"]),
+        params["lat_min"],
+        params["lat_max"],
+        params["lon_min"],
+        params["lon_max"],
+        params["resolution"],
+    ),
     "currents": lambda params, time: get_current_field(
-        params["lat_min"], params["lat_max"], params["lon_min"], params["lon_max"],
-        params["resolution"]),
+        params["lat_min"],
+        params["lat_max"],
+        params["lon_min"],
+        params["lon_max"],
+        params["resolution"],
+    ),
     "sst": lambda params, time: get_sst_field(
-        params["lat_min"], params["lat_max"], params["lon_min"], params["lon_max"],
-        params["resolution"], time),
+        params["lat_min"],
+        params["lat_max"],
+        params["lon_min"],
+        params["lon_max"],
+        params["resolution"],
+        time,
+    ),
     "visibility": lambda params, time: get_visibility_field(
-        params["lat_min"], params["lat_max"], params["lon_min"], params["lon_max"],
-        params["resolution"], time),
+        params["lat_min"],
+        params["lat_max"],
+        params["lon_min"],
+        params["lon_max"],
+        params["resolution"],
+        time,
+    ),
     "ice": lambda params, time: get_ice_field(
-        params["lat_min"], params["lat_max"], params["lon_min"], params["lon_max"],
-        params["resolution"], time),
+        params["lat_min"],
+        params["lat_max"],
+        params["lon_min"],
+        params["lon_max"],
+        params["resolution"],
+        time,
+    ),
 }
 
 _DB_FIRST_METHODS = {
@@ -87,30 +147,41 @@ _DB_FIRST_METHODS = {
 # Ocean mask callback for single-frame formatter
 # ============================================================================
 
+
 def _make_ocean_mask_fn(field_name):
     """Return an ocean mask builder callback for single-frame formatting."""
     if field_name == "ice":
+
         def _ice_mask(grid):
             mask_list, _ = build_ice_ocean_mask(grid)
             return grid.lats.tolist(), grid.lons.tolist(), mask_list
+
         return _ice_mask
     else:
+
         def _nan_mask(grid):
             # For single-frame overlay, use global_land_mask at the subsampled coords
             # (NaN-union requires multiple frames; single frame uses coordinates)
             from api.weather.ocean_mask import build_ice_ocean_mask as _glm
+
             try:
                 from global_land_mask import globe
+
                 lon_grid, lat_grid = np.meshgrid(grid.lons, grid.lats)
                 mask = globe.is_ocean(lat_grid, lon_grid)
                 return grid.lats.tolist(), grid.lons.tolist(), mask.tolist()
             except ImportError:
                 from src.data.land_mask import is_ocean
+
                 mask = [
-                    [is_ocean(round(float(lat), 2), round(float(lon), 2)) for lon in grid.lons]
+                    [
+                        is_ocean(round(float(lat), 2), round(float(lon), 2))
+                        for lon in grid.lons
+                    ]
                     for lat in grid.lats
                 ]
                 return grid.lats.tolist(), grid.lons.tolist(), mask
+
         return _nan_mask
 
 
@@ -118,12 +189,15 @@ def _make_ocean_mask_fn(field_name):
 # Static endpoints — MUST be before {field} parameterized routes
 # ============================================================================
 
+
 @router.get("/api/weather/health")
 async def api_weather_health():
     """Return per-source health status for all weather sources."""
     db_weather = _db_weather()
     if db_weather is None:
-        raise HTTPException(status_code=503, detail="Database weather provider not configured")
+        raise HTTPException(
+            status_code=503, detail="Database weather provider not configured"
+        )
     health = await asyncio.to_thread(db_weather.get_health)
     return health
 
@@ -144,19 +218,19 @@ async def api_get_weather_point(
         "position": {"lat": lat, "lon": lon},
         "time": time.isoformat(),
         "wind": {
-            "speed_ms": wx['wind_speed_ms'],
-            "speed_kts": wx['wind_speed_ms'] * 1.94384,
-            "dir_deg": wx['wind_dir_deg'],
+            "speed_ms": wx["wind_speed_ms"],
+            "speed_kts": wx["wind_speed_ms"] * 1.94384,
+            "dir_deg": wx["wind_dir_deg"],
         },
         "waves": {
-            "height_m": wx['sig_wave_height_m'],
-            "dir_deg": wx['wave_dir_deg'],
+            "height_m": wx["sig_wave_height_m"],
+            "dir_deg": wx["wave_dir_deg"],
         },
         "current": {
-            "speed_ms": wx['current_speed_ms'],
-            "speed_kts": wx['current_speed_ms'] * 1.94384,
-            "dir_deg": wx['current_dir_deg'],
-        }
+            "speed_ms": wx["current_speed_ms"],
+            "speed_kts": wx["current_speed_ms"] * 1.94384,
+            "dir_deg": wx["current_dir_deg"],
+        },
     }
 
 
@@ -184,7 +258,9 @@ async def get_weather_freshness(request: Request):
             "color": "red",
         }
 
-    age_hours = freshness.get("age_hours", None) if isinstance(freshness, dict) else None
+    age_hours = (
+        freshness.get("age_hours", None) if isinstance(freshness, dict) else None
+    )
     if age_hours is not None:
         if age_hours < 4:
             color = "green"
@@ -207,202 +283,330 @@ async def get_weather_freshness(request: Request):
 # Backward-compatible route aliases (old forecast/* URLs)
 # ============================================================================
 
+
 @router.get("/api/weather/forecast/status")
 async def _compat_wind_status(
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_get_field_status(field="wind", lat_min=lat_min, lat_max=lat_max,
-                                      lon_min=lon_min, lon_max=lon_max)
+    return await api_get_field_status(
+        field="wind", lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max
+    )
 
 
-@router.post("/api/weather/forecast/prefetch",
-             dependencies=[Depends(require_not_demo("Weather prefetch"))])
+@router.post(
+    "/api/weather/forecast/prefetch",
+    dependencies=[Depends(require_not_demo("Weather prefetch"))],
+)
 async def _compat_wind_prefetch(
     background_tasks: BackgroundTasks,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_trigger_field_prefetch(field="wind", background_tasks=background_tasks,
-                                            lat_min=lat_min, lat_max=lat_max,
-                                            lon_min=lon_min, lon_max=lon_max)
+    return await api_trigger_field_prefetch(
+        field="wind",
+        background_tasks=background_tasks,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
 @router.get("/api/weather/forecast/frames")
 async def _compat_wind_frames(
     request: Request,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_get_field_frames(field="wind", request=request,
-                                      lat_min=lat_min, lat_max=lat_max,
-                                      lon_min=lon_min, lon_max=lon_max)
+    return await api_get_field_frames(
+        field="wind",
+        request=request,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
 @router.get("/api/weather/forecast/wave/status")
 async def _compat_wave_status(
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_get_field_status(field="waves", lat_min=lat_min, lat_max=lat_max,
-                                      lon_min=lon_min, lon_max=lon_max)
+    return await api_get_field_status(
+        field="waves",
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
-@router.post("/api/weather/forecast/wave/prefetch",
-             dependencies=[Depends(require_not_demo("Weather prefetch"))])
+@router.post(
+    "/api/weather/forecast/wave/prefetch",
+    dependencies=[Depends(require_not_demo("Weather prefetch"))],
+)
 async def _compat_wave_prefetch(
     background_tasks: BackgroundTasks,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_trigger_field_prefetch(field="waves", background_tasks=background_tasks,
-                                            lat_min=lat_min, lat_max=lat_max,
-                                            lon_min=lon_min, lon_max=lon_max)
+    return await api_trigger_field_prefetch(
+        field="waves",
+        background_tasks=background_tasks,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
 @router.get("/api/weather/forecast/wave/frames")
 async def _compat_wave_frames(
     request: Request,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_get_field_frames(field="waves", request=request,
-                                      lat_min=lat_min, lat_max=lat_max,
-                                      lon_min=lon_min, lon_max=lon_max)
+    return await api_get_field_frames(
+        field="waves",
+        request=request,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
 @router.get("/api/weather/forecast/current/status")
 async def _compat_current_status(
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_get_field_status(field="currents", lat_min=lat_min, lat_max=lat_max,
-                                      lon_min=lon_min, lon_max=lon_max)
+    return await api_get_field_status(
+        field="currents",
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
-@router.post("/api/weather/forecast/current/prefetch",
-             dependencies=[Depends(require_not_demo("Weather prefetch"))])
+@router.post(
+    "/api/weather/forecast/current/prefetch",
+    dependencies=[Depends(require_not_demo("Weather prefetch"))],
+)
 async def _compat_current_prefetch(
     background_tasks: BackgroundTasks,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_trigger_field_prefetch(field="currents", background_tasks=background_tasks,
-                                            lat_min=lat_min, lat_max=lat_max,
-                                            lon_min=lon_min, lon_max=lon_max)
+    return await api_trigger_field_prefetch(
+        field="currents",
+        background_tasks=background_tasks,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
 @router.get("/api/weather/forecast/current/frames")
 async def _compat_current_frames(
     request: Request,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_get_field_frames(field="currents", request=request,
-                                      lat_min=lat_min, lat_max=lat_max,
-                                      lon_min=lon_min, lon_max=lon_max)
+    return await api_get_field_frames(
+        field="currents",
+        request=request,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
 @router.get("/api/weather/forecast/ice/status")
 async def _compat_ice_status(
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_get_field_status(field="ice", lat_min=lat_min, lat_max=lat_max,
-                                      lon_min=lon_min, lon_max=lon_max)
+    return await api_get_field_status(
+        field="ice", lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max
+    )
 
 
-@router.post("/api/weather/forecast/ice/prefetch",
-             dependencies=[Depends(require_not_demo("Weather prefetch"))])
+@router.post(
+    "/api/weather/forecast/ice/prefetch",
+    dependencies=[Depends(require_not_demo("Weather prefetch"))],
+)
 async def _compat_ice_prefetch(
     background_tasks: BackgroundTasks,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_trigger_field_prefetch(field="ice", background_tasks=background_tasks,
-                                            lat_min=lat_min, lat_max=lat_max,
-                                            lon_min=lon_min, lon_max=lon_max)
+    return await api_trigger_field_prefetch(
+        field="ice",
+        background_tasks=background_tasks,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
 @router.get("/api/weather/forecast/ice/frames")
 async def _compat_ice_frames(
     request: Request,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_get_field_frames(field="ice", request=request,
-                                      lat_min=lat_min, lat_max=lat_max,
-                                      lon_min=lon_min, lon_max=lon_max)
+    return await api_get_field_frames(
+        field="ice",
+        request=request,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
 @router.get("/api/weather/forecast/sst/status")
 async def _compat_sst_status(
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_get_field_status(field="sst", lat_min=lat_min, lat_max=lat_max,
-                                      lon_min=lon_min, lon_max=lon_max)
+    return await api_get_field_status(
+        field="sst", lat_min=lat_min, lat_max=lat_max, lon_min=lon_min, lon_max=lon_max
+    )
 
 
-@router.post("/api/weather/forecast/sst/prefetch",
-             dependencies=[Depends(require_not_demo("Weather prefetch"))])
+@router.post(
+    "/api/weather/forecast/sst/prefetch",
+    dependencies=[Depends(require_not_demo("Weather prefetch"))],
+)
 async def _compat_sst_prefetch(
     background_tasks: BackgroundTasks,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_trigger_field_prefetch(field="sst", background_tasks=background_tasks,
-                                            lat_min=lat_min, lat_max=lat_max,
-                                            lon_min=lon_min, lon_max=lon_max)
+    return await api_trigger_field_prefetch(
+        field="sst",
+        background_tasks=background_tasks,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
 @router.get("/api/weather/forecast/sst/frames")
 async def _compat_sst_frames(
     request: Request,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_get_field_frames(field="sst", request=request,
-                                      lat_min=lat_min, lat_max=lat_max,
-                                      lon_min=lon_min, lon_max=lon_max)
+    return await api_get_field_frames(
+        field="sst",
+        request=request,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
 @router.get("/api/weather/forecast/visibility/status")
 async def _compat_vis_status(
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_get_field_status(field="visibility", lat_min=lat_min, lat_max=lat_max,
-                                      lon_min=lon_min, lon_max=lon_max)
+    return await api_get_field_status(
+        field="visibility",
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
-@router.post("/api/weather/forecast/visibility/prefetch",
-             dependencies=[Depends(require_not_demo("Weather prefetch"))])
+@router.post(
+    "/api/weather/forecast/visibility/prefetch",
+    dependencies=[Depends(require_not_demo("Weather prefetch"))],
+)
 async def _compat_vis_prefetch(
     background_tasks: BackgroundTasks,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_trigger_field_prefetch(field="visibility", background_tasks=background_tasks,
-                                            lat_min=lat_min, lat_max=lat_max,
-                                            lon_min=lon_min, lon_max=lon_max)
+    return await api_trigger_field_prefetch(
+        field="visibility",
+        background_tasks=background_tasks,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
 @router.get("/api/weather/forecast/visibility/frames")
 async def _compat_vis_frames(
     request: Request,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
-    return await api_get_field_frames(field="visibility", request=request,
-                                      lat_min=lat_min, lat_max=lat_max,
-                                      lon_min=lon_min, lon_max=lon_max)
+    return await api_get_field_frames(
+        field="visibility",
+        request=request,
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+    )
 
 
 # ============================================================================
 # Resync status + resync-all + ocean area config
 # (registered before {field} catch-all routes)
 # ============================================================================
+
 
 @router.get("/api/weather/resync-status")
 async def api_weather_resync_status():
@@ -422,12 +626,12 @@ async def api_weather_resync_all():
 
     if not acquire_resync("all"):
         raise HTTPException(
-            status_code=409,
-            detail=f"Resync already running: {get_resync_status()}"
+            status_code=409, detail=f"Resync already running: {get_resync_status()}"
         )
 
     try:
         from api.config import get_settings
+
         area = get_settings().ocean_area
         bbox = get_ocean_bbox(area)
         ice_bbox = get_ice_bbox(area)
@@ -491,15 +695,18 @@ async def api_weather_resync_all():
 async def api_weather_ocean_areas():
     """Return available ocean area presets."""
     from api.config import get_settings
+
     current = get_settings().ocean_area
     areas = []
     for key, preset in OCEAN_AREA_PRESETS.items():
-        areas.append({
-            "id": key,
-            "label": preset["label"],
-            "bbox": preset["bbox"],
-            "disabled": preset.get("disabled", False),
-        })
+        areas.append(
+            {
+                "id": key,
+                "label": preset["label"],
+                "bbox": preset["bbox"],
+                "disabled": preset.get("disabled", False),
+            }
+        )
     return {"areas": areas, "current": current}
 
 
@@ -507,16 +714,21 @@ async def api_weather_ocean_areas():
 # Debug endpoint
 # ============================================================================
 
+
 @router.get("/api/weather/{field}/debug")
 async def api_get_field_debug(
     field: str,
-    lat_min: float = Query(30.0), lat_max: float = Query(60.0),
-    lon_min: float = Query(-30.0), lon_max: float = Query(40.0),
+    lat_min: float = Query(30.0),
+    lat_max: float = Query(60.0),
+    lon_min: float = Query(-30.0),
+    lon_max: float = Query(40.0),
 ):
     """Return lightweight diagnostics for a layer's cached data."""
     if field not in WEATHER_FIELDS:
-        raise HTTPException(status_code=400,
-                            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}",
+        )
 
     cfg = get_field(field)
     mgr = get_layer_manager(field)
@@ -528,7 +740,9 @@ async def api_get_field_debug(
         return {"field": field, "status": "no_cache", "cache_key": cache_key}
 
     frames = cached.get("frames", {})
-    frame_hours = sorted(frames.keys(), key=lambda h: int(h) if h.lstrip('-').isdigit() else 0)
+    frame_hours = sorted(
+        frames.keys(), key=lambda h: int(h) if h.lstrip("-").isdigit() else 0
+    )
 
     lats = cached.get("lats", [])
     lons = cached.get("lons", [])
@@ -561,35 +775,71 @@ async def api_get_field_debug(
 
     checks = []
     if field != "wind":
-        checks.append({"check": "ny == len(lats)", "pass": ny == len(lats),
-                        "detail": f"ny={ny}, len(lats)={len(lats)}"})
-        checks.append({"check": "nx == len(lons)", "pass": nx == len(lons),
-                        "detail": f"nx={nx}, len(lons)={len(lons)}"})
+        checks.append(
+            {
+                "check": "ny == len(lats)",
+                "pass": ny == len(lats),
+                "detail": f"ny={ny}, len(lats)={len(lats)}",
+            }
+        )
+        checks.append(
+            {
+                "check": "nx == len(lons)",
+                "pass": nx == len(lons),
+                "detail": f"nx={nx}, len(lons)={len(lons)}",
+            }
+        )
         if sample_rows > 0:
-            checks.append({"check": "frame_data_rows == ny", "pass": sample_rows == ny,
-                            "detail": f"sample_rows={sample_rows}, ny={ny}"})
-            checks.append({"check": "frame_data_cols == nx", "pass": sample_cols == nx,
-                            "detail": f"sample_cols={sample_cols}, nx={nx}"})
+            checks.append(
+                {
+                    "check": "frame_data_rows == ny",
+                    "pass": sample_rows == ny,
+                    "detail": f"sample_rows={sample_rows}, ny={ny}",
+                }
+            )
+            checks.append(
+                {
+                    "check": "frame_data_cols == nx",
+                    "pass": sample_cols == nx,
+                    "detail": f"sample_cols={sample_cols}, nx={nx}",
+                }
+            )
     else:
         if sample_rows > 0:
-            checks.append({"check": "wind header ny/nx consistent",
-                            "pass": sample_rows > 0 and sample_cols > 0,
-                            "detail": f"header ny={sample_rows}, nx={sample_cols}"})
+            checks.append(
+                {
+                    "check": "wind header ny/nx consistent",
+                    "pass": sample_rows > 0 and sample_cols > 0,
+                    "detail": f"header ny={sample_rows}, nx={sample_cols}",
+                }
+            )
 
     if ocean_mask is not None:
         mask_rows = len(ocean_mask) if isinstance(ocean_mask, list) else 0
         mask_cols = len(ocean_mask[0]) if mask_rows > 0 else 0
-        checks.append({"check": "ocean_mask rows == mask_lats",
-                        "pass": mask_rows == len(ocean_mask_lats),
-                        "detail": f"mask_rows={mask_rows}, mask_lats={len(ocean_mask_lats)}"})
-        checks.append({"check": "ocean_mask cols == mask_lons",
-                        "pass": mask_cols == len(ocean_mask_lons),
-                        "detail": f"mask_cols={mask_cols}, mask_lons={len(ocean_mask_lons)}"})
+        checks.append(
+            {
+                "check": "ocean_mask rows == mask_lats",
+                "pass": mask_rows == len(ocean_mask_lats),
+                "detail": f"mask_rows={mask_rows}, mask_lats={len(ocean_mask_lats)}",
+            }
+        )
+        checks.append(
+            {
+                "check": "ocean_mask cols == mask_lons",
+                "pass": mask_cols == len(ocean_mask_lons),
+                "detail": f"mask_cols={mask_cols}, mask_lons={len(ocean_mask_lons)}",
+            }
+        )
 
     schema_version = cached.get("_schema_version", 0)
-    checks.append({"check": "schema_version current",
-                    "pass": schema_version == CACHE_SCHEMA_VERSION,
-                    "detail": f"cached={schema_version}, current={CACHE_SCHEMA_VERSION}"})
+    checks.append(
+        {
+            "check": "schema_version current",
+            "pass": schema_version == CACHE_SCHEMA_VERSION,
+            "detail": f"cached={schema_version}, current={CACHE_SCHEMA_VERSION}",
+        }
+    )
 
     all_pass = all(c["pass"] for c in checks)
 
@@ -611,9 +861,15 @@ async def api_get_field_debug(
         "sample_frame_data_rows": sample_rows,
         "sample_frame_data_cols": sample_cols,
         "has_ocean_mask": ocean_mask is not None,
-        "ocean_mask_shape": f"{len(ocean_mask)}x{len(ocean_mask[0]) if ocean_mask else 0}" if ocean_mask else None,
+        "ocean_mask_shape": (
+            f"{len(ocean_mask)}x{len(ocean_mask[0]) if ocean_mask else 0}"
+            if ocean_mask
+            else None
+        ),
         "has_colorscale": colorscale is not None,
-        "colorscale_keys": list(colorscale.keys()) if isinstance(colorscale, dict) else None,
+        "colorscale_keys": (
+            list(colorscale.keys()) if isinstance(colorscale, dict) else None
+        ),
         "checks": checks,
         "all_checks_pass": all_pass,
     }
@@ -622,6 +878,7 @@ async def api_get_field_debug(
 # ============================================================================
 # Generic API Endpoints (parameterized by {field})
 # ============================================================================
+
 
 @router.get("/api/weather/{field}")
 async def api_get_weather_field(
@@ -635,8 +892,10 @@ async def api_get_weather_field(
 ):
     """Get single-frame weather field data for visualization."""
     if field not in WEATHER_FIELDS:
-        raise HTTPException(status_code=400,
-                            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}",
+        )
 
     cfg = get_field(field)
     if time is None:
@@ -644,8 +903,13 @@ async def api_get_weather_field(
 
     lat_min, lat_max, lon_min, lon_max = clamp_bbox(lat_min, lat_max, lon_min, lon_max)
 
-    params = dict(lat_min=lat_min, lat_max=lat_max, lon_min=lon_min,
-                  lon_max=lon_max, resolution=resolution)
+    params = dict(
+        lat_min=lat_min,
+        lat_max=lat_max,
+        lon_min=lon_min,
+        lon_max=lon_max,
+        resolution=resolution,
+    )
 
     ingested_at = None
     db_weather = _db_weather()
@@ -668,12 +932,16 @@ async def api_get_weather_field(
         if db_weather is not None:
             ingested_at = datetime.now(timezone.utc)
 
-    if data is None or not hasattr(data, 'lats') or data.lats is None:
-        raise HTTPException(status_code=503,
-                            detail=f"No {field} data available. Try resyncing.")
+    if data is None or not hasattr(data, "lats") or data.lats is None:
+        raise HTTPException(
+            status_code=503, detail=f"No {field} data available. Try resyncing."
+        )
 
     return format_single_frame(
-        field, cfg, data, time,
+        field,
+        cfg,
+        data,
+        time,
         ocean_mask_fn=_make_ocean_mask_fn(field),
         ingested_at=ingested_at,
     )
@@ -692,7 +960,10 @@ async def api_get_velocity_format(
 ):
     """Get vector field data in leaflet-velocity compatible format."""
     if field not in ("wind", "currents"):
-        raise HTTPException(status_code=400, detail=f"Velocity format only for wind/currents, not {field}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Velocity format only for wind/currents, not {field}",
+        )
 
     if time is None:
         time = datetime.now(timezone.utc)
@@ -701,11 +972,16 @@ async def api_get_velocity_format(
 
     if field == "wind":
         providers = _get_providers()
-        gfs_provider = providers['gfs']
+        gfs_provider = providers["gfs"]
         if forecast_hour > 0:
-            data = gfs_provider.fetch_wind_data(lat_min, lat_max, lon_min, lon_max, time, forecast_hour)
+            data = gfs_provider.fetch_wind_data(
+                lat_min, lat_max, lon_min, lon_max, time, forecast_hour
+            )
             if data is None:
-                raise HTTPException(status_code=404, detail=f"Forecast hour f{forecast_hour:03d} not available")
+                raise HTTPException(
+                    status_code=404,
+                    detail=f"Forecast hour f{forecast_hour:03d} not available",
+                )
         else:
             data = get_wind_field(lat_min, lat_max, lon_min, lon_max, resolution, time)
     else:
@@ -715,7 +991,9 @@ async def api_get_velocity_format(
         if db_weather is not None:
             data, _ = db_weather.get_current_from_db(lat_min, lat_max, lon_min, lon_max)
         if data is None:
-            raise HTTPException(status_code=503, detail="No currents data available. Try resyncing.")
+            raise HTTPException(
+                status_code=503, detail="No currents data available. Try resyncing."
+            )
 
     cfg = get_field(field)
     step = compute_step(data.lats, data.lons, cfg.subsample_target)
@@ -746,8 +1024,10 @@ async def api_get_field_status(
 ):
     """Get forecast status for any weather field."""
     if field not in WEATHER_FIELDS:
-        raise HTTPException(status_code=400,
-                            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}",
+        )
 
     cfg = get_field(field)
     mgr = get_layer_manager(field)
@@ -773,26 +1053,32 @@ async def api_get_field_status(
 
     if field == "wind":
         providers = _get_providers()
-        gfs_provider = providers['gfs']
+        gfs_provider = providers["gfs"]
         if mgr.last_run:
             run_date, run_hour = mgr.last_run
         else:
             run_date, run_hour = gfs_provider._get_latest_run()
-        hours = gfs_provider.get_cached_forecast_hours(lat_min, lat_max, lon_min, lon_max, run_date, run_hour)
+        hours = gfs_provider.get_cached_forecast_hours(
+            lat_min, lat_max, lon_min, lon_max, run_date, run_hour
+        )
         cached_count = sum(1 for h in hours if h["cached"])
 
         if cached_count == 0 and not prefetch_running:
             best = gfs_provider.find_best_cached_run(lat_min, lat_max, lon_min, lon_max)
             if best:
                 run_date, run_hour = best
-                hours = gfs_provider.get_cached_forecast_hours(lat_min, lat_max, lon_min, lon_max, run_date, run_hour)
+                hours = gfs_provider.get_cached_forecast_hours(
+                    lat_min, lat_max, lon_min, lon_max, run_date, run_hour
+                )
         cached_count = sum(1 for h in hours if h["cached"])
 
         if cached_count == 0 and db_weather is not None:
             db_run_time, db_hours = db_weather.get_available_hours_by_source("gfs")
             if db_hours:
                 return {
-                    "run_date": db_run_time.strftime("%Y%m%d") if db_run_time else run_date,
+                    "run_date": (
+                        db_run_time.strftime("%Y%m%d") if db_run_time else run_date
+                    ),
                     "run_hour": db_run_time.strftime("%H") if db_run_time else run_hour,
                     "total_hours": len(GFSDataProvider.FORECAST_HOURS),
                     "cached_hours": len(db_hours),
@@ -830,8 +1116,10 @@ async def api_get_field_status(
     }
 
 
-@router.post("/api/weather/{field}/prefetch",
-             dependencies=[Depends(require_not_demo("Weather prefetch"))])
+@router.post(
+    "/api/weather/{field}/prefetch",
+    dependencies=[Depends(require_not_demo("Weather prefetch"))],
+)
 async def api_trigger_field_prefetch(
     field: str,
     background_tasks: BackgroundTasks,
@@ -846,8 +1134,10 @@ async def api_trigger_field_prefetch(
     triggered exclusively by the ``/resync`` endpoint.
     """
     if field not in WEATHER_FIELDS:
-        raise HTTPException(status_code=400,
-                            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}",
+        )
 
     mgr = get_layer_manager(field)
 
@@ -855,8 +1145,12 @@ async def api_trigger_field_prefetch(
         do_generic_prefetch(mgr, la1, la2, lo1, lo2, db_only=True, **kw)
 
     return mgr.trigger_response(
-        background_tasks, _db_only_prefetch,
-        lat_min, lat_max, lon_min, lon_max,
+        background_tasks,
+        _db_only_prefetch,
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
     )
 
 
@@ -871,8 +1165,10 @@ async def api_get_field_frames(
 ):
     """Return all forecast frames for any field."""
     if field not in WEATHER_FIELDS:
-        raise HTTPException(status_code=400,
-                            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}",
+        )
 
     lat_min, lat_max, lon_min, lon_max = clamp_bbox(lat_min, lat_max, lon_min, lon_max)
 
@@ -883,13 +1179,19 @@ async def api_get_field_frames(
 
     cached = mgr.cache_get(cache_key)
     if cached is not None and cached.get("_schema_version") != CACHE_SCHEMA_VERSION:
-        logger.info(f"{field} cache stale (schema {cached.get('_schema_version')} != {CACHE_SCHEMA_VERSION}), rebuilding")
+        logger.info(
+            f"{field} cache stale (schema {cached.get('_schema_version')} != {CACHE_SCHEMA_VERSION}), rebuilding"
+        )
         cached = None
     if cached is not None:
         if _is_demo_user:
             return limit_demo_frames(cached)
         raw = mgr.serve_frames_file(
-            cache_key, lat_min, lat_max, lon_min, lon_max,
+            cache_key,
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
             use_covering=True,
         )
         if raw is not None:
@@ -897,13 +1199,20 @@ async def api_get_field_frames(
         return cached
 
     covering_raw = mgr.serve_frames_file(
-        cache_key, lat_min, lat_max, lon_min, lon_max,
+        cache_key,
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
         use_covering=True,
     )
     if covering_raw is not None:
-        logger.info(f"{field} frames: serving covering cache for [{lat_min:.0f},{lat_max:.0f}]x[{lon_min:.0f},{lon_max:.0f}]")
+        logger.info(
+            f"{field} frames: serving covering cache for [{lat_min:.0f},{lat_max:.0f}]x[{lon_min:.0f},{lon_max:.0f}]"
+        )
         if _is_demo_user:
             import json as _json
+
             covering_data = _json.loads(covering_raw.body)
             return limit_demo_frames(covering_data)
         return covering_raw
@@ -911,8 +1220,13 @@ async def api_get_field_frames(
     db_weather = _db_weather()
     if db_weather is not None:
         cached = await asyncio.to_thread(
-            build_frames_from_db, field, db_weather,
-            lat_min, lat_max, lon_min, lon_max,
+            build_frames_from_db,
+            field,
+            db_weather,
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
         )
         if cached:
             mgr.cache_put(cache_key, cached)
@@ -930,12 +1244,14 @@ async def api_get_field_frames(
     }
     if field == "wind":
         providers = _get_providers()
-        gfs_provider = providers['gfs']
+        gfs_provider = providers["gfs"]
         run_date, run_hour = gfs_provider._get_latest_run()
         from datetime import datetime as dt
+
         run_time = dt.strptime(f"{run_date}{run_hour}", "%Y%m%d%H")
-        empty.update(run_date=run_date, run_hour=run_hour,
-                     run_time=run_time.isoformat())
+        empty.update(
+            run_date=run_date, run_hour=run_hour, run_time=run_time.isoformat()
+        )
     else:
         empty.update(lats=[], lons=[], ny=0, nx=0)
     return empty
@@ -954,8 +1270,10 @@ async def api_weather_layer_resync(
     db_weather = _db_weather()
 
     if field not in WEATHER_FIELDS:
-        raise HTTPException(status_code=400,
-                            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}")
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unknown field: {field}. Valid: {list(FIELD_NAMES)}",
+        )
     if weather_ingestion is None:
         raise HTTPException(status_code=503, detail="Weather ingestion not configured")
 
@@ -963,15 +1281,22 @@ async def api_weather_layer_resync(
 
     has_bbox = all(v is not None for v in (lat_min, lat_max, lon_min, lon_max))
     if has_bbox:
-        lat_min, lat_max, lon_min, lon_max = clamp_bbox(lat_min, lat_max, lon_min, lon_max)
+        lat_min, lat_max, lon_min, lon_max = clamp_bbox(
+            lat_min, lat_max, lon_min, lon_max
+        )
 
-    logger.info(f"Per-layer resync starting: {field}" +
-                (f" bbox=[{lat_min:.1f},{lat_max:.1f}]x[{lon_min:.1f},{lon_max:.1f}]" if has_bbox else ""))
+    logger.info(
+        f"Per-layer resync starting: {field}"
+        + (
+            f" bbox=[{lat_min:.1f},{lat_max:.1f}]x[{lon_min:.1f},{lon_max:.1f}]"
+            if has_bbox
+            else ""
+        )
+    )
 
     if not acquire_resync(field):
         raise HTTPException(
-            status_code=409,
-            detail=f"Resync already running: {get_resync_status()}"
+            status_code=409, detail=f"Resync already running: {get_resync_status()}"
         )
 
     try:
@@ -992,9 +1317,13 @@ async def api_weather_layer_resync(
 
         cleanup_stale_caches()
 
-        _, db_ingested_at = db_weather._find_latest_run(cfg.source) if db_weather else (None, None)
+        _, db_ingested_at = (
+            db_weather._find_latest_run(cfg.source) if db_weather else (None, None)
+        )
         ingested_at = db_ingested_at or datetime.now(timezone.utc)
-        logger.info(f"Per-layer resync complete: {field}, ingested_at={ingested_at.isoformat()}")
+        logger.info(
+            f"Per-layer resync complete: {field}, ingested_at={ingested_at.isoformat()}"
+        )
         return {"status": "complete", "ingested_at": ingested_at.isoformat()}
 
     except Exception as e:

@@ -4,6 +4,7 @@ Resilience patterns for WINDMAR API.
 Provides circuit breakers, retry logic, and fallback mechanisms
 for external service calls.
 """
+
 import logging
 import functools
 import asyncio
@@ -24,13 +25,14 @@ from tenacity import (
 
 logger = logging.getLogger(__name__)
 
-T = TypeVar('T')
+T = TypeVar("T")
 
 
 class CircuitState(Enum):
     """Circuit breaker states."""
-    CLOSED = "closed"      # Normal operation
-    OPEN = "open"          # Failing, reject requests
+
+    CLOSED = "closed"  # Normal operation
+    OPEN = "open"  # Failing, reject requests
     HALF_OPEN = "half_open"  # Testing if service recovered
 
 
@@ -49,6 +51,7 @@ class CircuitBreaker:
         def call_external_service():
             ...
     """
+
     name: str
     failure_threshold: int = 5
     recovery_timeout: int = 60  # seconds
@@ -83,7 +86,9 @@ class CircuitBreaker:
             if self._state == CircuitState.OPEN:
                 # Check if recovery timeout has elapsed
                 if self._last_failure_time:
-                    elapsed = (datetime.now(timezone.utc) - self._last_failure_time).total_seconds()
+                    elapsed = (
+                        datetime.now(timezone.utc) - self._last_failure_time
+                    ).total_seconds()
                     if elapsed >= self.recovery_timeout:
                         self._transition_to_half_open()
 
@@ -99,7 +104,9 @@ class CircuitBreaker:
         """Transition to open state."""
         self._state = CircuitState.OPEN
         self._last_failure_time = datetime.now(timezone.utc)
-        logger.warning(f"Circuit breaker '{self.name}' OPENED after {self._failure_count} failures")
+        logger.warning(
+            f"Circuit breaker '{self.name}' OPENED after {self._failure_count} failures"
+        )
 
     def _transition_to_closed(self):
         """Transition to closed state."""
@@ -138,6 +145,7 @@ class CircuitBreaker:
 
     def __call__(self, func: Callable[..., T]) -> Callable[..., T]:
         """Decorator to wrap function with circuit breaker."""
+
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> T:
             state = self._check_state()
@@ -160,6 +168,7 @@ class CircuitBreaker:
 
     def call_async(self, func: Callable[..., T]) -> Callable[..., T]:
         """Async decorator to wrap function with circuit breaker."""
+
         @functools.wraps(func)
         async def wrapper(*args, **kwargs) -> T:
             state = self._check_state()
@@ -184,18 +193,23 @@ class CircuitBreaker:
         """Get circuit breaker status."""
         with self._lock:
             return {
-                'name': self.name,
-                'state': self._state.value,
-                'failure_count': self._failure_count,
-                'success_count': self._success_count,
-                'last_failure': self._last_failure_time.isoformat() if self._last_failure_time else None,
-                'failure_threshold': self.failure_threshold,
-                'recovery_timeout_seconds': self.recovery_timeout,
+                "name": self.name,
+                "state": self._state.value,
+                "failure_count": self._failure_count,
+                "success_count": self._success_count,
+                "last_failure": (
+                    self._last_failure_time.isoformat()
+                    if self._last_failure_time
+                    else None
+                ),
+                "failure_threshold": self.failure_threshold,
+                "recovery_timeout_seconds": self.recovery_timeout,
             }
 
 
 class CircuitOpenError(Exception):
     """Raised when circuit breaker is open."""
+
     pass
 
 
@@ -233,6 +247,7 @@ def with_retry(
         def call_external_service():
             ...
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @retry(
             stop=stop_after_attempt(max_attempts),
@@ -265,6 +280,7 @@ def with_retry_async(
         max_wait: Maximum wait time between retries (seconds)
         exceptions: Tuple of exception types to retry on
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @retry(
             stop=stop_after_attempt(max_attempts),
@@ -299,6 +315,7 @@ def with_fallback(fallback_value: T = None, fallback_func: Callable = None):
         def fetch_data():
             ...
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> T:
@@ -326,6 +343,7 @@ def with_timeout(seconds: float):
     Args:
         seconds: Timeout in seconds
     """
+
     def decorator(func: Callable[..., T]) -> Callable[..., T]:
         @functools.wraps(func)
         def wrapper(*args, **kwargs) -> T:
@@ -336,7 +354,9 @@ def with_timeout(seconds: float):
                 try:
                     return future.result(timeout=seconds)
                 except concurrent.futures.TimeoutError:
-                    raise TimeoutError(f"Function {func.__name__} timed out after {seconds}s")
+                    raise TimeoutError(
+                        f"Function {func.__name__} timed out after {seconds}s"
+                    )
 
         return wrapper
 

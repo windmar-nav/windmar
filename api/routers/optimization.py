@@ -70,7 +70,7 @@ async def optimize_route(request: OptimizationRequest):
 def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationResponse":
     """Synchronous route optimization logic (runs in a thread pool)."""
     _vs = get_vessel_state()
-    db_weather = get_app_state().weather_providers.get('db_weather')
+    db_weather = get_app_state().weather_providers.get("db_weather")
 
     departure = request.departure_time or datetime.now(timezone.utc)
 
@@ -78,7 +78,8 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
     engine_name = request.engine.lower()
     vessel_model = _vs.model
     resolution = (
-        max(request.grid_resolution_deg, 0.25) if engine_name == "dijkstra"
+        max(request.grid_resolution_deg, 0.25)
+        if engine_name == "dijkstra"
         else request.grid_resolution_deg
     )
 
@@ -113,7 +114,10 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
                     departure_time=departure,
                     calm_speed_kts=request.calm_speed_kts,
                 )
-                avail_parts = [f"{s}: {v.get('coverage_pct',0):.0f}%" for s,v in wx_needs.availability.items()]
+                avail_parts = [
+                    f"{s}: {v.get('coverage_pct',0):.0f}%"
+                    for s, v in wx_needs.availability.items()
+                ]
                 logger.info(
                     f"Weather assessment: {wx_needs.estimated_passage_hours:.0f}h passage, "
                     f"need hours {wx_needs.required_forecast_hours[:5]}..., "
@@ -124,13 +128,20 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
                 if temporal_wx is not None:
                     used_temporal = True
                     params_loaded = list(temporal_wx.grids.keys())
-                    has_temporal_wind = any(p in temporal_wx.grids for p in ["wind_u", "wind_v"])
+                    has_temporal_wind = any(
+                        p in temporal_wx.grids for p in ["wind_u", "wind_v"]
+                    )
                     if not has_temporal_wind:
                         bbox = wx_needs.corridor_bbox
-                        if supplement_temporal_wind(temporal_wx, bbox[0], bbox[1], bbox[2], bbox[3], departure):
+                        if supplement_temporal_wind(
+                            temporal_wx, bbox[0], bbox[1], bbox[2], bbox[3], departure
+                        ):
                             has_temporal_wind = True
                             params_loaded = list(temporal_wx.grids.keys())
-                    hours_per_param = {p: sorted(temporal_wx.grids[p].keys()) for p in params_loaded[:3]}
+                    hours_per_param = {
+                        p: sorted(temporal_wx.grids[p].keys())
+                        for p in params_loaded[:3]
+                    }
                     logger.info(
                         f"Temporal provider: {len(params_loaded)} params ({params_loaded}), "
                         f"wind={'yes' if has_temporal_wind else 'NO (calm assumed)'}, "
@@ -145,11 +156,18 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
                         )
                         for p in temporal_wx.provenance.values()
                     ]
-                    logger.info("Using temporal weather provider for route optimization")
+                    logger.info(
+                        "Using temporal weather provider for route optimization"
+                    )
                 else:
-                    logger.warning("Temporal provisioning returned None — falling back to single-snapshot")
+                    logger.warning(
+                        "Temporal provisioning returned None — falling back to single-snapshot"
+                    )
             except Exception as e:
-                logger.warning(f"Temporal weather provisioning failed, falling back: {e}", exc_info=True)
+                logger.warning(
+                    f"Temporal weather provisioning failed, falling back: {e}",
+                    exc_info=True,
+                )
 
         # ── Fallback: single-snapshot GridWeatherProvider ─────────────
         if temporal_wx is None:
@@ -160,21 +178,59 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
             lon_max = max(request.origin.lon, request.destination.lon) + margin
             lat_min, lat_max = max(lat_min, -85), min(lat_max, 85)
 
-            logger.info(f"Fallback: loading single-snapshot weather for bbox [{lat_min:.1f},{lat_max:.1f},{lon_min:.1f},{lon_max:.1f}]")
+            logger.info(
+                f"Fallback: loading single-snapshot weather for bbox [{lat_min:.1f},{lat_max:.1f},{lon_min:.1f},{lon_max:.1f}]"
+            )
             t0 = _time.monotonic()
-            wind = get_wind_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
-            logger.info(f"  Wind loaded in {_time.monotonic()-t0:.1f}s: source={getattr(wind, 'source', '?')}")
+            wind = get_wind_field(
+                lat_min,
+                lat_max,
+                lon_min,
+                lon_max,
+                request.grid_resolution_deg,
+                departure,
+            )
+            logger.info(
+                f"  Wind loaded in {_time.monotonic()-t0:.1f}s: source={getattr(wind, 'source', '?')}"
+            )
             t1 = _time.monotonic()
-            waves = get_wave_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, wind)
+            waves = get_wave_field(
+                lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, wind
+            )
             logger.info(f"  Waves loaded in {_time.monotonic()-t1:.1f}s")
             t2 = _time.monotonic()
-            currents = get_current_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg)
+            currents = get_current_field(
+                lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg
+            )
             logger.info(f"  Currents loaded in {_time.monotonic()-t2:.1f}s")
             # Extended fields (SPEC-P1)
-            sst = get_sst_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
-            vis = get_visibility_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
-            ice = get_ice_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
-            logger.info(f"  Total fallback: {_time.monotonic()-t0:.1f}s (incl. SST/vis/ice)")
+            sst = get_sst_field(
+                lat_min,
+                lat_max,
+                lon_min,
+                lon_max,
+                request.grid_resolution_deg,
+                departure,
+            )
+            vis = get_visibility_field(
+                lat_min,
+                lat_max,
+                lon_min,
+                lon_max,
+                request.grid_resolution_deg,
+                departure,
+            )
+            ice = get_ice_field(
+                lat_min,
+                lat_max,
+                lon_min,
+                lon_max,
+                request.grid_resolution_deg,
+                departure,
+            )
+            logger.info(
+                f"  Total fallback: {_time.monotonic()-t0:.1f}s (incl. SST/vis/ice)"
+            )
             grid_wx = GridWeatherProvider(wind, waves, currents, sst, vis, ice)
 
         # Select weather provider callable
@@ -238,35 +294,65 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
             # Per-leg provenance label
             data_source_label = None
             if used_temporal and temporal_wx is not None:
-                leg_time = departure + timedelta(hours=cum_time_h + leg['time_hours'] / 2)
+                leg_time = departure + timedelta(
+                    hours=cum_time_h + leg["time_hours"] / 2
+                )
                 prov = temporal_wx.get_provenance(leg_time)
                 data_source_label = f"{prov.source_type} ({prov.confidence} confidence)"
-            cum_time_h += leg['time_hours']
+            cum_time_h += leg["time_hours"]
 
-            legs.append(OptimizationLegModel(
-                from_lat=leg['from'][0],
-                from_lon=leg['from'][1],
-                to_lat=leg['to'][0],
-                to_lon=leg['to'][1],
-                distance_nm=round(leg['distance_nm'], 2),
-                bearing_deg=round(leg['bearing_deg'], 1),
-                fuel_mt=round(leg['fuel_mt'], 3),
-                time_hours=round(leg['time_hours'], 2),
-                sog_kts=round(leg['sog_kts'], 1),
-                stw_kts=round(leg.get('stw_kts', leg['sog_kts']), 1),
-                wind_speed_ms=round(leg['wind_speed_ms'], 1),
-                wave_height_m=round(leg['wave_height_m'], 1),
-                safety_status=leg.get('safety_status'),
-                roll_deg=round(leg['roll_deg'], 1) if leg.get('roll_deg') else None,
-                pitch_deg=round(leg['pitch_deg'], 1) if leg.get('pitch_deg') else None,
-                data_source=data_source_label,
-                swell_hs_m=round(leg['swell_hs_m'], 2) if leg.get('swell_hs_m') is not None else None,
-                windsea_hs_m=round(leg['windsea_hs_m'], 2) if leg.get('windsea_hs_m') is not None else None,
-                current_effect_kts=round(leg['current_effect_kts'], 2) if leg.get('current_effect_kts') is not None else None,
-                visibility_m=round(leg['visibility_m'], 0) if leg.get('visibility_m') is not None else None,
-                sst_celsius=round(leg['sst_celsius'], 1) if leg.get('sst_celsius') is not None else None,
-                ice_concentration=round(leg['ice_concentration'], 3) if leg.get('ice_concentration') is not None else None,
-            ))
+            legs.append(
+                OptimizationLegModel(
+                    from_lat=leg["from"][0],
+                    from_lon=leg["from"][1],
+                    to_lat=leg["to"][0],
+                    to_lon=leg["to"][1],
+                    distance_nm=round(leg["distance_nm"], 2),
+                    bearing_deg=round(leg["bearing_deg"], 1),
+                    fuel_mt=round(leg["fuel_mt"], 3),
+                    time_hours=round(leg["time_hours"], 2),
+                    sog_kts=round(leg["sog_kts"], 1),
+                    stw_kts=round(leg.get("stw_kts", leg["sog_kts"]), 1),
+                    wind_speed_ms=round(leg["wind_speed_ms"], 1),
+                    wave_height_m=round(leg["wave_height_m"], 1),
+                    safety_status=leg.get("safety_status"),
+                    roll_deg=round(leg["roll_deg"], 1) if leg.get("roll_deg") else None,
+                    pitch_deg=(
+                        round(leg["pitch_deg"], 1) if leg.get("pitch_deg") else None
+                    ),
+                    data_source=data_source_label,
+                    swell_hs_m=(
+                        round(leg["swell_hs_m"], 2)
+                        if leg.get("swell_hs_m") is not None
+                        else None
+                    ),
+                    windsea_hs_m=(
+                        round(leg["windsea_hs_m"], 2)
+                        if leg.get("windsea_hs_m") is not None
+                        else None
+                    ),
+                    current_effect_kts=(
+                        round(leg["current_effect_kts"], 2)
+                        if leg.get("current_effect_kts") is not None
+                        else None
+                    ),
+                    visibility_m=(
+                        round(leg["visibility_m"], 0)
+                        if leg.get("visibility_m") is not None
+                        else None
+                    ),
+                    sst_celsius=(
+                        round(leg["sst_celsius"], 1)
+                        if leg.get("sst_celsius") is not None
+                        else None
+                    ),
+                    ice_concentration=(
+                        round(leg["ice_concentration"], 3)
+                        if leg.get("ice_concentration") is not None
+                        else None
+                    ),
+                )
+            )
 
         # Build safety summary
         safety_summary = SafetySummary(
@@ -282,41 +368,73 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
         for sc in result.scenarios:
             sc_legs = []
             for leg in sc.leg_details:
-                sc_legs.append(OptimizationLegModel(
-                    from_lat=leg['from'][0],
-                    from_lon=leg['from'][1],
-                    to_lat=leg['to'][0],
-                    to_lon=leg['to'][1],
-                    distance_nm=round(leg['distance_nm'], 2),
-                    bearing_deg=round(leg['bearing_deg'], 1),
-                    fuel_mt=round(leg['fuel_mt'], 3),
-                    time_hours=round(leg['time_hours'], 2),
-                    sog_kts=round(leg['sog_kts'], 1),
-                    stw_kts=round(leg.get('stw_kts', leg['sog_kts']), 1),
-                    wind_speed_ms=round(leg['wind_speed_ms'], 1),
-                    wave_height_m=round(leg['wave_height_m'], 1),
-                    safety_status=leg.get('safety_status'),
-                    roll_deg=round(leg['roll_deg'], 1) if leg.get('roll_deg') else None,
-                    pitch_deg=round(leg['pitch_deg'], 1) if leg.get('pitch_deg') else None,
-                    swell_hs_m=round(leg['swell_hs_m'], 2) if leg.get('swell_hs_m') is not None else None,
-                    windsea_hs_m=round(leg['windsea_hs_m'], 2) if leg.get('windsea_hs_m') is not None else None,
-                    current_effect_kts=round(leg['current_effect_kts'], 2) if leg.get('current_effect_kts') is not None else None,
-                    visibility_m=round(leg['visibility_m'], 0) if leg.get('visibility_m') is not None else None,
-                    sst_celsius=round(leg['sst_celsius'], 1) if leg.get('sst_celsius') is not None else None,
-                    ice_concentration=round(leg['ice_concentration'], 3) if leg.get('ice_concentration') is not None else None,
-                ))
-            scenario_models.append(SpeedScenarioModel(
-                strategy=sc.strategy,
-                label=sc.label,
-                total_fuel_mt=round(sc.total_fuel_mt, 2),
-                total_time_hours=round(sc.total_time_hours, 2),
-                total_distance_nm=round(sc.total_distance_nm, 1),
-                avg_speed_kts=round(sc.avg_speed_kts, 1),
-                speed_profile=[round(s, 1) for s in sc.speed_profile],
-                legs=sc_legs,
-                fuel_savings_pct=round(sc.fuel_savings_pct, 1),
-                time_savings_pct=round(sc.time_savings_pct, 1),
-            ))
+                sc_legs.append(
+                    OptimizationLegModel(
+                        from_lat=leg["from"][0],
+                        from_lon=leg["from"][1],
+                        to_lat=leg["to"][0],
+                        to_lon=leg["to"][1],
+                        distance_nm=round(leg["distance_nm"], 2),
+                        bearing_deg=round(leg["bearing_deg"], 1),
+                        fuel_mt=round(leg["fuel_mt"], 3),
+                        time_hours=round(leg["time_hours"], 2),
+                        sog_kts=round(leg["sog_kts"], 1),
+                        stw_kts=round(leg.get("stw_kts", leg["sog_kts"]), 1),
+                        wind_speed_ms=round(leg["wind_speed_ms"], 1),
+                        wave_height_m=round(leg["wave_height_m"], 1),
+                        safety_status=leg.get("safety_status"),
+                        roll_deg=(
+                            round(leg["roll_deg"], 1) if leg.get("roll_deg") else None
+                        ),
+                        pitch_deg=(
+                            round(leg["pitch_deg"], 1) if leg.get("pitch_deg") else None
+                        ),
+                        swell_hs_m=(
+                            round(leg["swell_hs_m"], 2)
+                            if leg.get("swell_hs_m") is not None
+                            else None
+                        ),
+                        windsea_hs_m=(
+                            round(leg["windsea_hs_m"], 2)
+                            if leg.get("windsea_hs_m") is not None
+                            else None
+                        ),
+                        current_effect_kts=(
+                            round(leg["current_effect_kts"], 2)
+                            if leg.get("current_effect_kts") is not None
+                            else None
+                        ),
+                        visibility_m=(
+                            round(leg["visibility_m"], 0)
+                            if leg.get("visibility_m") is not None
+                            else None
+                        ),
+                        sst_celsius=(
+                            round(leg["sst_celsius"], 1)
+                            if leg.get("sst_celsius") is not None
+                            else None
+                        ),
+                        ice_concentration=(
+                            round(leg["ice_concentration"], 3)
+                            if leg.get("ice_concentration") is not None
+                            else None
+                        ),
+                    )
+                )
+            scenario_models.append(
+                SpeedScenarioModel(
+                    strategy=sc.strategy,
+                    label=sc.label,
+                    total_fuel_mt=round(sc.total_fuel_mt, 2),
+                    total_time_hours=round(sc.total_time_hours, 2),
+                    total_distance_nm=round(sc.total_distance_nm, 1),
+                    avg_speed_kts=round(sc.avg_speed_kts, 1),
+                    speed_profile=[round(s, 1) for s in sc.speed_profile],
+                    legs=sc_legs,
+                    fuel_savings_pct=round(sc.fuel_savings_pct, 1),
+                    time_savings_pct=round(sc.time_savings_pct, 1),
+                )
+            )
 
         # Build Pareto front models (if available)
         pareto_models = None
@@ -347,13 +465,24 @@ def _optimize_route_sync(request: "OptimizationRequest") -> "OptimizationRespons
             avg_speed_kts=round(result.avg_speed_kts, 1),
             variable_speed_enabled=result.variable_speed_enabled,
             engine=engine_name,
-            variable_resolution_enabled=request.variable_resolution and engine_name != "dijkstra",
+            variable_resolution_enabled=request.variable_resolution
+            and engine_name != "dijkstra",
             safety=safety_summary,
             scenarios=scenario_models,
             pareto_front=pareto_models,
-            baseline_fuel_mt=round(result.baseline_fuel_mt, 2) if result.baseline_fuel_mt else None,
-            baseline_time_hours=round(result.baseline_time_hours, 2) if result.baseline_time_hours else None,
-            baseline_distance_nm=round(result.baseline_distance_nm, 1) if result.baseline_distance_nm else None,
+            baseline_fuel_mt=(
+                round(result.baseline_fuel_mt, 2) if result.baseline_fuel_mt else None
+            ),
+            baseline_time_hours=(
+                round(result.baseline_time_hours, 2)
+                if result.baseline_time_hours
+                else None
+            ),
+            baseline_distance_nm=(
+                round(result.baseline_distance_nm, 1)
+                if result.baseline_distance_nm
+                else None
+            ),
             weather_provenance=provenance_models,
             temporal_weather=used_temporal,
             optimization_target=request.optimization_target,
@@ -381,7 +510,7 @@ async def get_optimization_status():
         "vessel_model": {
             "dwt": _vs.specs.dwt,
             "service_speed_laden": _vs.specs.service_speed_laden,
-        }
+        },
     }
 
 
@@ -399,7 +528,7 @@ async def benchmark_engines(request: BenchmarkRequest):
 def _benchmark_sync(request: "BenchmarkRequest") -> "BenchmarkResponse":
     """Synchronous benchmark logic (runs in a thread pool)."""
     _vs = get_vessel_state()
-    db_weather = get_app_state().weather_providers.get('db_weather')
+    db_weather = get_app_state().weather_providers.get("db_weather")
     departure = request.departure_time or datetime.now(timezone.utc)
     vessel_model = _vs.model
 
@@ -416,12 +545,24 @@ def _benchmark_sync(request: "BenchmarkRequest") -> "BenchmarkResponse":
     lon_max = max(request.origin.lon, request.destination.lon) + margin
     lat_min, lat_max = max(lat_min, -85), min(lat_max, 85)
 
-    wind = get_wind_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
-    waves = get_wave_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, wind)
-    currents = get_current_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg)
-    sst = get_sst_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
-    vis = get_visibility_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
-    ice = get_ice_field(lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure)
+    wind = get_wind_field(
+        lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure
+    )
+    waves = get_wave_field(
+        lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, wind
+    )
+    currents = get_current_field(
+        lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg
+    )
+    sst = get_sst_field(
+        lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure
+    )
+    vis = get_visibility_field(
+        lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure
+    )
+    ice = get_ice_field(
+        lat_min, lat_max, lon_min, lon_max, request.grid_resolution_deg, departure
+    )
     grid_wx = GridWeatherProvider(wind, waves, currents, sst, vis, ice)
     wx_provider = grid_wx.get_weather
 
@@ -429,7 +570,8 @@ def _benchmark_sync(request: "BenchmarkRequest") -> "BenchmarkResponse":
     for engine_name in engines:
         try:
             resolution = (
-                max(request.grid_resolution_deg, 0.25) if engine_name == "dijkstra"
+                max(request.grid_resolution_deg, 0.25)
+                if engine_name == "dijkstra"
                 else request.grid_resolution_deg
             )
 
@@ -458,27 +600,31 @@ def _benchmark_sync(request: "BenchmarkRequest") -> "BenchmarkResponse":
                 max_time_factor=request.max_time_factor,
             )
 
-            results.append(BenchmarkEngineResult(
-                engine=engine_name,
-                total_fuel_mt=round(result.total_fuel_mt, 2),
-                total_time_hours=round(result.total_time_hours, 2),
-                total_distance_nm=round(result.total_distance_nm, 1),
-                cells_explored=result.cells_explored,
-                optimization_time_ms=round(result.optimization_time_ms, 1),
-                waypoint_count=len(result.waypoints),
-            ))
+            results.append(
+                BenchmarkEngineResult(
+                    engine=engine_name,
+                    total_fuel_mt=round(result.total_fuel_mt, 2),
+                    total_time_hours=round(result.total_time_hours, 2),
+                    total_distance_nm=round(result.total_distance_nm, 1),
+                    cells_explored=result.cells_explored,
+                    optimization_time_ms=round(result.optimization_time_ms, 1),
+                    waypoint_count=len(result.waypoints),
+                )
+            )
         except Exception as e:
             logger.error(f"Benchmark engine {engine_name} failed: {e}", exc_info=True)
-            results.append(BenchmarkEngineResult(
-                engine=engine_name,
-                total_fuel_mt=0,
-                total_time_hours=0,
-                total_distance_nm=0,
-                cells_explored=0,
-                optimization_time_ms=0,
-                waypoint_count=0,
-                error=str(e),
-            ))
+            results.append(
+                BenchmarkEngineResult(
+                    engine=engine_name,
+                    total_fuel_mt=0,
+                    total_time_hours=0,
+                    total_distance_nm=0,
+                    cells_explored=0,
+                    optimization_time_ms=0,
+                    waypoint_count=0,
+                    error=str(e),
+                )
+            )
 
     return BenchmarkResponse(
         results=results,

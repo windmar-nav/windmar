@@ -14,7 +14,6 @@ import matplotlib.pyplot as plt
 import numpy as np
 from matplotlib.animation import FuncAnimation
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -39,6 +38,7 @@ class WeatherPlotter:
             try:
                 import cartopy.crs as ccrs
                 import cartopy.feature as cfeature
+
                 self.ccrs = ccrs
                 self.cfeature = cfeature
             except ImportError:
@@ -242,7 +242,9 @@ class WeatherPlotter:
         fig, (ax1, ax2, ax3) = plt.subplots(3, 1, figsize=(12, 10), sharex=True)
 
         # Extract data
-        wind_speeds = [w.get("wind_speed_ms", 0) * 1.944 for w in weather_data]  # Convert to knots
+        wind_speeds = [
+            w.get("wind_speed_ms", 0) * 1.944 for w in weather_data
+        ]  # Convert to knots
         wave_heights = [w.get("sig_wave_height_m", 0) for w in weather_data]
         wind_dirs = [w.get("wind_dir_deg", 0) for w in weather_data]
 
@@ -298,9 +300,7 @@ class WeatherPlotter:
             forecast_times = grib_parser.get_forecast_times()
 
             # Get first frame to set up plot
-            lats, lons, values = grib_parser.get_grid_data(
-                variable, forecast_times[0]
-            )
+            lats, lons, values = grib_parser.get_grid_data(variable, forecast_times[0])
 
             # Create figure
             if self.use_cartopy:

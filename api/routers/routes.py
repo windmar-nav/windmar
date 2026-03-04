@@ -44,13 +44,13 @@ async def parse_rtz(
         if len(content) > MAX_RTZ_SIZE_BYTES:
             raise HTTPException(
                 status_code=413,
-                detail=f"File too large. Maximum size: {MAX_RTZ_SIZE_BYTES // (1024*1024)} MB"
+                detail=f"File too large. Maximum size: {MAX_RTZ_SIZE_BYTES // (1024*1024)} MB",
             )
 
         if len(content) == 0:
             raise HTTPException(status_code=400, detail="Empty file")
 
-        rtz_string = content.decode('utf-8')
+        rtz_string = content.decode("utf-8")
 
         route = parse_rtz_string(rtz_string)
 
@@ -74,7 +74,7 @@ async def parse_rtz(
                     "bearing_deg": leg.bearing_deg,
                 }
                 for leg in route.legs
-            ]
+            ],
         }
     except Exception as e:
         logger.error(f"Failed to parse RTZ: {e}")
@@ -117,5 +117,5 @@ async def create_route_from_wps(
                 "bearing_deg": leg.bearing_deg,
             }
             for leg in route.legs
-        ]
+        ],
     }

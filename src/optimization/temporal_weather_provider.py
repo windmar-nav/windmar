@@ -28,13 +28,16 @@ logger = logging.getLogger(__name__)
 @dataclass
 class WeatherProvenance:
     """Metadata about the source and confidence of weather data."""
+
     source_type: str  # "forecast", "hindcast", "climatology", "blended"
     model_name: str  # "GFS", "CMEMS_wave", "CMEMS_current", "ERA5", etc.
     forecast_lead_hours: float  # hours ahead of model run time
     confidence: str  # "high" (<72h), "medium" (72-120h), "low" (>120h / climatology)
 
     @staticmethod
-    def from_lead_hours(lead_hours: float, model_name: str = "multi") -> "WeatherProvenance":
+    def from_lead_hours(
+        lead_hours: float, model_name: str = "multi"
+    ) -> "WeatherProvenance":
         if lead_hours < 72:
             confidence = "high"
         elif lead_hours < 120:
@@ -66,7 +69,10 @@ class TemporalGridWeatherProvider:
     """
 
     # Parameters that use vector (U/V) decomposition
-    VECTOR_PARAMS = {"wind": ("wind_u", "wind_v"), "current": ("current_u", "current_v")}
+    VECTOR_PARAMS = {
+        "wind": ("wind_u", "wind_v"),
+        "current": ("current_u", "current_v"),
+    }
 
     # Scalar wave parameters
     WAVE_PARAMS = ("wave_hs", "wave_tp", "wave_dir")
@@ -93,7 +99,9 @@ class TemporalGridWeatherProvider:
 
         # Log summary
         params_summary = {p: len(h) for p, h in self._sorted_hours.items()}
-        logger.info(f"TemporalGridWeatherProvider initialized: run_time={run_time}, params={params_summary}")
+        logger.info(
+            f"TemporalGridWeatherProvider initialized: run_time={run_time}, params={params_summary}"
+        )
 
     def get_weather(self, lat: float, lon: float, time: datetime) -> LegWeather:
         """Get weather at (lat, lon, time) via trilinear interpolation.

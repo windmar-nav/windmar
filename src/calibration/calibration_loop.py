@@ -42,12 +42,13 @@ class CalibrationCoefficients:
     All coefficients are multiplicative factors around 1.0.
     E.g., C3=1.1 means wave resistance is 10% higher than model predicts.
     """
-    C1_calm_water: float = 1.0      # Calm water resistance factor
-    C2_wind: float = 1.0            # Wind resistance factor
-    C3_waves: float = 1.0           # Wave added resistance factor
-    C4_current: float = 1.0         # Current effect factor
-    C5_fouling: float = 1.0         # Hull fouling factor
-    C6_trim: float = 1.0            # Trim effect factor
+
+    C1_calm_water: float = 1.0  # Calm water resistance factor
+    C2_wind: float = 1.0  # Wind resistance factor
+    C3_waves: float = 1.0  # Wave added resistance factor
+    C4_current: float = 1.0  # Current effect factor
+    C5_fouling: float = 1.0  # Hull fouling factor
+    C6_trim: float = 1.0  # Trim effect factor
 
     # Uncertainty estimates (standard deviation)
     C1_std: float = 0.1
@@ -66,7 +67,7 @@ class CalibrationCoefficients:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, data: dict) -> 'CalibrationCoefficients':
+    def from_dict(cls, data: dict) -> "CalibrationCoefficients":
         """Create from dictionary."""
         return cls(**{k: v for k, v in data.items() if k in cls.__dataclass_fields__})
 
@@ -75,7 +76,7 @@ class CalibrationCoefficients:
         return json.dumps(self.to_dict(), indent=2)
 
     @classmethod
-    def from_json(cls, json_str: str) -> 'CalibrationCoefficients':
+    def from_json(cls, json_str: str) -> "CalibrationCoefficients":
         """Deserialize from JSON."""
         return cls.from_dict(json.loads(json_str))
 
@@ -83,6 +84,7 @@ class CalibrationCoefficients:
 @dataclass
 class CalibrationState:
     """Current state of the calibration loop."""
+
     is_running: bool = False
     samples_processed: int = 0
     last_signal_time: Optional[datetime] = None
@@ -201,7 +203,9 @@ class CalibrationLoop:
             # Track wave error history
             self._state.wave_errors.append(signal.wave_hs_error)
             if len(self._state.wave_errors) > self.HISTORY_LENGTH:
-                self._state.wave_errors = self._state.wave_errors[-self.HISTORY_LENGTH:]
+                self._state.wave_errors = self._state.wave_errors[
+                    -self.HISTORY_LENGTH :
+                ]
 
             # Update coefficients based on errors
             updated = self._update_coefficients(signal)
@@ -216,12 +220,16 @@ class CalibrationLoop:
                 self._coefficients.total_samples += 1
 
                 # Track history
-                self._state.coefficients_history.append({
-                    'C3_waves': self._coefficients.C3_waves,
-                    'C2_wind': self._coefficients.C2_wind,
-                })
+                self._state.coefficients_history.append(
+                    {
+                        "C3_waves": self._coefficients.C3_waves,
+                        "C2_wind": self._coefficients.C2_wind,
+                    }
+                )
                 if len(self._state.coefficients_history) > self.HISTORY_LENGTH:
-                    self._state.coefficients_history = self._state.coefficients_history[-self.HISTORY_LENGTH:]
+                    self._state.coefficients_history = self._state.coefficients_history[
+                        -self.HISTORY_LENGTH :
+                    ]
 
                 # Check convergence
                 self._check_convergence()
@@ -244,7 +252,9 @@ class CalibrationLoop:
         if abs(signal.wave_hs_error) > 0.05:  # >5% error
             delta = signal.wave_hs_error * lr
             new_c3 = self._coefficients.C3_waves * (1 + delta)
-            self._coefficients.C3_waves = np.clip(new_c3, self.COEFF_MIN, self.COEFF_MAX)
+            self._coefficients.C3_waves = np.clip(
+                new_c3, self.COEFF_MIN, self.COEFF_MAX
+            )
             updated = True
             logger.debug(f"C3_waves adjusted to {self._coefficients.C3_waves:.4f}")
 
@@ -258,7 +268,9 @@ class CalibrationLoop:
                 motion_error = (signal.roll_rms_deg - 3.0) / 10.0  # Normalize
                 delta = motion_error * lr * 0.5  # Smaller adjustment for wind
                 new_c2 = self._coefficients.C2_wind * (1 + delta)
-                self._coefficients.C2_wind = np.clip(new_c2, self.COEFF_MIN, self.COEFF_MAX)
+                self._coefficients.C2_wind = np.clip(
+                    new_c2, self.COEFF_MIN, self.COEFF_MAX
+                )
                 updated = True
 
         # C4: Current effect - would need speed-over-ground vs speed-through-water
@@ -289,7 +301,7 @@ class CalibrationLoop:
             return
 
         # Check stability of C3 over recent history
-        recent_c3 = [h['C3_waves'] for h in self._state.coefficients_history[-20:]]
+        recent_c3 = [h["C3_waves"] for h in self._state.coefficients_history[-20:]]
         c3_std = np.std(recent_c3)
         c3_mean = np.mean(recent_c3)
 
@@ -359,14 +371,16 @@ class CalibrationLoop:
     def get_diagnostics(self) -> dict:
         """Get diagnostic information."""
         return {
-            'coefficients': self._coefficients.to_dict(),
-            'state': {
-                'is_running': self._state.is_running,
-                'samples_processed': self._state.samples_processed,
-                'is_converged': self._state.is_converged,
-                'convergence_metric': round(self._state.convergence_metric, 4),
+            "coefficients": self._coefficients.to_dict(),
+            "state": {
+                "is_running": self._state.is_running,
+                "samples_processed": self._state.samples_processed,
+                "is_converged": self._state.is_converged,
+                "convergence_metric": round(self._state.convergence_metric, 4),
             },
-            'recent_wave_errors': self._state.wave_errors[-10:] if self._state.wave_errors else [],
+            "recent_wave_errors": (
+                self._state.wave_errors[-10:] if self._state.wave_errors else []
+            ),
         }
 
 
@@ -406,7 +420,9 @@ def test_calibration_loop():
             print(f"\n[{i+1:3d}] Calibration update:")
             print(f"  C3 (waves): {coeffs.C3_waves:.4f} (std: {coeffs.C3_std:.3f})")
             print(f"  C2 (wind):  {coeffs.C2_wind:.4f}")
-            print(f"  Converged:  {state.is_converged} (metric: {state.convergence_metric:.4f})")
+            print(
+                f"  Converged:  {state.is_converged} (metric: {state.convergence_metric:.4f})"
+            )
 
     # Final state
     print("\n" + "=" * 50)

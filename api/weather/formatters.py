@@ -84,8 +84,16 @@ def format_single_frame(
         }
 
     if cfg.components == "vector":
-        response["u"] = subsample_2d(data.u_component, grid.step) if data.u_component is not None else []
-        response["v"] = subsample_2d(data.v_component, grid.step) if data.v_component is not None else []
+        response["u"] = (
+            subsample_2d(data.u_component, grid.step)
+            if data.u_component is not None
+            else []
+        )
+        response["v"] = (
+            subsample_2d(data.v_component, grid.step)
+            if data.v_component is not None
+            else []
+        )
 
     elif cfg.components == "wave_decomp":
         response["data"] = subsample_2d(data.values, grid.step, cfg.decimals)
@@ -109,19 +117,27 @@ def format_single_frame(
 
         if field_name == "swell":
             response["total_hs"] = subsample_2d(data.values, grid.step, cfg.decimals)
-            response["swell_hs"] = subsample_2d(data.swell_height, grid.step, cfg.decimals)
+            response["swell_hs"] = subsample_2d(
+                data.swell_height, grid.step, cfg.decimals
+            )
             response["swell_tp"] = subsample_2d(data.swell_period, grid.step, 1)
             response["swell_dir"] = subsample_2d(data.swell_direction, grid.step, 1)
-            response["windsea_hs"] = subsample_2d(data.windwave_height, grid.step, cfg.decimals)
+            response["windsea_hs"] = subsample_2d(
+                data.windwave_height, grid.step, cfg.decimals
+            )
             response["windsea_tp"] = subsample_2d(data.windwave_period, grid.step, 1)
-            response["windsea_dir"] = subsample_2d(data.windwave_direction, grid.step, 1)
+            response["windsea_dir"] = subsample_2d(
+                data.windwave_direction, grid.step, 1
+            )
 
     elif cfg.components == "scalar":
-        clean = np.nan_to_num(data.values[::grid.step, ::grid.step], nan=cfg.nan_fill)
+        clean = np.nan_to_num(data.values[:: grid.step, :: grid.step], nan=cfg.nan_fill)
         response["data"] = np.round(clean, cfg.decimals).tolist()
 
         if field_name == "ice" and data.ice_concentration is not None:
-            clean_ice = np.nan_to_num(data.ice_concentration[::grid.step, ::grid.step], nan=-999.0)
+            clean_ice = np.nan_to_num(
+                data.ice_concentration[:: grid.step, :: grid.step], nan=-999.0
+            )
             if "ocean_mask" in response:
                 ocean_arr = np.array(response["ocean_mask"], dtype=bool)
                 if clean_ice.shape == ocean_arr.shape:
@@ -180,7 +196,9 @@ def format_velocity_response(
         lat_north = float(actual_lats[0])
         lat_south = float(actual_lats[-1])
 
-    ref_time = data.time.isoformat() if isinstance(data.time, datetime) else time.isoformat()
+    ref_time = (
+        data.time.isoformat() if isinstance(data.time, datetime) else time.isoformat()
+    )
     header = {
         "parameterCategory": 2,
         "parameterNumber": 2,

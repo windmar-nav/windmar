@@ -8,6 +8,7 @@ Provides a production-grade caching solution that:
 - Is thread-safe for concurrent access
 - Provides metrics for monitoring
 """
+
 import threading
 import logging
 from typing import TypeVar, Optional, Dict, Any, Callable
@@ -18,13 +19,14 @@ import functools
 
 logger = logging.getLogger(__name__)
 
-K = TypeVar('K')
-V = TypeVar('V')
+K = TypeVar("K")
+V = TypeVar("V")
 
 
 @dataclass
 class CacheEntry:
     """Single cache entry with metadata."""
+
     value: Any
     created_at: datetime
     expires_at: Optional[datetime]
@@ -52,7 +54,7 @@ class BoundedLRUCache:
         self,
         max_size: int = 1000,
         default_ttl_seconds: Optional[int] = 3600,
-        name: str = "default"
+        name: str = "default",
     ):
         """
         Initialize cache.
@@ -107,12 +109,7 @@ class BoundedLRUCache:
             self._hits += 1
             return entry.value
 
-    def set(
-        self,
-        key: K,
-        value: V,
-        ttl_seconds: Optional[int] = None
-    ) -> None:
+    def set(self, key: K, value: V, ttl_seconds: Optional[int] = None) -> None:
         """
         Set value in cache.
 
@@ -197,7 +194,8 @@ class BoundedLRUCache:
         with self._lock:
             now = datetime.now(timezone.utc)
             expired_keys = [
-                key for key, entry in self._cache.items()
+                key
+                for key, entry in self._cache.items()
                 if entry.expires_at and now > entry.expires_at
             ]
 
@@ -206,15 +204,14 @@ class BoundedLRUCache:
                 self._expirations += 1
 
             if expired_keys:
-                logger.debug(f"Cache '{self.name}' cleanup: {len(expired_keys)} expired entries removed")
+                logger.debug(
+                    f"Cache '{self.name}' cleanup: {len(expired_keys)} expired entries removed"
+                )
 
             return len(expired_keys)
 
     def get_or_set(
-        self,
-        key: K,
-        factory: Callable[[], V],
-        ttl_seconds: Optional[int] = None
+        self, key: K, factory: Callable[[], V], ttl_seconds: Optional[int] = None
     ) -> V:
         """
         Get value from cache, or compute and cache it if missing.
@@ -252,15 +249,15 @@ class BoundedLRUCache:
             hit_rate = self._hits / total_requests if total_requests > 0 else 0.0
 
             return {
-                'name': self.name,
-                'size': len(self._cache),
-                'max_size': self.max_size,
-                'hits': self._hits,
-                'misses': self._misses,
-                'hit_rate': round(hit_rate, 4),
-                'evictions': self._evictions,
-                'expirations': self._expirations,
-                'default_ttl_seconds': self.default_ttl_seconds,
+                "name": self.name,
+                "size": len(self._cache),
+                "max_size": self.max_size,
+                "hits": self._hits,
+                "misses": self._misses,
+                "hit_rate": round(hit_rate, 4),
+                "evictions": self._evictions,
+                "expirations": self._expirations,
+                "default_ttl_seconds": self.default_ttl_seconds,
             }
 
     def __len__(self) -> int:
@@ -299,6 +296,7 @@ def cached(
         def get_weather(lat: float, lon: float):
             ...
     """
+
     def decorator(func: Callable) -> Callable:
         @functools.wraps(func)
         def wrapper(*args, **kwargs):
@@ -329,37 +327,31 @@ def cached(
 
 # Pre-configured caches for common use cases
 weather_cache = BoundedLRUCache(
-    max_size=500,
-    default_ttl_seconds=3600,  # 1 hour
-    name="weather"
+    max_size=500, default_ttl_seconds=3600, name="weather"  # 1 hour
 )
 
 route_cache = BoundedLRUCache(
-    max_size=100,
-    default_ttl_seconds=1800,  # 30 minutes
-    name="routes"
+    max_size=100, default_ttl_seconds=1800, name="routes"  # 30 minutes
 )
 
 calculation_cache = BoundedLRUCache(
-    max_size=200,
-    default_ttl_seconds=900,  # 15 minutes
-    name="calculations"
+    max_size=200, default_ttl_seconds=900, name="calculations"  # 15 minutes
 )
 
 
 def get_all_cache_stats() -> Dict[str, Dict[str, Any]]:
     """Get stats for all registered caches."""
     return {
-        'weather': weather_cache.get_stats(),
-        'routes': route_cache.get_stats(),
-        'calculations': calculation_cache.get_stats(),
+        "weather": weather_cache.get_stats(),
+        "routes": route_cache.get_stats(),
+        "calculations": calculation_cache.get_stats(),
     }
 
 
 def cleanup_all_caches() -> Dict[str, int]:
     """Cleanup expired entries from all caches."""
     return {
-        'weather': weather_cache.cleanup_expired(),
-        'routes': route_cache.cleanup_expired(),
-        'calculations': calculation_cache.cleanup_expired(),
+        "weather": weather_cache.cleanup_expired(),
+        "routes": route_cache.cleanup_expired(),
+        "calculations": calculation_cache.cleanup_expired(),
     }

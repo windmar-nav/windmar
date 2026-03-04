@@ -39,7 +39,11 @@ MAX_EXCEL_UPLOAD_BYTES = 50 * 1024 * 1024
 router = APIRouter(tags=["Engine Log"])
 
 
-@router.post("/api/engine-log/upload", response_model=EngineLogUploadResponse, dependencies=[Depends(require_not_demo("Engine log upload"))])
+@router.post(
+    "/api/engine-log/upload",
+    response_model=EngineLogUploadResponse,
+    dependencies=[Depends(require_not_demo("Engine log upload"))],
+)
 @limiter.limit("10/minute")
 async def upload_engine_log(
     request: Request,
@@ -56,11 +60,16 @@ async def upload_engine_log(
     if file.filename:
         suffix = Path(file.filename).suffix.lower() or ".xlsx"
         if suffix not in _ALLOWED_EXTS:
-            raise HTTPException(status_code=400, detail="Only .xlsx/.xls/.csv files accepted")
+            raise HTTPException(
+                status_code=400, detail="Only .xlsx/.xls/.csv files accepted"
+            )
 
     content = await file.read()
     if len(content) > MAX_EXCEL_UPLOAD_BYTES:
-        raise HTTPException(status_code=413, detail=f"File too large. Maximum: {MAX_EXCEL_UPLOAD_BYTES // (1024 * 1024)} MB")
+        raise HTTPException(
+            status_code=413,
+            detail=f"File too large. Maximum: {MAX_EXCEL_UPLOAD_BYTES // (1024 * 1024)} MB",
+        )
     if len(content) == 0:
         raise HTTPException(status_code=400, detail="Empty file")
 
@@ -196,20 +205,41 @@ async def get_engine_log_entries(
 
     return [
         EngineLogEntryResponse(
-            id=str(e.id), timestamp=e.timestamp, lapse_hours=e.lapse_hours,
-            place=e.place, event=e.event, rpm=e.rpm, engine_distance=e.engine_distance,
-            speed_stw=e.speed_stw, me_power_kw=e.me_power_kw, me_load_pct=e.me_load_pct,
-            me_fuel_index_pct=e.me_fuel_index_pct, shaft_power=e.shaft_power,
-            shaft_torque_knm=e.shaft_torque_knm, slip_pct=e.slip_pct,
-            hfo_me_mt=e.hfo_me_mt, hfo_ae_mt=e.hfo_ae_mt, hfo_boiler_mt=e.hfo_boiler_mt,
-            hfo_total_mt=e.hfo_total_mt, mgo_me_mt=e.mgo_me_mt, mgo_ae_mt=e.mgo_ae_mt,
-            mgo_total_mt=e.mgo_total_mt, methanol_me_mt=e.methanol_me_mt,
-            rob_vlsfo_mt=e.rob_vlsfo_mt, rob_mgo_mt=e.rob_mgo_mt,
-            rob_methanol_mt=e.rob_methanol_mt, rh_me=e.rh_me, rh_ae_total=e.rh_ae_total,
-            tc_rpm=e.tc_rpm, scav_air_press_bar=e.scav_air_press_bar,
-            fuel_temp_c=e.fuel_temp_c, sw_temp_c=e.sw_temp_c,
-            upload_batch_id=str(e.upload_batch_id), source_sheet=e.source_sheet,
-            source_file=e.source_file, extended_data=e.extended_data,
+            id=str(e.id),
+            timestamp=e.timestamp,
+            lapse_hours=e.lapse_hours,
+            place=e.place,
+            event=e.event,
+            rpm=e.rpm,
+            engine_distance=e.engine_distance,
+            speed_stw=e.speed_stw,
+            me_power_kw=e.me_power_kw,
+            me_load_pct=e.me_load_pct,
+            me_fuel_index_pct=e.me_fuel_index_pct,
+            shaft_power=e.shaft_power,
+            shaft_torque_knm=e.shaft_torque_knm,
+            slip_pct=e.slip_pct,
+            hfo_me_mt=e.hfo_me_mt,
+            hfo_ae_mt=e.hfo_ae_mt,
+            hfo_boiler_mt=e.hfo_boiler_mt,
+            hfo_total_mt=e.hfo_total_mt,
+            mgo_me_mt=e.mgo_me_mt,
+            mgo_ae_mt=e.mgo_ae_mt,
+            mgo_total_mt=e.mgo_total_mt,
+            methanol_me_mt=e.methanol_me_mt,
+            rob_vlsfo_mt=e.rob_vlsfo_mt,
+            rob_mgo_mt=e.rob_mgo_mt,
+            rob_methanol_mt=e.rob_methanol_mt,
+            rh_me=e.rh_me,
+            rh_ae_total=e.rh_ae_total,
+            tc_rpm=e.tc_rpm,
+            scav_air_press_bar=e.scav_air_press_bar,
+            fuel_temp_c=e.fuel_temp_c,
+            sw_temp_c=e.sw_temp_c,
+            upload_batch_id=str(e.upload_batch_id),
+            source_sheet=e.source_sheet,
+            source_file=e.source_file,
+            extended_data=e.extended_data,
         )
         for e in entries
     ]
@@ -229,55 +259,89 @@ async def get_engine_log_summary(
     if total == 0:
         return EngineLogSummaryResponse(total_entries=0)
 
-    date_q = db.query(func.min(EngineLogEntry.timestamp), func.max(EngineLogEntry.timestamp))
+    date_q = db.query(
+        func.min(EngineLogEntry.timestamp), func.max(EngineLogEntry.timestamp)
+    )
     if batch_id:
-        date_q = date_q.filter(EngineLogEntry.upload_batch_id == uuid_mod.UUID(batch_id))
+        date_q = date_q.filter(
+            EngineLogEntry.upload_batch_id == uuid_mod.UUID(batch_id)
+        )
     min_ts, max_ts = date_q.one()
 
-    event_q = db.query(EngineLogEntry.event, func.count(EngineLogEntry.id)).group_by(EngineLogEntry.event)
+    event_q = db.query(EngineLogEntry.event, func.count(EngineLogEntry.id)).group_by(
+        EngineLogEntry.event
+    )
     if batch_id:
-        event_q = event_q.filter(EngineLogEntry.upload_batch_id == uuid_mod.UUID(batch_id))
+        event_q = event_q.filter(
+            EngineLogEntry.upload_batch_id == uuid_mod.UUID(batch_id)
+        )
     events_breakdown = {ev or "UNKNOWN": cnt for ev, cnt in event_q.all()}
 
-    fuel_q = db.query(func.sum(EngineLogEntry.hfo_total_mt), func.sum(EngineLogEntry.mgo_total_mt), func.sum(EngineLogEntry.methanol_me_mt))
+    fuel_q = db.query(
+        func.sum(EngineLogEntry.hfo_total_mt),
+        func.sum(EngineLogEntry.mgo_total_mt),
+        func.sum(EngineLogEntry.methanol_me_mt),
+    )
     if batch_id:
-        fuel_q = fuel_q.filter(EngineLogEntry.upload_batch_id == uuid_mod.UUID(batch_id))
+        fuel_q = fuel_q.filter(
+            EngineLogEntry.upload_batch_id == uuid_mod.UUID(batch_id)
+        )
     hfo_sum, mgo_sum, meth_sum = fuel_q.one()
 
-    rpm_q = db.query(func.avg(EngineLogEntry.rpm)).filter(EngineLogEntry.event == "NOON", EngineLogEntry.rpm > 0)
+    rpm_q = db.query(func.avg(EngineLogEntry.rpm)).filter(
+        EngineLogEntry.event == "NOON", EngineLogEntry.rpm > 0
+    )
     if batch_id:
         rpm_q = rpm_q.filter(EngineLogEntry.upload_batch_id == uuid_mod.UUID(batch_id))
     avg_rpm = rpm_q.scalar()
 
-    spd_q = db.query(func.avg(EngineLogEntry.speed_stw)).filter(EngineLogEntry.event == "NOON", EngineLogEntry.speed_stw > 0)
+    spd_q = db.query(func.avg(EngineLogEntry.speed_stw)).filter(
+        EngineLogEntry.event == "NOON", EngineLogEntry.speed_stw > 0
+    )
     if batch_id:
         spd_q = spd_q.filter(EngineLogEntry.upload_batch_id == uuid_mod.UUID(batch_id))
     avg_speed = spd_q.scalar()
 
     batch_q = db.query(
-        EngineLogEntry.upload_batch_id, func.count(EngineLogEntry.id),
-        func.min(EngineLogEntry.timestamp), func.max(EngineLogEntry.timestamp),
+        EngineLogEntry.upload_batch_id,
+        func.count(EngineLogEntry.id),
+        func.min(EngineLogEntry.timestamp),
+        func.max(EngineLogEntry.timestamp),
         func.min(EngineLogEntry.source_file),
     ).group_by(EngineLogEntry.upload_batch_id)
     batches = [
-        {"batch_id": str(bid), "count": cnt,
-         "date_start": ds.isoformat() if ds else None,
-         "date_end": de.isoformat() if de else None, "source_file": sf}
+        {
+            "batch_id": str(bid),
+            "count": cnt,
+            "date_start": ds.isoformat() if ds else None,
+            "date_end": de.isoformat() if de else None,
+            "source_file": sf,
+        }
         for bid, cnt, ds, de, sf in batch_q.all()
     ]
 
     return EngineLogSummaryResponse(
         total_entries=total,
-        date_range={"start": min_ts.isoformat() if min_ts else None, "end": max_ts.isoformat() if max_ts else None},
+        date_range={
+            "start": min_ts.isoformat() if min_ts else None,
+            "end": max_ts.isoformat() if max_ts else None,
+        },
         events_breakdown=events_breakdown,
-        fuel_summary={"hfo_mt": round(float(hfo_sum or 0), 3), "mgo_mt": round(float(mgo_sum or 0), 3), "methanol_mt": round(float(meth_sum or 0), 3)},
+        fuel_summary={
+            "hfo_mt": round(float(hfo_sum or 0), 3),
+            "mgo_mt": round(float(mgo_sum or 0), 3),
+            "methanol_mt": round(float(meth_sum or 0), 3),
+        },
         avg_rpm_at_sea=round(float(avg_rpm), 1) if avg_rpm else None,
         avg_speed_stw=round(float(avg_speed), 2) if avg_speed else None,
         batches=batches,
     )
 
 
-@router.delete("/api/engine-log/batch/{batch_id}", dependencies=[Depends(require_not_demo("Engine log deletion"))])
+@router.delete(
+    "/api/engine-log/batch/{batch_id}",
+    dependencies=[Depends(require_not_demo("Engine log deletion"))],
+)
 @limiter.limit(get_rate_limit_string())
 async def delete_engine_log_batch(
     request: Request,
@@ -291,11 +355,15 @@ async def delete_engine_log_batch(
     except ValueError:
         raise HTTPException(status_code=400, detail="Invalid batch_id UUID format")
 
-    count = db.query(EngineLogEntry).filter(EngineLogEntry.upload_batch_id == bid).delete()
+    count = (
+        db.query(EngineLogEntry).filter(EngineLogEntry.upload_batch_id == bid).delete()
+    )
     db.commit()
 
     if count == 0:
-        raise HTTPException(status_code=404, detail=f"No entries found for batch {batch_id}")
+        raise HTTPException(
+            status_code=404, detail=f"No entries found for batch {batch_id}"
+        )
 
     return {"status": "deleted", "batch_id": batch_id, "deleted_count": count}
 
@@ -304,11 +372,18 @@ async def delete_engine_log_batch(
 # Engine Log → Calibration Bridge
 # ============================================================================
 
-@router.post("/api/engine-log/calibrate", response_model=EngineLogCalibrateResponse, dependencies=[Depends(require_not_demo("Engine log calibration"))])
+
+@router.post(
+    "/api/engine-log/calibrate",
+    response_model=EngineLogCalibrateResponse,
+    dependencies=[Depends(require_not_demo("Engine log calibration"))],
+)
 @limiter.limit("5/minute")
 async def calibrate_from_engine_log(
     request: Request,
-    batch_id: Optional[str] = Query(None, description="Filter to specific upload batch"),
+    batch_id: Optional[str] = Query(
+        None, description="Filter to specific upload batch"
+    ),
     days_since_drydock: int = Query(0, ge=0, description="Days since last dry dock"),
     api_key=Depends(get_api_key),
     db=Depends(get_db),
@@ -372,7 +447,7 @@ async def calibrate_from_engine_log(
 
         # Prefer ME-specific fuel (matches the physics model prediction).
         # Fall back to total fuel only when ME columns are not reported.
-        me_fuel_available = (row.hfo_me_mt is not None or row.mgo_me_mt is not None)
+        me_fuel_available = row.hfo_me_mt is not None or row.mgo_me_mt is not None
         if me_fuel_available:
             fuel = hfo_me + mgo_me
             if fuel <= 0:
@@ -396,25 +471,29 @@ async def calibrate_from_engine_log(
         if row.me_load_pct is not None:
             is_laden = row.me_load_pct > 55.0
 
-        noon_reports.append(NoonReport(
-            timestamp=row.timestamp,
-            latitude=0.0,
-            longitude=0.0,
-            speed_over_ground_kts=speed,
-            speed_through_water_kts=speed,
-            fuel_consumption_mt=fuel,
-            period_hours=row.lapse_hours if row.lapse_hours and row.lapse_hours > 0 else 24.0,
-            is_laden=is_laden,
-            engine_power_kw=row.me_power_kw,
-            engine_rpm=row.rpm,
-        ))
+        noon_reports.append(
+            NoonReport(
+                timestamp=row.timestamp,
+                latitude=0.0,
+                longitude=0.0,
+                speed_over_ground_kts=speed,
+                speed_through_water_kts=speed,
+                fuel_consumption_mt=fuel,
+                period_hours=(
+                    row.lapse_hours if row.lapse_hours and row.lapse_hours > 0 else 24.0
+                ),
+                is_laden=is_laden,
+                engine_power_kw=row.me_power_kw,
+                engine_rpm=row.rpm,
+            )
+        )
 
     if len(noon_reports) < VesselCalibrator.MIN_REPORTS:
         raise HTTPException(
             status_code=400,
             detail=f"Need at least {VesselCalibrator.MIN_REPORTS} valid NOON-at-sea entries for calibration. "
-                   f"Found {len(noon_reports)} valid, {skipped} skipped, "
-                   f"{duplicates_removed} duplicates removed."
+            f"Found {len(noon_reports)} valid, {skipped} skipped, "
+            f"{duplicates_removed} duplicates removed.",
         )
 
     try:

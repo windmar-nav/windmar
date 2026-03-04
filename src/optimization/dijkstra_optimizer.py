@@ -48,6 +48,7 @@ logger = logging.getLogger(__name__)
 # Internal data structures
 # ---------------------------------------------------------------------------
 
+
 @dataclass
 class _GraphNode:
     """Node in the time-expanded routing graph."""
@@ -82,6 +83,7 @@ class _QueueEntry:
 # Dijkstra Optimizer
 # ---------------------------------------------------------------------------
 
+
 class DijkstraOptimizer(BaseOptimizer):
     """
     Graph-based Dijkstra optimizer with isochrone expansion.
@@ -93,10 +95,10 @@ class DijkstraOptimizer(BaseOptimizer):
 
     # Defaults
     DEFAULT_RESOLUTION_DEG = 0.25
-    DEFAULT_TIME_STEP_HOURS = 3.0   # temporal resolution of the graph
+    DEFAULT_TIME_STEP_HOURS = 3.0  # temporal resolution of the graph
     DEFAULT_MAX_NODES = 150_000
     SPEED_RANGE_KTS = (10.0, 18.0)  # practical speed range for graph exploration
-    SPEED_STEPS = 5                  # candidate speeds per edge
+    SPEED_STEPS = 5  # candidate speeds per edge
 
     # Time penalty weight: same as A* engine — allows weather-avoidance detours.
     TIME_PENALTY_WEIGHT = 0.3
@@ -105,12 +107,24 @@ class DijkstraOptimizer(BaseOptimizer):
     # Knight moves enable ~26° and ~63° headings for smoother paths.
     DIRECTIONS = [
         # Cardinal (4)
-        (-1, 0), (0, 1), (1, 0), (0, -1),
+        (-1, 0),
+        (0, 1),
+        (1, 0),
+        (0, -1),
         # Diagonal (4)
-        (-1, 1), (1, 1), (1, -1), (-1, -1),
+        (-1, 1),
+        (1, 1),
+        (1, -1),
+        (-1, -1),
         # Knight moves (8)
-        (-2, 1), (-1, 2), (1, 2), (2, 1),
-        (2, -1), (1, -2), (-1, -2), (-2, -1),
+        (-2, 1),
+        (-1, 2),
+        (1, 2),
+        (2, 1),
+        (2, -1),
+        (1, -2),
+        (-1, -2),
+        (-2, -1),
     ]
 
     def __init__(
@@ -132,9 +146,12 @@ class DijkstraOptimizer(BaseOptimizer):
         self.enforce_zones = enforce_zones
         self.safety_weight: float = 0.0  # 0=pure fuel, 1=full safety penalties
 
-        self.safety_constraints = safety_constraints or create_default_safety_constraints(
-            lpp=self.vessel_model.specs.lpp,
-            beam=self.vessel_model.specs.beam,
+        self.safety_constraints = (
+            safety_constraints
+            or create_default_safety_constraints(
+                lpp=self.vessel_model.specs.lpp,
+                beam=self.vessel_model.specs.beam,
+            )
         )
         self.zone_checker = zone_checker or get_zone_checker()
 
@@ -157,7 +174,9 @@ class DijkstraOptimizer(BaseOptimizer):
         t0 = _time.time()
 
         # 1. Build spatial grid (also stores grid bounds for O(1) cell lookup)
-        grid, grid_bounds = self._build_spatial_grid(origin, destination, filter_land=avoid_land)
+        grid, grid_bounds = self._build_spatial_grid(
+            origin, destination, filter_land=avoid_land
+        )
 
         # 2. Locate start / end cells
         start_rc = self._nearest_cell(origin, grid, grid_bounds)
@@ -165,17 +184,23 @@ class DijkstraOptimizer(BaseOptimizer):
         if start_rc is None or end_rc is None:
             raise ValueError("Origin or destination outside grid bounds")
 
-        logger.info(f"Dijkstra start_rc={start_rc} -> {grid[start_rc]}, end_rc={end_rc} -> {grid[end_rc]}")
+        logger.info(
+            f"Dijkstra start_rc={start_rc} -> {grid[start_rc]}, end_rc={end_rc} -> {grid[end_rc]}"
+        )
 
         # 3. Estimate max time steps needed
         #    Chebyshev distance × 2 to account for routing around obstacles
         chebyshev = max(abs(start_rc[0] - end_rc[0]), abs(start_rc[1] - end_rc[1]))
         gc_dist = self.haversine(origin[0], origin[1], destination[0], destination[1])
         min_speed = self.SPEED_RANGE_KTS[0]
-        gc_time_steps = int(math.ceil((gc_dist / min_speed) * 1.5 / self.time_step_hours))
+        gc_time_steps = int(
+            math.ceil((gc_dist / min_speed) * 1.5 / self.time_step_hours)
+        )
         max_time_steps = max(chebyshev * 2, gc_time_steps, 8)
-        logger.info(f"Dijkstra gc_dist={gc_dist:.0f}nm, max_time_steps={max_time_steps}, "
-                     f"max_voyage_hours={gc_dist / max(calm_speed_kts, 0.1) * max_time_factor:.1f}h")
+        logger.info(
+            f"Dijkstra gc_dist={gc_dist:.0f}nm, max_time_steps={max_time_steps}, "
+            f"max_voyage_hours={gc_dist / max(calm_speed_kts, 0.1) * max_time_factor:.1f}h"
+        )
 
         # 4. Compute time budget: direct time at calm speed × max_time_factor
         direct_time_hours = gc_dist / max(calm_speed_kts, 0.1)
@@ -214,28 +239,45 @@ class DijkstraOptimizer(BaseOptimizer):
         #    speed should not exceed the user's setting.
         def find_speed(dist, weather, bearing, is_laden):
             # Use calm_speed as max STW for stats
-            stw = min(calm_speed_kts, self.vessel_model.specs.service_speed_laden + 2
-                      if is_laden else self.vessel_model.specs.service_speed_ballast + 2)
+            stw = min(
+                calm_speed_kts,
+                (
+                    self.vessel_model.specs.service_speed_laden + 2
+                    if is_laden
+                    else self.vessel_model.specs.service_speed_ballast + 2
+                ),
+            )
             weather_dict = {
-                'wind_speed_ms': weather.wind_speed_ms,
-                'wind_dir_deg': weather.wind_dir_deg,
-                'heading_deg': bearing,
-                'sig_wave_height_m': weather.sig_wave_height_m,
-                'wave_dir_deg': weather.wave_dir_deg,
+                "wind_speed_ms": weather.wind_speed_ms,
+                "wind_dir_deg": weather.wind_dir_deg,
+                "heading_deg": bearing,
+                "sig_wave_height_m": weather.sig_wave_height_m,
+                "wave_dir_deg": weather.wave_dir_deg,
             }
             res = self.vessel_model.calculate_fuel_consumption(
-                speed_kts=stw, is_laden=is_laden,
-                weather=weather_dict, distance_nm=dist,
+                speed_kts=stw,
+                is_laden=is_laden,
+                weather=weather_dict,
+                distance_nm=dist,
             )
-            ce = self.current_effect(bearing, weather.current_speed_ms, weather.current_dir_deg)
+            ce = self.current_effect(
+                bearing, weather.current_speed_ms, weather.current_dir_deg
+            )
             sog = max(stw + ce, 0.1)
-            return stw, res['fuel_mt'], dist / sog
+            return stw, res["fuel_mt"], dist / sog
 
         (
-            total_fuel, total_time, total_dist,
-            leg_details, safety_summary, speed_profile,
+            total_fuel,
+            total_time,
+            total_dist,
+            leg_details,
+            safety_summary,
+            speed_profile,
         ) = self.calculate_route_stats(
-            waypoints, departure_time, calm_speed_kts, is_laden,
+            waypoints,
+            departure_time,
+            calm_speed_kts,
+            is_laden,
             weather_provider=weather_provider,
             safety_constraints=self.safety_constraints,
             find_optimal_speed=find_speed,
@@ -243,17 +285,29 @@ class DijkstraOptimizer(BaseOptimizer):
 
         # 7. Direct-route comparison
         (
-            direct_fuel, direct_time, direct_dist, _, _, _,
+            direct_fuel,
+            direct_time,
+            direct_dist,
+            _,
+            _,
+            _,
         ) = self.calculate_route_stats(
-            [origin, destination], departure_time, calm_speed_kts, is_laden,
+            [origin, destination],
+            departure_time,
+            calm_speed_kts,
+            is_laden,
             weather_provider=weather_provider,
             safety_constraints=self.safety_constraints,
             find_optimal_speed=find_speed,
         )
 
         elapsed_ms = (_time.time() - t0) * 1000
-        fuel_sav = ((direct_fuel - total_fuel) / direct_fuel * 100) if direct_fuel > 0 else 0
-        time_sav = ((direct_time - total_time) / direct_time * 100) if direct_time > 0 else 0
+        fuel_sav = (
+            ((direct_fuel - total_fuel) / direct_fuel * 100) if direct_fuel > 0 else 0
+        )
+        time_sav = (
+            ((direct_time - total_time) / direct_time * 100) if direct_time > 0 else 0
+        )
         avg_speed = total_dist / total_time if total_time > 0 else calm_speed_kts
 
         return OptimizedRoute(
@@ -378,15 +432,21 @@ class DijkstraOptimizer(BaseOptimizer):
         start_lat, start_lon = grid[start_rc]
         end_lat, end_lon = grid[end_rc]
         start_node = _GraphNode(
-            lat=start_lat, lon=start_lon, time=departure_time,
-            row=start_rc[0], col=start_rc[1], time_step=0,
+            lat=start_lat,
+            lon=start_lon,
+            time=departure_time,
+            row=start_rc[0],
+            col=start_rc[1],
+            time_step=0,
         )
 
         # Time-value penalty scaled by TIME_PENALTY_WEIGHT to allow
         # weather-avoidance detours (same approach as the A* engine).
         service_fuel_res = self.vessel_model.calculate_fuel_consumption(
-            speed_kts=calm_speed_kts, is_laden=is_laden,
-            weather=None, distance_nm=calm_speed_kts,  # 1 hour
+            speed_kts=calm_speed_kts,
+            is_laden=is_laden,
+            weather=None,
+            distance_nm=calm_speed_kts,  # 1 hour
         )
         lambda_time = service_fuel_res["fuel_mt"] * self.TIME_PENALTY_WEIGHT
 
@@ -396,8 +456,10 @@ class DijkstraOptimizer(BaseOptimizer):
         min_cost_per_nm = float("inf")
         for speed_kts in np.linspace(min_spd, max_spd, self.SPEED_STEPS * 2):
             res = self.vessel_model.calculate_fuel_consumption(
-                speed_kts=float(speed_kts), is_laden=is_laden,
-                weather=None, distance_nm=100.0,
+                speed_kts=float(speed_kts),
+                is_laden=is_laden,
+                weather=None,
+                distance_nm=100.0,
             )
             fuel_per_nm = res["fuel_mt"] / 100.0
             time_per_nm = 1.0 / float(speed_kts)  # hours per nm
@@ -416,7 +478,9 @@ class DijkstraOptimizer(BaseOptimizer):
 
         cost_so_far: Dict[Tuple[int, int, int], float] = {start_node.key(): 0.0}
         parent: Dict[Tuple[int, int, int], Tuple[int, int, int]] = {}
-        node_map: Dict[Tuple[int, int, int], _GraphNode] = {start_node.key(): start_node}
+        node_map: Dict[Tuple[int, int, int], _GraphNode] = {
+            start_node.key(): start_node
+        }
 
         h0 = heuristic(start_rc)
         pq: List[_QueueEntry] = [_QueueEntry(cost=h0, node=start_node)]
@@ -461,7 +525,10 @@ class DijkstraOptimizer(BaseOptimizer):
                 if spatial_edge not in zone_cache:
                     if self.enforce_zones:
                         zp, _ = self.zone_checker.get_path_penalty(
-                            cur.lat, cur.lon, nb_lat, nb_lon,
+                            cur.lat,
+                            cur.lon,
+                            nb_lat,
+                            nb_lon,
                         )
                         zone_cache[spatial_edge] = zp
                     else:
@@ -485,7 +552,11 @@ class DijkstraOptimizer(BaseOptimizer):
                 cached_zone_factor = zone_cache[spatial_edge]
 
                 best_edge = self._best_edge(
-                    dist_nm, brg, weather, calm_speed_kts, is_laden,
+                    dist_nm,
+                    brg,
+                    weather,
+                    calm_speed_kts,
+                    is_laden,
                     zone_factor=cached_zone_factor,
                     lambda_time=lambda_time,
                 )
@@ -497,13 +568,19 @@ class DijkstraOptimizer(BaseOptimizer):
                 # Map travel time to the next discrete time step
                 nb_time = cur.time + timedelta(hours=travel_hours)
 
-                nb_ts = cur.time_step + max(1, round(travel_hours / self.time_step_hours))
+                nb_ts = cur.time_step + max(
+                    1, round(travel_hours / self.time_step_hours)
+                )
                 if nb_ts > max_time_steps:
                     continue  # exceeds time horizon
 
                 nb_node = _GraphNode(
-                    lat=nb_lat, lon=nb_lon, time=nb_time,
-                    row=nb_rc[0], col=nb_rc[1], time_step=nb_ts,
+                    lat=nb_lat,
+                    lon=nb_lon,
+                    time=nb_time,
+                    row=nb_rc[0],
+                    col=nb_rc[1],
+                    time_step=nb_ts,
                 )
                 nb_key = nb_node.key()
 
@@ -513,12 +590,17 @@ class DijkstraOptimizer(BaseOptimizer):
                     parent[nb_key] = cur_key
                     node_map[nb_key] = nb_node
                     f_score = tentative_g + heuristic(nb_rc)
-                    heapq.heappush(pq, _QueueEntry(cost=f_score, node=nb_node, speed_kts=chosen_speed))
+                    heapq.heappush(
+                        pq,
+                        _QueueEntry(cost=f_score, node=nb_node, speed_kts=chosen_speed),
+                    )
 
         reason = "max_nodes" if explored >= max_nodes else "pq_empty"
-        logger.warning(f"Dijkstra search failed: reason={reason}, explored={explored}, "
-                       f"pq_size={len(pq)}, cost_so_far_size={len(cost_so_far)}, "
-                       f"max_time_steps={max_time_steps}")
+        logger.warning(
+            f"Dijkstra search failed: reason={reason}, explored={explored}, "
+            f"pq_size={len(pq)}, cost_so_far_size={len(cost_so_far)}, "
+            f"max_time_steps={max_time_steps}"
+        )
         return None, explored
 
     # ------------------------------------------------------------------
@@ -549,10 +631,12 @@ class DijkstraOptimizer(BaseOptimizer):
         """
         # SPEC-P1: Ice exclusion and penalty zones
         ICE_EXCLUSION_THRESHOLD = 0.15  # IMO Polar Code limit
-        ICE_PENALTY_THRESHOLD = 0.05   # Caution zone
+        ICE_PENALTY_THRESHOLD = 0.05  # Caution zone
         if weather.ice_concentration >= ICE_EXCLUSION_THRESHOLD:
             return None
-        ice_cost_factor = 2.0 if weather.ice_concentration >= ICE_PENALTY_THRESHOLD else 1.0
+        ice_cost_factor = (
+            2.0 if weather.ice_concentration >= ICE_PENALTY_THRESHOLD else 1.0
+        )
 
         min_spd, max_spd = self.SPEED_RANGE_KTS
         if is_laden:
@@ -572,7 +656,9 @@ class DijkstraOptimizer(BaseOptimizer):
         }
 
         ce = self.current_effect(
-            bearing_deg, weather.current_speed_ms, weather.current_dir_deg,
+            bearing_deg,
+            weather.current_speed_ms,
+            weather.current_dir_deg,
         )
 
         best: Optional[Tuple[float, float, float]] = None
@@ -595,7 +681,7 @@ class DijkstraOptimizer(BaseOptimizer):
                     continue  # unsafe at this speed — hard constraint always
                 # Soft safety penalty dampened by safety_weight
                 if self.safety_weight > 0 and sf > 1.0:
-                    safety_cost = sf ** self.safety_weight
+                    safety_cost = sf**self.safety_weight
 
             sog = speed_kts + ce
             if sog <= 0.5:
@@ -614,7 +700,10 @@ class DijkstraOptimizer(BaseOptimizer):
             if self.optimization_target == "fuel":
                 # Safety/zone penalties apply to fuel only; time penalty stays clean
                 # to avoid inflating detour costs and producing worse-than-direct routes.
-                score = fuel * zone_factor * safety_cost * ice_cost_factor + lambda_time * hours
+                score = (
+                    fuel * zone_factor * safety_cost * ice_cost_factor
+                    + lambda_time * hours
+                )
             else:
                 score = hours * zone_factor * safety_cost * ice_cost_factor
 

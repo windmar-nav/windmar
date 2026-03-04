@@ -59,7 +59,7 @@ def build_ocean_mask_from_data(
         if primary_param in grids and fh in grids[primary_param]:
             _, _, d = grids[primary_param][fh]
             ocean |= np.isfinite(d)
-    return ocean[::grid.step, ::grid.step].tolist()
+    return ocean[:: grid.step, :: grid.step].tolist()
 
 
 def build_ocean_mask_from_weather_data(
@@ -90,7 +90,7 @@ def build_ocean_mask_from_weather_data(
         raw = _pick_raw_data(wd, cfg)
         if raw is not None:
             ocean |= np.isfinite(raw)
-    return ocean[::grid.step, ::grid.step].tolist()
+    return ocean[:: grid.step, :: grid.step].tolist()
 
 
 def build_ice_ocean_mask(grid: SubsampledGrid) -> tuple[list[list[bool]], np.ndarray]:
@@ -102,13 +102,20 @@ def build_ice_ocean_mask(grid: SubsampledGrid) -> tuple[list[list[bool]], np.nda
     lon_grid, lat_grid = np.meshgrid(grid.lons, grid.lats)
     try:
         from global_land_mask import globe
+
         mask = globe.is_ocean(lat_grid, lon_grid)
     except ImportError:
         from src.data.land_mask import is_ocean
-        mask = np.array([
-            [is_ocean(round(float(lat), 2), round(float(lon), 2)) for lon in grid.lons]
-            for lat in grid.lats
-        ])
+
+        mask = np.array(
+            [
+                [
+                    is_ocean(round(float(lat), 2), round(float(lon), 2))
+                    for lon in grid.lons
+                ]
+                for lat in grid.lats
+            ]
+        )
     return mask.tolist(), mask
 
 
@@ -137,7 +144,7 @@ def mask_velocity_with_nan(
             if primary_param in grids and fh in grids[primary_param]:
                 _, _, d = grids[primary_param][fh]
                 ocean_full |= np.isfinite(d)
-        ocean = ocean_full[::grid.step, ::grid.step]
+        ocean = ocean_full[:: grid.step, :: grid.step]
     else:
         # Fallback: derive from the u/v arrays themselves
         ocean = np.isfinite(u) & np.isfinite(v)

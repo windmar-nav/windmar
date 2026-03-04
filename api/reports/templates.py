@@ -87,7 +87,9 @@ def _summarize_weather(legs: List[VoyageLeg]) -> Optional[Dict]:
 
     wind_speeds = [l.wind_speed_kts for l in legs if l.wind_speed_kts is not None]
     wave_heights = [l.wave_height_m for l in legs if l.wave_height_m is not None]
-    current_speeds = [l.current_speed_ms for l in legs if l.current_speed_ms is not None]
+    current_speeds = [
+        l.current_speed_ms for l in legs if l.current_speed_ms is not None
+    ]
 
     summary = {}
     if wind_speeds:

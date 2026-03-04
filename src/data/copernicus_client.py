@@ -25,34 +25,35 @@ logger = logging.getLogger(__name__)
 @dataclass
 class OceanConditions:
     """Ocean conditions at a specific location and time."""
+
     timestamp: datetime
     latitude: float
     longitude: float
 
     # Wave data
     significant_wave_height_m: float = 0.0  # VHM0
-    mean_wave_period_s: float = 0.0         # VTM10
-    peak_wave_period_s: float = 0.0         # VTPK
-    wave_direction_deg: float = 0.0         # VMDR (from)
+    mean_wave_period_s: float = 0.0  # VTM10
+    peak_wave_period_s: float = 0.0  # VTPK
+    wave_direction_deg: float = 0.0  # VMDR (from)
 
     # Wind wave component
-    wind_wave_height_m: float = 0.0         # VHM0_WW
-    wind_wave_period_s: float = 0.0         # VTM01_WW
-    wind_wave_direction_deg: float = 0.0    # VMDR_WW
+    wind_wave_height_m: float = 0.0  # VHM0_WW
+    wind_wave_period_s: float = 0.0  # VTM01_WW
+    wind_wave_direction_deg: float = 0.0  # VMDR_WW
 
     # Swell component
-    swell_height_m: float = 0.0             # VHM0_SW1
-    swell_period_s: float = 0.0             # VTM01_SW1
-    swell_direction_deg: float = 0.0        # VMDR_SW1
+    swell_height_m: float = 0.0  # VHM0_SW1
+    swell_period_s: float = 0.0  # VTM01_SW1
+    swell_direction_deg: float = 0.0  # VMDR_SW1
 
     # Current data
-    current_speed_ms: float = 0.0           # sqrt(uo^2 + vo^2)
-    current_direction_deg: float = 0.0      # atan2(vo, uo)
-    current_u_ms: float = 0.0               # Eastward current
-    current_v_ms: float = 0.0               # Northward current
+    current_speed_ms: float = 0.0  # sqrt(uo^2 + vo^2)
+    current_direction_deg: float = 0.0  # atan2(vo, uo)
+    current_u_ms: float = 0.0  # Eastward current
+    current_v_ms: float = 0.0  # Northward current
 
     # Temperature
-    sea_surface_temp_c: float = 0.0         # thetao
+    sea_surface_temp_c: float = 0.0  # thetao
 
     # Metadata
     data_source: str = "mock"
@@ -62,14 +63,15 @@ class OceanConditions:
 @dataclass
 class WindConditions:
     """Wind conditions (from atmospheric reanalysis)."""
+
     timestamp: datetime
     latitude: float
     longitude: float
 
     wind_speed_ms: float = 0.0
     wind_direction_deg: float = 0.0  # From direction
-    wind_u_ms: float = 0.0           # Eastward
-    wind_v_ms: float = 0.0           # Northward
+    wind_u_ms: float = 0.0  # Eastward
+    wind_v_ms: float = 0.0  # Northward
 
     data_source: str = "mock"
 
@@ -136,6 +138,7 @@ class CopernicusClient:
         """Initialize the copernicusmarine client."""
         try:
             import copernicusmarine
+
             self._cmems_client = copernicusmarine
             logger.info("Copernicus Marine client initialized")
         except ImportError:
@@ -169,7 +172,11 @@ class CopernicusClient:
         cache_key = self._cache_key(latitude, longitude, timestamp)
         if cache_key in self._cache:
             cache_time = self._cache_timestamps.get(cache_key)
-            if cache_time and (datetime.now(timezone.utc) - cache_time).total_seconds() < self.cache_hours * 3600:
+            if (
+                cache_time
+                and (datetime.now(timezone.utc) - cache_time).total_seconds()
+                < self.cache_hours * 3600
+            ):
                 logger.debug(f"Cache hit for {cache_key}")
                 return self._cache[cache_key]
 
@@ -207,7 +214,11 @@ class CopernicusClient:
             ocean = self.get_ocean_conditions(latitude, longitude, timestamp)
             # Approximate wind from wind-wave height (empirical)
             # Hs_ww ≈ 0.0246 * U^2 (fully developed)
-            wind_speed = np.sqrt(ocean.wind_wave_height_m / 0.0246) if ocean.wind_wave_height_m > 0 else 5.0
+            wind_speed = (
+                np.sqrt(ocean.wind_wave_height_m / 0.0246)
+                if ocean.wind_wave_height_m > 0
+                else 5.0
+            )
 
             return WindConditions(
                 timestamp=timestamp,
@@ -215,8 +226,10 @@ class CopernicusClient:
                 longitude=longitude,
                 wind_speed_ms=wind_speed,
                 wind_direction_deg=ocean.wind_wave_direction_deg,
-                wind_u_ms=-wind_speed * np.sin(np.radians(ocean.wind_wave_direction_deg)),
-                wind_v_ms=-wind_speed * np.cos(np.radians(ocean.wind_wave_direction_deg)),
+                wind_u_ms=-wind_speed
+                * np.sin(np.radians(ocean.wind_wave_direction_deg)),
+                wind_v_ms=-wind_speed
+                * np.cos(np.radians(ocean.wind_wave_direction_deg)),
                 data_source="derived_from_waves",
             )
 
@@ -381,21 +394,21 @@ class CopernicusClient:
                 timestamp=timestamp,
                 latitude=latitude,
                 longitude=longitude,
-                significant_wave_height_m=wave_data.get('VHM0', 0.0),
-                mean_wave_period_s=wave_data.get('VTM10', 0.0),
-                peak_wave_period_s=wave_data.get('VTPK', 0.0),
-                wave_direction_deg=wave_data.get('VMDR', 0.0),
-                wind_wave_height_m=wave_data.get('VHM0_WW', 0.0),
-                wind_wave_period_s=wave_data.get('VTM01_WW', 0.0),
-                wind_wave_direction_deg=wave_data.get('VMDR_WW', 0.0),
-                swell_height_m=wave_data.get('VHM0_SW1', 0.0),
-                swell_period_s=wave_data.get('VTM01_SW1', 0.0),
-                swell_direction_deg=wave_data.get('VMDR_SW1', 0.0),
-                current_speed_ms=current_data.get('speed', 0.0),
-                current_direction_deg=current_data.get('direction', 0.0),
-                current_u_ms=current_data.get('uo', 0.0),
-                current_v_ms=current_data.get('vo', 0.0),
-                sea_surface_temp_c=current_data.get('thetao', 15.0),
+                significant_wave_height_m=wave_data.get("VHM0", 0.0),
+                mean_wave_period_s=wave_data.get("VTM10", 0.0),
+                peak_wave_period_s=wave_data.get("VTPK", 0.0),
+                wave_direction_deg=wave_data.get("VMDR", 0.0),
+                wind_wave_height_m=wave_data.get("VHM0_WW", 0.0),
+                wind_wave_period_s=wave_data.get("VTM01_WW", 0.0),
+                wind_wave_direction_deg=wave_data.get("VMDR_WW", 0.0),
+                swell_height_m=wave_data.get("VHM0_SW1", 0.0),
+                swell_period_s=wave_data.get("VTM01_SW1", 0.0),
+                swell_direction_deg=wave_data.get("VMDR_SW1", 0.0),
+                current_speed_ms=current_data.get("speed", 0.0),
+                current_direction_deg=current_data.get("direction", 0.0),
+                current_u_ms=current_data.get("uo", 0.0),
+                current_v_ms=current_data.get("vo", 0.0),
+                sea_surface_temp_c=current_data.get("thetao", 15.0),
                 data_source="cmems",
                 forecast_hours=0,
             )
@@ -477,8 +490,10 @@ def test_copernicus_client():
     forecast = client.get_forecast(lat, lon, hours_ahead=24, interval_hours=6)
 
     for fc in forecast:
-        print(f"  +{fc.forecast_hours:2d}h: Hs={fc.significant_wave_height_m:.1f}m, "
-              f"Tp={fc.peak_wave_period_s:.1f}s")
+        print(
+            f"  +{fc.forecast_hours:2d}h: Hs={fc.significant_wave_height_m:.1f}m, "
+            f"Tp={fc.peak_wave_period_s:.1f}s"
+        )
 
     # Test caching
     print(f"\nCache size: {client.cache_size} entries")

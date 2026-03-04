@@ -86,9 +86,11 @@ CONSECUTIVE_YEAR_ESCALATION = 0.10  # 10% escalation
 # Result Dataclasses
 # =============================================================================
 
+
 @dataclass
 class FuelBreakdown:
     """Per-fuel breakdown of energy and emissions."""
+
     fuel_type: str
     mass_mt: float
     energy_mj: float
@@ -101,6 +103,7 @@ class FuelBreakdown:
 @dataclass
 class FuelEUResult:
     """Result of GHG intensity calculation."""
+
     ghg_intensity: float  # gCO2eq/MJ (WtW)
     total_energy_mj: float
     total_co2eq_g: float
@@ -110,6 +113,7 @@ class FuelEUResult:
 @dataclass
 class FuelEUComplianceResult:
     """Result of compliance balance calculation."""
+
     year: int
     ghg_intensity: float  # gCO2eq/MJ
     ghg_limit: float  # gCO2eq/MJ
@@ -122,6 +126,7 @@ class FuelEUComplianceResult:
 @dataclass
 class FuelEUPenaltyResult:
     """Result of penalty exposure calculation."""
+
     compliance_balance_gco2eq: float
     non_compliant_energy_mj: float
     vlsfo_equivalent_mt: float
@@ -132,6 +137,7 @@ class FuelEUPenaltyResult:
 @dataclass
 class FuelEUPoolingVesselResult:
     """Individual vessel result within a pooling scenario."""
+
     name: str
     ghg_intensity: float
     total_energy_mj: float
@@ -143,6 +149,7 @@ class FuelEUPoolingVesselResult:
 @dataclass
 class FuelEUPoolingResult:
     """Result of fleet pooling simulation."""
+
     fleet_ghg_intensity: float
     fleet_total_energy_mj: float
     fleet_total_co2eq_g: float
@@ -154,6 +161,7 @@ class FuelEUPoolingResult:
 @dataclass
 class FuelEUProjectionYear:
     """Single year in a multi-year projection."""
+
     year: int
     ghg_intensity: float
     ghg_limit: float
@@ -167,6 +175,7 @@ class FuelEUProjectionYear:
 # =============================================================================
 # Calculator
 # =============================================================================
+
 
 class FuelEUCalculator:
     """FuelEU Maritime (EU 2023/1805) GHG intensity calculator."""
@@ -209,15 +218,17 @@ class FuelEUCalculator:
             total_energy += energy_mj
             total_co2eq += wtw_gco2eq
 
-            breakdown.append(FuelBreakdown(
-                fuel_type=fuel_key,
-                mass_mt=mass_mt,
-                energy_mj=round(energy_mj, 2),
-                wtt_gco2eq=round(wtt_gco2eq, 2),
-                ttw_gco2eq=round(ttw_gco2eq, 2),
-                wtw_gco2eq=round(wtw_gco2eq, 2),
-                wtw_intensity=round(wtw, 4),
-            ))
+            breakdown.append(
+                FuelBreakdown(
+                    fuel_type=fuel_key,
+                    mass_mt=mass_mt,
+                    energy_mj=round(energy_mj, 2),
+                    wtt_gco2eq=round(wtt_gco2eq, 2),
+                    ttw_gco2eq=round(ttw_gco2eq, 2),
+                    wtw_gco2eq=round(wtw_gco2eq, 2),
+                    wtw_intensity=round(wtw, 4),
+                )
+            )
 
         if total_energy <= 0:
             return FuelEUResult(
@@ -325,9 +336,7 @@ class FuelEUCalculator:
             penalty_per_mt_fuel=round(penalty_per_mt, 2),
         )
 
-    def simulate_pooling(
-        self, vessels: List[Dict], year: int
-    ) -> FuelEUPoolingResult:
+    def simulate_pooling(self, vessels: List[Dict], year: int) -> FuelEUPoolingResult:
         """
         Simulate fleet pooling — aggregate all vessels' energy and emissions.
 
@@ -357,14 +366,16 @@ class FuelEUCalculator:
             fleet_energy += result.total_energy_mj
             fleet_co2eq += result.total_co2eq_g
 
-            per_vessel.append(FuelEUPoolingVesselResult(
-                name=v["name"],
-                ghg_intensity=result.ghg_intensity,
-                total_energy_mj=result.total_energy_mj,
-                total_co2eq_g=result.total_co2eq_g,
-                individual_balance_gco2eq=round(individual_balance, 2),
-                status="compliant" if individual_balance >= 0 else "deficit",
-            ))
+            per_vessel.append(
+                FuelEUPoolingVesselResult(
+                    name=v["name"],
+                    ghg_intensity=result.ghg_intensity,
+                    total_energy_mj=result.total_energy_mj,
+                    total_co2eq_g=result.total_co2eq_g,
+                    individual_balance_gco2eq=round(individual_balance, 2),
+                    status="compliant" if individual_balance >= 0 else "deficit",
+                )
+            )
 
         if fleet_energy <= 0:
             return FuelEUPoolingResult(
@@ -412,26 +423,29 @@ class FuelEUCalculator:
 
         for year in range(start_year, end_year + 1):
             year_offset = year - start_year
-            efficiency_factor = (1 - annual_efficiency_improvement_pct / 100) ** year_offset
+            efficiency_factor = (
+                1 - annual_efficiency_improvement_pct / 100
+            ) ** year_offset
 
             adjusted_fuel = {
-                ft: amount * efficiency_factor
-                for ft, amount in base_fuel.items()
+                ft: amount * efficiency_factor for ft, amount in base_fuel.items()
             }
 
             compliance = self.calculate_compliance_balance(adjusted_fuel, year)
             penalty = self.calculate_penalty(adjusted_fuel, year)
 
-            projections.append(FuelEUProjectionYear(
-                year=year,
-                ghg_intensity=compliance.ghg_intensity,
-                ghg_limit=compliance.ghg_limit,
-                reduction_target_pct=compliance.reduction_target_pct,
-                compliance_balance_gco2eq=compliance.compliance_balance_gco2eq,
-                total_energy_mj=compliance.total_energy_mj,
-                status=compliance.status,
-                penalty_eur=penalty.penalty_eur,
-            ))
+            projections.append(
+                FuelEUProjectionYear(
+                    year=year,
+                    ghg_intensity=compliance.ghg_intensity,
+                    ghg_limit=compliance.ghg_limit,
+                    reduction_target_pct=compliance.reduction_target_pct,
+                    compliance_balance_gco2eq=compliance.compliance_balance_gco2eq,
+                    total_energy_mj=compliance.total_energy_mj,
+                    status=compliance.status,
+                    penalty_eur=penalty.penalty_eur,
+                )
+            )
 
         return projections
 
@@ -440,11 +454,13 @@ class FuelEUCalculator:
         limits = []
         for year, pct in sorted(REDUCTION_TARGETS.items()):
             limit = REFERENCE_GHG * (1 - pct / 100)
-            limits.append({
-                "year": year,
-                "reduction_pct": pct,
-                "ghg_limit": round(limit, 2),
-            })
+            limits.append(
+                {
+                    "year": year,
+                    "reduction_pct": pct,
+                    "ghg_limit": round(limit, 2),
+                }
+            )
         return limits
 
     @staticmethod
@@ -454,14 +470,16 @@ class FuelEUCalculator:
         for fuel_key in LCV:
             wtt = WTT_FACTORS[fuel_key]
             ttw = TTW_FACTORS[fuel_key]
-            fuels.append({
-                "id": fuel_key,
-                "name": fuel_key.upper().replace("_", " "),
-                "lcv_mj_per_g": LCV[fuel_key],
-                "wtt_gco2eq_per_mj": wtt,
-                "ttw_gco2eq_per_mj": ttw,
-                "wtw_gco2eq_per_mj": round(wtt + ttw, 2),
-            })
+            fuels.append(
+                {
+                    "id": fuel_key,
+                    "name": fuel_key.upper().replace("_", " "),
+                    "lcv_mj_per_g": LCV[fuel_key],
+                    "wtt_gco2eq_per_mj": wtt,
+                    "ttw_gco2eq_per_mj": ttw,
+                    "wtw_gco2eq_per_mj": round(wtt + ttw, 2),
+                }
+            )
         return fuels
 
     # ---- private helpers ----------------------------------------------------

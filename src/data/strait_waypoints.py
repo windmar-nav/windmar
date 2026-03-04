@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class StraitDefinition:
     """A navigable strait with ordered safe waypoints."""
+
     name: str
     code: str  # Short identifier, e.g. "GIBR"
     waypoints: List[Tuple[float, float]]  # Ordered (lat, lon) through the strait
@@ -43,43 +44,43 @@ STRAITS: List[StraitDefinition] = [
         name="Strait of Gibraltar — Eastbound",
         code="GIBR_EB",
         waypoints=[
-            (35.90, -5.80),     # Western approach (Atlantic, open water)
-            (35.917, -5.700),   # Enter EB lane (center at west end)
-            (35.917, -5.608),   # EB lane mid-west
-            (35.931, -5.551),   # EB lane mid
-            (35.953, -5.470),   # EB lane mid-east
-            (35.963, -5.428),   # Exit EB lane (center at east end)
-            (36.00, -5.20),     # East of TSS, open water
-            (36.10, -4.80),     # Eastern approach (Mediterranean)
+            (35.90, -5.80),  # Western approach (Atlantic, open water)
+            (35.917, -5.700),  # Enter EB lane (center at west end)
+            (35.917, -5.608),  # EB lane mid-west
+            (35.931, -5.551),  # EB lane mid
+            (35.953, -5.470),  # EB lane mid-east
+            (35.963, -5.428),  # Exit EB lane (center at east end)
+            (36.00, -5.20),  # East of TSS, open water
+            (36.10, -4.80),  # Eastern approach (Mediterranean)
         ],
         max_draft_m=300.0,
-        bidirectional=False,   # Eastbound only
+        bidirectional=False,  # Eastbound only
     ),
     StraitDefinition(
         name="Strait of Gibraltar — Westbound",
         code="GIBR_WB",
         waypoints=[
-            (36.10, -4.80),     # Eastern approach (Mediterranean)
-            (36.00, -5.20),     # Approaching TSS from east
-            (36.004, -5.428),   # Enter WB lane (center at east end)
-            (35.992, -5.483),   # WB lane mid-east
-            (35.972, -5.551),   # WB lane mid
-            (35.958, -5.608),   # WB lane mid-west
-            (35.958, -5.750),   # WB lane west end (still inside lane)
-            (35.96, -5.85),     # Western approach (Atlantic, stays above sep zone)
+            (36.10, -4.80),  # Eastern approach (Mediterranean)
+            (36.00, -5.20),  # Approaching TSS from east
+            (36.004, -5.428),  # Enter WB lane (center at east end)
+            (35.992, -5.483),  # WB lane mid-east
+            (35.972, -5.551),  # WB lane mid
+            (35.958, -5.608),  # WB lane mid-west
+            (35.958, -5.750),  # WB lane west end (still inside lane)
+            (35.96, -5.85),  # Western approach (Atlantic, stays above sep zone)
         ],
         max_draft_m=300.0,
-        bidirectional=False,   # Westbound only
+        bidirectional=False,  # Westbound only
     ),
     StraitDefinition(
         name="Strait of Dover",
         code="DOVR",
         waypoints=[
-            (50.80, 0.80),    # SW approach (Channel)
-            (50.95, 1.20),    # Mid-strait south
-            (51.05, 1.40),    # Narrowest point
-            (51.15, 1.60),    # Mid-strait north
-            (51.30, 1.80),    # NE approach (North Sea)
+            (50.80, 0.80),  # SW approach (Channel)
+            (50.95, 1.20),  # Mid-strait south
+            (51.05, 1.40),  # Narrowest point
+            (51.15, 1.60),  # Mid-strait north
+            (51.30, 1.80),  # NE approach (North Sea)
         ],
         max_draft_m=30.0,
     ),
@@ -87,14 +88,14 @@ STRAITS: List[StraitDefinition] = [
         name="Strait of Malacca",
         code="MLCA",
         waypoints=[
-            (1.15, 103.60),   # SE approach (Singapore)
-            (1.30, 103.40),   # Singapore Strait
-            (2.00, 102.30),   # Mid-Malacca south
-            (2.50, 101.50),   # Mid-Malacca
-            (3.00, 100.50),   # Mid-Malacca
-            (3.50, 100.00),   # Mid-Malacca north
-            (4.50, 99.00),    # NW mid
-            (5.50, 98.00),    # NW approach (Andaman Sea)
+            (1.15, 103.60),  # SE approach (Singapore)
+            (1.30, 103.40),  # Singapore Strait
+            (2.00, 102.30),  # Mid-Malacca south
+            (2.50, 101.50),  # Mid-Malacca
+            (3.00, 100.50),  # Mid-Malacca
+            (3.50, 100.00),  # Mid-Malacca north
+            (4.50, 99.00),  # NW mid
+            (5.50, 98.00),  # NW approach (Andaman Sea)
         ],
         max_draft_m=25.0,
     ),
@@ -102,9 +103,9 @@ STRAITS: List[StraitDefinition] = [
         name="Strait of Hormuz",
         code="HRMZ",
         waypoints=[
-            (25.70, 57.10),   # Persian Gulf approach
-            (26.10, 56.80),   # Mid-strait
-            (26.50, 56.50),   # Gulf of Oman approach
+            (25.70, 57.10),  # Persian Gulf approach
+            (26.10, 56.80),  # Mid-strait
+            (26.50, 56.50),  # Gulf of Oman approach
         ],
         max_draft_m=60.0,
     ),
@@ -112,10 +113,10 @@ STRAITS: List[StraitDefinition] = [
         name="Bab el-Mandeb",
         code="BABE",
         waypoints=[
-            (12.80, 43.30),   # Red Sea approach
-            (12.60, 43.40),   # Mid-strait
-            (12.40, 43.50),   # Narrowest point (Perim Island area)
-            (12.20, 43.60),   # Gulf of Aden approach
+            (12.80, 43.30),  # Red Sea approach
+            (12.60, 43.40),  # Mid-strait
+            (12.40, 43.50),  # Narrowest point (Perim Island area)
+            (12.20, 43.60),  # Gulf of Aden approach
         ],
         max_draft_m=50.0,
     ),
@@ -123,9 +124,9 @@ STRAITS: List[StraitDefinition] = [
         name="Bosporus",
         code="BOSP",
         waypoints=[
-            (41.25, 29.12),   # Black Sea approach
-            (41.15, 29.05),   # Northern Bosporus (mid-channel)
-            (40.95, 28.97),   # Sea of Marmara approach
+            (41.25, 29.12),  # Black Sea approach
+            (41.15, 29.05),  # Northern Bosporus (mid-channel)
+            (40.95, 28.97),  # Sea of Marmara approach
         ],
         max_draft_m=15.0,
         narrow=True,  # ~700m wide — GSHHS-i cannot resolve
@@ -134,8 +135,8 @@ STRAITS: List[StraitDefinition] = [
         name="Suez Approach",
         code="SUEZ",
         waypoints=[
-            (31.40, 32.10),   # Mediterranean approach
-            (31.28, 32.30),   # Port Said roadstead
+            (31.40, 32.10),  # Mediterranean approach
+            (31.28, 32.30),  # Port Said roadstead
         ],
         max_draft_m=20.1,
         narrow=True,  # Canal — GSHHS-i shows as land
@@ -144,10 +145,10 @@ STRAITS: List[StraitDefinition] = [
         name="Strait of Messina",
         code="MESS",
         waypoints=[
-            (38.20, 15.63),   # Northern approach (Tyrrhenian)
-            (38.15, 15.63),   # Mid-strait
-            (38.05, 15.62),   # Narrowest point
-            (37.95, 15.65),   # Southern approach (Ionian)
+            (38.20, 15.63),  # Northern approach (Tyrrhenian)
+            (38.15, 15.63),  # Mid-strait
+            (38.05, 15.62),  # Narrowest point
+            (37.95, 15.65),  # Southern approach (Ionian)
         ],
         max_draft_m=50.0,
     ),
@@ -186,25 +187,29 @@ def validate_strait_waypoints() -> List[dict]:
     for strait in STRAITS:
         for i, (lat, lon) in enumerate(strait.waypoints):
             ocean = is_ocean(lat, lon)
-            results.append({
-                "strait": strait.code,
-                "waypoint_idx": i,
-                "lat": lat,
-                "lon": lon,
-                "check": "is_ocean",
-                "passed": ocean,
-            })
+            results.append(
+                {
+                    "strait": strait.code,
+                    "waypoint_idx": i,
+                    "lat": lat,
+                    "lon": lon,
+                    "check": "is_ocean",
+                    "passed": ocean,
+                }
+            )
 
         for i in range(len(strait.waypoints) - 1):
             lat1, lon1 = strait.waypoints[i]
             lat2, lon2 = strait.waypoints[i + 1]
             clear = is_path_clear(lat1, lon1, lat2, lon2)
-            results.append({
-                "strait": strait.code,
-                "segment": (i, i + 1),
-                "check": "is_path_clear",
-                "passed": clear,
-                "narrow": strait.narrow,
-            })
+            results.append(
+                {
+                    "strait": strait.code,
+                    "segment": (i, i + 1),
+                    "check": "is_path_clear",
+                    "passed": clear,
+                    "narrow": strait.narrow,
+                }
+            )
 
     return results

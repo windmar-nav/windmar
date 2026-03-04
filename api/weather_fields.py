@@ -21,8 +21,8 @@ class FieldConfig:
     """Immutable configuration for one weather field."""
 
     # Identity
-    name: str                       # e.g. "wind", "waves", "sst"
-    source: str                     # DB source key: "gfs", "cmems_wave", etc.
+    name: str  # e.g. "wind", "waves", "sst"
+    source: str  # DB source key: "gfs", "cmems_wave", etc.
 
     # DB parameter names stored in weather_grid_data
     parameters: Tuple[str, ...]
@@ -31,22 +31,24 @@ class FieldConfig:
     # "vector"      → (u, v) → speed + direction
     # "scalar"      → single data grid
     # "wave_decomp" → wave_hs/dir + swell + windwave decomposition
-    components: str                 # "vector" | "scalar" | "wave_decomp"
+    components: str  # "vector" | "scalar" | "wave_decomp"
 
     # Grid properties
-    native_resolution: float        # degrees (0.5 for GFS, 0.083 for CMEMS)
+    native_resolution: float  # degrees (0.5 for GFS, 0.083 for CMEMS)
 
     # Forecast timeline
     forecast_hours: Tuple[int, ...]  # e.g. (0, 3, 6, ..., 120)
-    expected_frames: int             # minimum frames to consider "complete"
+    expected_frames: int  # minimum frames to consider "complete"
 
     # Default bounding box (when no viewport is supplied)
-    default_bbox: Tuple[float, float, float, float]  # (lat_min, lat_max, lon_min, lon_max)
+    default_bbox: Tuple[
+        float, float, float, float
+    ]  # (lat_min, lat_max, lon_min, lon_max)
 
     # Display
     unit: str
     needs_ocean_mask: bool = True
-    nan_fill: float = -999.0        # sentinel for NaN in JSON output
+    nan_fill: float = -999.0  # sentinel for NaN in JSON output
 
     # Colorscale for frontend rendering
     colorscale_min: float = 0.0
@@ -80,22 +82,21 @@ class FieldConfig:
 # ---------------------------------------------------------------------------
 # Standard forecast hours
 # ---------------------------------------------------------------------------
-_GFS_HOURS = tuple(range(0, 121, 3))       # 0, 3, 6, ..., 120 → 41 frames
-_ICE_HOURS = tuple(range(0, 217, 24))       # 0, 24, 48, ..., 216 → 10 frames
+_GFS_HOURS = tuple(range(0, 121, 3))  # 0, 3, 6, ..., 120 → 41 frames
+_ICE_HOURS = tuple(range(0, 217, 24))  # 0, 24, 48, ..., 216 → 10 frames
 
 # ---------------------------------------------------------------------------
 # Default bounding boxes
 # ---------------------------------------------------------------------------
 _GLOBAL_BBOX = (-85.0, 85.0, -179.75, 179.75)
 _ATLANTIC_BBOX = (-40.0, 72.0, -100.0, 45.0)  # Full Atlantic + Med + Caribbean + Nordic
-_ICE_BBOX = (55.0, 80.0, -100.0, 45.0)        # Same longitude span, high-lat only
+_ICE_BBOX = (55.0, 80.0, -100.0, 45.0)  # Same longitude span, high-lat only
 
 # ---------------------------------------------------------------------------
 # Field definitions
 # ---------------------------------------------------------------------------
 
 WEATHER_FIELDS: Dict[str, FieldConfig] = {
-
     "wind": FieldConfig(
         name="wind",
         source="gfs",
@@ -107,7 +108,8 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         default_bbox=_GLOBAL_BBOX,
         unit="m/s",
         needs_ocean_mask=True,
-        colorscale_min=0, colorscale_max=30,
+        colorscale_min=0,
+        colorscale_max=30,
         colorscale_colors=("#3b82f6", "#22d3ee", "#a3e635", "#facc15", "#ef4444"),
         subsample_target=500,
         frames_subsample_target=200,
@@ -117,12 +119,19 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         ingest_method="ingest_wind",
         use_redis=False,
     ),
-
     "waves": FieldConfig(
         name="waves",
         source="cmems_wave",
-        parameters=("wave_hs", "wave_dir", "swell_hs", "swell_tp", "swell_dir",
-                     "windwave_hs", "windwave_tp", "windwave_dir"),
+        parameters=(
+            "wave_hs",
+            "wave_dir",
+            "swell_hs",
+            "swell_tp",
+            "swell_dir",
+            "windwave_hs",
+            "windwave_tp",
+            "windwave_dir",
+        ),
         components="wave_decomp",
         native_resolution=0.083,
         forecast_hours=_GFS_HOURS,
@@ -130,7 +139,8 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         default_bbox=_ATLANTIC_BBOX,
         unit="m",
         needs_ocean_mask=True,
-        colorscale_min=0, colorscale_max=6,
+        colorscale_min=0,
+        colorscale_max=6,
         colorscale_colors=("#00ff00", "#ffff00", "#ff8800", "#ff0000", "#800000"),
         subsample_target=250,
         frames_subsample_target=90,
@@ -139,12 +149,19 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         fetch_method="fetch_wave_forecast",
         ingest_method="ingest_waves",
     ),
-
     "swell": FieldConfig(
         name="swell",
         source="cmems_wave",  # shares wave data
-        parameters=("wave_hs", "wave_dir", "swell_hs", "swell_tp", "swell_dir",
-                     "windwave_hs", "windwave_tp", "windwave_dir"),
+        parameters=(
+            "wave_hs",
+            "wave_dir",
+            "swell_hs",
+            "swell_tp",
+            "swell_dir",
+            "windwave_hs",
+            "windwave_tp",
+            "windwave_dir",
+        ),
         components="wave_decomp",
         native_resolution=0.083,
         forecast_hours=_GFS_HOURS,
@@ -152,7 +169,8 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         default_bbox=_ATLANTIC_BBOX,
         unit="m",
         needs_ocean_mask=True,
-        colorscale_min=0, colorscale_max=6,
+        colorscale_min=0,
+        colorscale_max=6,
         colorscale_colors=("#00ff00", "#ffff00", "#ff8800", "#ff0000", "#800000"),
         subsample_target=250,
         frames_subsample_target=90,
@@ -161,7 +179,6 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         fetch_method="fetch_wave_forecast",
         ingest_method="ingest_waves",
     ),
-
     "currents": FieldConfig(
         name="currents",
         source="cmems_current",
@@ -173,7 +190,8 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         default_bbox=_ATLANTIC_BBOX,
         unit="m/s",
         needs_ocean_mask=True,
-        colorscale_min=0, colorscale_max=2,
+        colorscale_min=0,
+        colorscale_max=2,
         colorscale_colors=("#22d3ee", "#3b82f6", "#8b5cf6", "#d946ef"),
         subsample_target=250,
         frames_subsample_target=200,
@@ -182,7 +200,6 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         fetch_method="fetch_current_forecast",
         ingest_method="ingest_currents",
     ),
-
     "sst": FieldConfig(
         name="sst",
         source="cmems_sst",
@@ -195,8 +212,16 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         unit="\u00b0C",
         needs_ocean_mask=True,
         nan_fill=-999.0,
-        colorscale_min=-2, colorscale_max=32,
-        colorscale_colors=("#0000ff", "#00ccff", "#00ff88", "#ffff00", "#ff8800", "#ff0000"),
+        colorscale_min=-2,
+        colorscale_max=32,
+        colorscale_colors=(
+            "#0000ff",
+            "#00ccff",
+            "#00ff88",
+            "#ffff00",
+            "#ff8800",
+            "#ff0000",
+        ),
         subsample_target=250,
         frames_subsample_target=400,
         decimals=2,
@@ -204,7 +229,6 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         fetch_method="fetch_sst_forecast",
         ingest_method="ingest_sst",
     ),
-
     "visibility": FieldConfig(
         name="visibility",
         source="gfs_visibility",
@@ -217,7 +241,8 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         unit="km",
         needs_ocean_mask=True,
         nan_fill=-999.0,
-        colorscale_min=0, colorscale_max=50,
+        colorscale_min=0,
+        colorscale_max=50,
         colorscale_colors=("#ff0000", "#ff8800", "#ffff00", "#88ff00", "#00ff00"),
         subsample_target=250,
         frames_subsample_target=400,
@@ -226,7 +251,6 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         fetch_method="fetch_visibility_forecast",
         ingest_method="ingest_visibility",
     ),
-
     "ice": FieldConfig(
         name="ice",
         source="cmems_ice",
@@ -239,7 +263,8 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         unit="fraction",
         needs_ocean_mask=True,
         nan_fill=-999.0,
-        colorscale_min=0, colorscale_max=1,
+        colorscale_min=0,
+        colorscale_max=1,
         colorscale_colors=("#ffffff", "#ccddff", "#6688ff", "#0033cc", "#001166"),
         subsample_target=250,
         frames_subsample_target=400,

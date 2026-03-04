@@ -15,13 +15,13 @@ from typing import Dict, Optional
 
 import numpy as np
 
-
 logger = logging.getLogger(__name__)
 
 
 # ---------------------------------------------------------------------------
 # Seawater property functions (SPEC-P1)
 # ---------------------------------------------------------------------------
+
 
 def seawater_density(sst_celsius: float) -> float:
     """UNESCO 1983 simplified equation of state (salinity=35 PSU)."""
@@ -158,7 +158,10 @@ class VesselModel:
                 "time_hours": 0.0,
                 "fuel_breakdown": {"calm_water": 0.0, "wind": 0.0, "waves": 0.0},
                 "resistance_breakdown_kn": {
-                    "calm_water": 0.0, "wind": 0.0, "waves": 0.0, "total": 0.0,
+                    "calm_water": 0.0,
+                    "wind": 0.0,
+                    "waves": 0.0,
+                    "total": 0.0,
                 },
             }
 
@@ -168,18 +171,24 @@ class VesselModel:
         # Get vessel parameters for loading condition
         draft = self.specs.draft_laden if is_laden else self.specs.draft_ballast
         displacement = (
-            self.specs.displacement_laden if is_laden
+            self.specs.displacement_laden
+            if is_laden
             else self.specs.displacement_ballast
         )
         cb = self.specs.cb_laden if is_laden else self.specs.cb_ballast
         wetted_surface = (
-            self.specs.wetted_surface_laden if is_laden
+            self.specs.wetted_surface_laden
+            if is_laden
             else self.specs.wetted_surface_ballast
         )
 
         # Calculate calm water resistance (with SST-corrected properties when available)
         resistance_calm = self._holtrop_mennen_resistance(
-            speed_ms, draft, displacement, cb, wetted_surface,
+            speed_ms,
+            draft,
+            displacement,
+            cb,
+            wetted_surface,
             sst_celsius=sst_celsius,
         )
 
@@ -216,9 +225,7 @@ class VesselModel:
 
         # Account for propulsion efficiencies
         brake_power_kw = tow_power_kw / (
-            self.PROP_EFFICIENCY
-            * self.HULL_EFFICIENCY
-            * self.RELATIVE_ROTATIVE_EFF
+            self.PROP_EFFICIENCY * self.HULL_EFFICIENCY * self.RELATIVE_ROTATIVE_EFF
         )
 
         # Store uncapped power (needed for speed reduction calculations)
@@ -243,15 +250,21 @@ class VesselModel:
             "required_power_kw": required_brake_power_kw,
             "time_hours": time_hours,
             "fuel_breakdown": {
-                "calm_water": (resistance_calm / total_resistance) * fuel_mt
-                if total_resistance > 0
-                else fuel_mt,
-                "wind": (resistance_wind / total_resistance) * fuel_mt
-                if total_resistance > 0
-                else 0.0,
-                "waves": (resistance_waves / total_resistance) * fuel_mt
-                if total_resistance > 0
-                else 0.0,
+                "calm_water": (
+                    (resistance_calm / total_resistance) * fuel_mt
+                    if total_resistance > 0
+                    else fuel_mt
+                ),
+                "wind": (
+                    (resistance_wind / total_resistance) * fuel_mt
+                    if total_resistance > 0
+                    else 0.0
+                ),
+                "waves": (
+                    (resistance_waves / total_resistance) * fuel_mt
+                    if total_resistance > 0
+                    else 0.0
+                ),
             },
             "resistance_breakdown_kn": {
                 "calm_water": resistance_calm / 1000.0,
@@ -359,11 +372,13 @@ class VesselModel:
         relative_angle_rad = np.radians(relative_angle)
 
         frontal_area = (
-            self.specs.frontal_area_laden if is_laden
+            self.specs.frontal_area_laden
+            if is_laden
             else self.specs.frontal_area_ballast
         )
         lateral_area = (
-            self.specs.lateral_area_laden if is_laden
+            self.specs.lateral_area_laden
+            if is_laden
             else self.specs.lateral_area_ballast
         )
 
@@ -371,22 +386,13 @@ class VesselModel:
         # Headwind (0°) → max drag ~0.8, tailwind (180°) → 0 drag
         cx_drag = 0.8 * np.cos(relative_angle_rad)
         direct_resistance = (
-            max(0.0, cx_drag)
-            * 0.5
-            * self.RHO_AIR
-            * wind_speed_ms**2
-            * frontal_area
+            max(0.0, cx_drag) * 0.5 * self.RHO_AIR * wind_speed_ms**2 * frontal_area
         )
 
         # Transverse wind creates drift, adding ~10% to effective resistance
         cy = 0.9 * abs(np.sin(relative_angle_rad))
         drift_resistance = (
-            0.1
-            * cy
-            * 0.5
-            * self.RHO_AIR
-            * wind_speed_ms**2
-            * lateral_area
+            0.1 * cy * 0.5 * self.RHO_AIR * wind_speed_ms**2 * lateral_area
         )
 
         return direct_resistance + drift_resistance
@@ -417,10 +423,18 @@ class VesselModel:
         """
         if self.wave_method == "kwon":
             return self._kwon_wave_resistance(
-                sig_wave_height_m, wave_dir_deg, heading_deg, speed_ms, is_laden,
+                sig_wave_height_m,
+                wave_dir_deg,
+                heading_deg,
+                speed_ms,
+                is_laden,
             )
         return self._stawave1_wave_resistance(
-            sig_wave_height_m, wave_dir_deg, heading_deg, speed_ms, is_laden,
+            sig_wave_height_m,
+            wave_dir_deg,
+            heading_deg,
+            speed_ms,
+            is_laden,
         )
 
     def _stawave1_wave_resistance(
@@ -534,16 +548,22 @@ class VesselModel:
         # We approximate R_calm from tow power at current speed
         draft = self.specs.draft_laden if is_laden else self.specs.draft_ballast
         displacement = (
-            self.specs.displacement_laden if is_laden
+            self.specs.displacement_laden
+            if is_laden
             else self.specs.displacement_ballast
         )
         wetted_surface = (
-            self.specs.wetted_surface_laden if is_laden
+            self.specs.wetted_surface_laden
+            if is_laden
             else self.specs.wetted_surface_ballast
         )
 
         r_calm = self._holtrop_mennen_resistance(
-            speed_ms, draft, displacement, cb, wetted_surface,
+            speed_ms,
+            draft,
+            displacement,
+            cb,
+            wetted_surface,
         )
 
         r_wave = r_calm * 2.0 * (delta_v_pct / 100.0)
@@ -574,7 +594,7 @@ class VesselModel:
             sfoc = self.specs.sfoc_at_mcr * (1.0 + 0.05 * (load_fraction - 0.75))
 
         # Apply calibration SFOC factor (engine degradation / actual measurement)
-        sfoc *= self.calibration_factors.get('sfoc_factor', 1.0)
+        sfoc *= self.calibration_factors.get("sfoc_factor", 1.0)
 
         return sfoc
 
@@ -597,7 +617,8 @@ class VesselModel:
         # The SFOC curve has its optimum at ~75-85% MCR load; the speed
         # that produces that load is the most fuel-efficient operating point.
         service_speed = (
-            self.specs.service_speed_laden if is_laden
+            self.specs.service_speed_laden
+            if is_laden
             else self.specs.service_speed_ballast
         )
 
@@ -659,7 +680,7 @@ class VesselModel:
         # Inject heading into weather dict for consistent angle calculations
         if weather:
             weather = dict(weather)
-            weather['heading_deg'] = heading_deg
+            weather["heading_deg"] = heading_deg
 
         # Bisection: find speed where required_power = target_power
         # Required power increases monotonically with speed (cubic-ish)
@@ -668,7 +689,10 @@ class VesselModel:
         def _power_at_speed(speed_kts: float) -> float:
             """Required brake power at this speed."""
             r = self.calculate_fuel_consumption(
-                speed_kts, is_laden, weather, distance_nm=1.0,
+                speed_kts,
+                is_laden,
+                weather,
+                distance_nm=1.0,
             )
             return r["required_power_kw"]
 
@@ -695,7 +719,10 @@ class VesselModel:
 
         # Calculate full results at equilibrium speed
         result = self.calculate_fuel_consumption(
-            stw_kts, is_laden, weather, distance_nm=stw_kts * 24,
+            stw_kts,
+            is_laden,
+            weather,
+            distance_nm=stw_kts * 24,
         )
 
         # Current effect on SOG
@@ -704,7 +731,9 @@ class VesselModel:
         if current_speed_ms > 0:
             # Current direction is "flowing toward" — same convention as heading
             relative_current_angle = math.radians(current_dir_deg - heading_deg)
-            current_along_kts = (current_speed_ms / 0.51444) * math.cos(relative_current_angle)
+            current_along_kts = (current_speed_ms / 0.51444) * math.cos(
+                relative_current_angle
+            )
             current_effect_kts = current_along_kts
 
         sog_kts = max(0.0, stw_kts + current_effect_kts)
@@ -715,12 +744,16 @@ class VesselModel:
 
         # Speed loss from calm-water service speed
         service_speed = (
-            self.specs.service_speed_laden if is_laden
+            self.specs.service_speed_laden
+            if is_laden
             else self.specs.service_speed_ballast
         )
         # Calm-water speed at same power
         calm_result = self.calculate_fuel_consumption(
-            stw_kts, is_laden, weather=None, distance_nm=1.0,
+            stw_kts,
+            is_laden,
+            weather=None,
+            distance_nm=1.0,
         )
         # Find what speed we'd get in calm water at same power
         calm_stw = stw_kts  # Start with same speed
@@ -729,14 +762,18 @@ class VesselModel:
             v_lo_c, v_hi_c = 2.0, 25.0
             for _ in range(30):
                 v_mid = (v_lo_c + v_hi_c) / 2.0
-                r = self.calculate_fuel_consumption(v_mid, is_laden, None, distance_nm=1.0)
+                r = self.calculate_fuel_consumption(
+                    v_mid, is_laden, None, distance_nm=1.0
+                )
                 if r["required_power_kw"] < target_power_kw:
                     v_lo_c = v_mid
                 else:
                     v_hi_c = v_mid
             calm_stw = (v_lo_c + v_hi_c) / 2.0
 
-        speed_loss_pct = ((calm_stw - stw_kts) / calm_stw * 100) if calm_stw > 0 else 0.0
+        speed_loss_pct = (
+            ((calm_stw - stw_kts) / calm_stw * 100) if calm_stw > 0 else 0.0
+        )
 
         load_pct = result["power_kw"] / self.specs.mcr_kw * 100
         sfoc = self._sfoc_curve(result["power_kw"] / self.specs.mcr_kw)

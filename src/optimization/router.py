@@ -15,7 +15,6 @@ import numpy as np
 from ..validation import validate_coordinates, validate_speed
 from .vessel_model import VesselModel
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -78,10 +77,7 @@ class Node:
         """Check equality by position."""
         if not isinstance(other, Node):
             return False
-        return (
-            abs(self.lat - other.lat) < 0.001
-            and abs(self.lon - other.lon) < 0.001
-        )
+        return abs(self.lat - other.lat) < 0.001 and abs(self.lon - other.lon) < 0.001
 
 
 class MaritimeRouter:
@@ -144,12 +140,16 @@ class MaritimeRouter:
         """
         # Validate inputs
         validate_coordinates(
-            start_pos[0], start_pos[1],
-            "start_position.latitude", "start_position.longitude",
+            start_pos[0],
+            start_pos[1],
+            "start_position.latitude",
+            "start_position.longitude",
         )
         validate_coordinates(
-            end_pos[0], end_pos[1],
-            "end_position.latitude", "end_position.longitude",
+            end_pos[0],
+            end_pos[1],
+            "end_position.latitude",
+            "end_position.longitude",
         )
         if target_speed_kts is not None:
             validate_speed(target_speed_kts, "target_speed_kts")
@@ -161,14 +161,10 @@ class MaritimeRouter:
                 else self.vessel_model.specs.service_speed_ballast
             )
 
-        logger.info(
-            f"Starting A* route optimization from {start_pos} to {end_pos}"
-        )
+        logger.info(f"Starting A* route optimization from {start_pos} to {end_pos}")
 
         # Initialize start and goal nodes
-        start_node = Node(
-            start_pos[0], start_pos[1], g_cost=0.0, time=departure_time
-        )
+        start_node = Node(start_pos[0], start_pos[1], g_cost=0.0, time=departure_time)
         goal_node = Node(end_pos[0], end_pos[1])
 
         # Calculate heuristic for start node
@@ -189,7 +185,12 @@ class MaritimeRouter:
             current = heapq.heappop(open_set)
 
             # Check if goal reached
-            if self._distance_nm(current.lat, current.lon, goal_node.lat, goal_node.lon) < 10:
+            if (
+                self._distance_nm(
+                    current.lat, current.lon, goal_node.lat, goal_node.lon
+                )
+                < 10
+            ):
                 logger.info(f"Route found after {iterations} iterations")
                 return self._reconstruct_route(
                     current, goal_node, is_laden, target_speed_kts
@@ -236,9 +237,7 @@ class MaritimeRouter:
             start_pos, end_pos, departure_time, is_laden, target_speed_kts
         )
 
-    def _get_neighbors(
-        self, current: Node, goal: Node
-    ) -> List[Node]:
+    def _get_neighbors(self, current: Node, goal: Node) -> List[Node]:
         """
         Get neighboring nodes for A* expansion.
 
@@ -252,9 +251,7 @@ class MaritimeRouter:
             List of neighbor nodes
         """
         # Distance to goal
-        dist_to_goal = self._distance_nm(
-            current.lat, current.lon, goal.lat, goal.lon
-        )
+        dist_to_goal = self._distance_nm(current.lat, current.lon, goal.lat, goal.lon)
 
         # Adaptive resolution (finer near goal)
         if dist_to_goal < 100:
@@ -311,9 +308,7 @@ class MaritimeRouter:
         )
 
         # Get heading
-        heading = self._bearing(
-            from_node.lat, from_node.lon, to_node.lat, to_node.lon
-        )
+        heading = self._bearing(from_node.lat, from_node.lon, to_node.lat, to_node.lon)
 
         # Get weather at midpoint and time
         mid_lat = (from_node.lat + to_node.lat) / 2
@@ -325,10 +320,7 @@ class MaritimeRouter:
         if weather:
             if weather.get("wind_speed_ms", 0) > self.constraints.max_wind_speed_ms:
                 return None
-            if (
-                weather.get("sig_wave_height_m", 0)
-                > self.constraints.max_wave_height_m
-            ):
+            if weather.get("sig_wave_height_m", 0) > self.constraints.max_wave_height_m:
                 return None
 
             # Add heading to weather dict
@@ -360,9 +352,7 @@ class MaritimeRouter:
             logger.debug(f"Could not get weather: {e}")
             return None
 
-    def _heuristic(
-        self, node: Node, goal: Node, is_laden: bool
-    ) -> float:
+    def _heuristic(self, node: Node, goal: Node, is_laden: bool) -> float:
         """
         Heuristic function for A* (admissible).
 
@@ -447,8 +437,12 @@ class MaritimeRouter:
             total_fuel += last_seg_fuel["fuel_mt"]
 
         total_distance = sum(
-            self._distance_nm(waypoints[i][0], waypoints[i][1],
-                            waypoints[i + 1][0], waypoints[i + 1][1])
+            self._distance_nm(
+                waypoints[i][0],
+                waypoints[i][1],
+                waypoints[i + 1][0],
+                waypoints[i + 1][1],
+            )
             for i in range(len(waypoints) - 1)
         )
 

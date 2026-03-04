@@ -22,7 +22,8 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GraphNode:
     """A node in the variable-resolution routing graph."""
-    id: str                    # "fine_234_567" or "coarse_12_34"
+
+    id: str  # "fine_234_567" or "coarse_12_34"
     lat: float
     lon: float
     resolution_deg: float
@@ -50,10 +51,22 @@ class RoutingGraph:
 
     # 16-connected grid directions (shared with RouteOptimizer)
     DIRECTIONS = [
-        (-1, 0), (0, 1), (1, 0), (0, -1),
-        (-1, 1), (1, 1), (1, -1), (-1, -1),
-        (-2, 1), (-1, 2), (1, 2), (2, 1),
-        (2, -1), (1, -2), (-1, -2), (-2, -1),
+        (-1, 0),
+        (0, 1),
+        (1, 0),
+        (0, -1),
+        (-1, 1),
+        (1, 1),
+        (1, -1),
+        (-1, -1),
+        (-2, 1),
+        (-1, 2),
+        (1, 2),
+        (2, 1),
+        (2, -1),
+        (1, -2),
+        (-1, -2),
+        (-2, -1),
     ]
 
     def __init__(
@@ -78,7 +91,7 @@ class RoutingGraph:
 
         # Grid index for neighbor lookup
         self._coarse_grid: Dict[Tuple[int, int], str] = {}  # (row, col) → node_id
-        self._fine_grid: Dict[Tuple[int, int], str] = {}    # (row, col) → node_id
+        self._fine_grid: Dict[Tuple[int, int], str] = {}  # (row, col) → node_id
 
     def build(self) -> Dict[str, GraphNode]:
         """
@@ -124,8 +137,10 @@ class RoutingGraph:
             lat += self.COARSE_RESOLUTION
             row += 1
 
-        logger.info(f"Coarse grid: {len(coarse_cells)} ocean cells "
-                    f"({row} rows, bbox [{lat_min:.1f},{lat_max:.1f},{lon_min:.1f},{lon_max:.1f}])")
+        logger.info(
+            f"Coarse grid: {len(coarse_cells)} ocean cells "
+            f"({row} rows, bbox [{lat_min:.1f},{lat_max:.1f},{lon_min:.1f},{lon_max:.1f}])"
+        )
 
         # Step 2: Identify nearshore cells
         nearshore_keys = set()
@@ -139,7 +154,9 @@ class RoutingGraph:
                     if dist < self.NEARSHORE_THRESHOLD_DEG:
                         nearshore_keys.add(key)
             except Exception as e:
-                logger.warning(f"Distance-to-coast calculation failed: {e}. Using all coarse.")
+                logger.warning(
+                    f"Distance-to-coast calculation failed: {e}. Using all coarse."
+                )
         else:
             # Without GSHHS, use heuristic: cells near continental bounds
             logger.info("No land geometry available — skipping nearshore subdivision")
@@ -152,7 +169,9 @@ class RoutingGraph:
             if key not in nearshore_keys:
                 node_id = f"coarse_{key[0]}_{key[1]}"
                 self._nodes[node_id] = GraphNode(
-                    id=node_id, lat=lat, lon=lon,
+                    id=node_id,
+                    lat=lat,
+                    lon=lon,
                     resolution_deg=self.COARSE_RESOLUTION,
                 )
                 self._coarse_grid[key] = node_id
@@ -164,20 +183,32 @@ class RoutingGraph:
             # Subdivide into 5×5 fine cells
             for fi in range(5):
                 for fj in range(5):
-                    flat = clat - self.COARSE_RESOLUTION / 2 + (fi + 0.5) * self.FINE_RESOLUTION
-                    flon = clon - self.COARSE_RESOLUTION / 2 + (fj + 0.5) * self.FINE_RESOLUTION
+                    flat = (
+                        clat
+                        - self.COARSE_RESOLUTION / 2
+                        + (fi + 0.5) * self.FINE_RESOLUTION
+                    )
+                    flon = (
+                        clon
+                        - self.COARSE_RESOLUTION / 2
+                        + (fj + 0.5) * self.FINE_RESOLUTION
+                    )
                     if is_ocean(flat, flon):
                         fine_row = fine_offset + coarse_key[0] * 5 + fi
                         fine_col = coarse_key[1] * 5 + fj
                         node_id = f"fine_{fine_row}_{fine_col}"
                         self._nodes[node_id] = GraphNode(
-                            id=node_id, lat=flat, lon=flon,
+                            id=node_id,
+                            lat=flat,
+                            lon=flon,
                             resolution_deg=self.FINE_RESOLUTION,
                         )
                         self._fine_grid[(fine_row, fine_col)] = node_id
 
-        logger.info(f"Graph nodes: {len(self._nodes)} "
-                    f"(coarse={len(self._coarse_grid)}, fine={len(self._fine_grid)})")
+        logger.info(
+            f"Graph nodes: {len(self._nodes)} "
+            f"(coarse={len(self._coarse_grid)}, fine={len(self._fine_grid)})"
+        )
 
         # Step 4: Build neighbor edges
         self._build_coarse_neighbors()
@@ -265,6 +296,7 @@ class RoutingGraph:
         if self._strtree is not None:
             try:
                 from shapely.geometry import Point
+
                 pt = Point(lon, lat)
                 idx = self._strtree.nearest(pt)
                 node_id = self._node_ids[idx]
@@ -273,7 +305,7 @@ class RoutingGraph:
                 pass
 
         # Brute-force fallback
-        min_dist = float('inf')
+        min_dist = float("inf")
         nearest = None
         for node in self._nodes.values():
             dist = (node.lat - lat) ** 2 + (node.lon - lon) ** 2

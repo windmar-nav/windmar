@@ -45,6 +45,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class MonteCarloResult:
     """Monte Carlo simulation result with percentiles."""
+
     n_simulations: int
 
     # ETA percentiles (ISO strings)
@@ -77,11 +78,11 @@ class MonteCarloSimulator:
     """
 
     # Perturbation parameters
-    SIGMA_WIND = 0.35       # log-normal sigma for wind speed
-    SIGMA_WAVE = 0.20       # log-normal sigma for wave height
-    SIGMA_CURRENT = 0.15    # log-normal sigma for current speed
-    SIGMA_DIR = 15.0        # degrees, Gaussian offset for directions
-    CORR_TAU = 0.3          # correlation length as fraction of voyage duration
+    SIGMA_WIND = 0.35  # log-normal sigma for wind speed
+    SIGMA_WAVE = 0.20  # log-normal sigma for wave height
+    SIGMA_CURRENT = 0.15  # log-normal sigma for current speed
+    SIGMA_DIR = 15.0  # degrees, Gaussian offset for directions
+    CORR_TAU = 0.3  # correlation length as fraction of voyage duration
 
     def __init__(self, voyage_calculator: VoyageCalculator):
         self.voyage_calculator = voyage_calculator
@@ -148,8 +149,13 @@ class MonteCarloSimulator:
 
             # Create perturbed weather provider
             perturbed = self._make_temporal_perturbed_provider(
-                base_weather, slices, route,
-                wind_factors, wave_factors, current_factors, dir_offsets,
+                base_weather,
+                slices,
+                route,
+                wind_factors,
+                wave_factors,
+                current_factors,
+                dir_offsets,
             )
 
             try:
@@ -275,7 +281,9 @@ class MonteCarloSimulator:
         Falls back to weather_provider-only if DB is unavailable.
         """
         if db_weather is not None:
-            db_result = self._prefetch_from_db(slices, route, db_weather, weather_provider)
+            db_result = self._prefetch_from_db(
+                slices, route, db_weather, weather_provider
+            )
             if db_result is not None:
                 return db_result
 
@@ -329,7 +337,9 @@ class MonteCarloSimulator:
             temporal_wx = assessor.provision(assessment)
 
             if temporal_wx is None:
-                logger.info("MC: Temporal provider unavailable, falling back to weather_provider")
+                logger.info(
+                    "MC: Temporal provider unavailable, falling back to weather_provider"
+                )
                 return None
 
             # Query temporal provider at each slice
@@ -358,7 +368,9 @@ class MonteCarloSimulator:
             try:
                 result.append(weather_provider(lat, lon, t))
             except Exception as e:
-                logger.warning(f"MC weather fetch failed at ({lat:.1f}, {lon:.1f}): {e}")
+                logger.warning(
+                    f"MC weather fetch failed at ({lat:.1f}, {lon:.1f}): {e}"
+                )
                 result.append(LegWeather())
         return result
 
@@ -406,19 +418,15 @@ class MonteCarloSimulator:
         z_dir = L @ rng.standard_normal(n)
 
         # Wind speed: log-normal, E[factor] = 1.0
-        wind_factors = np.exp(
-            self.SIGMA_WIND * z_wind - 0.5 * self.SIGMA_WIND ** 2
-        )
+        wind_factors = np.exp(self.SIGMA_WIND * z_wind - 0.5 * self.SIGMA_WIND**2)
 
         # Wave height: 70% correlated with wind, 30% independent
-        z_wave = 0.7 * z_wind + np.sqrt(1 - 0.7 ** 2) * z_wave_indep
-        wave_factors = np.exp(
-            self.SIGMA_WAVE * z_wave - 0.5 * self.SIGMA_WAVE ** 2
-        )
+        z_wave = 0.7 * z_wind + np.sqrt(1 - 0.7**2) * z_wave_indep
+        wave_factors = np.exp(self.SIGMA_WAVE * z_wave - 0.5 * self.SIGMA_WAVE**2)
 
         # Current: independent correlated process
         current_factors = np.exp(
-            self.SIGMA_CURRENT * z_current - 0.5 * self.SIGMA_CURRENT ** 2
+            self.SIGMA_CURRENT * z_current - 0.5 * self.SIGMA_CURRENT**2
         )
 
         # Direction offsets: Gaussian, temporally correlated
@@ -458,7 +466,9 @@ class MonteCarloSimulator:
             # Among the 5 closest in time, pick the spatially nearest
             k = min(5, len(slices))
             candidates = np.argpartition(time_dist, k)[:k]
-            spatial_dist = (slice_lats[candidates] - lat) ** 2 + (slice_lons[candidates] - lon) ** 2
+            spatial_dist = (slice_lats[candidates] - lat) ** 2 + (
+                slice_lons[candidates] - lon
+            ) ** 2
             best = candidates[np.argmin(spatial_dist)]
 
             base = base_weather[best]

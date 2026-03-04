@@ -27,9 +27,10 @@ logger = logging.getLogger(__name__)
 # Slippy-map math
 # ---------------------------------------------------------------------------
 
+
 def _tile_bbox(z: int, x: int, y: int) -> Tuple[float, float, float, float]:
     """Return (lat_min, lat_max, lon_min, lon_max) for a tile."""
-    n = 2.0 ** z
+    n = 2.0**z
     lon_min = x / n * 360.0 - 180.0
     lon_max = (x + 1) / n * 360.0 - 180.0
     lat_max = math.degrees(math.atan(math.sinh(math.pi * (1 - 2 * y / n))))
@@ -63,7 +64,10 @@ except ImportError:
 
 
 def _build_tile_land_mask(
-    lat_min: float, lat_max: float, lon_min: float, lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
 ) -> Optional[np.ndarray]:
     """Build a 256x256 boolean land mask for the tile bbox.
 
@@ -72,7 +76,7 @@ def _build_tile_land_mask(
     """
     if _globe is None:
         return None
-    pixel_lats = np.linspace(lat_max, lat_min, TILE_SIZE)   # top→bottom
+    pixel_lats = np.linspace(lat_max, lat_min, TILE_SIZE)  # top→bottom
     pixel_lons = np.linspace(lon_min, lon_max, TILE_SIZE)
     lon_grid, lat_grid = np.meshgrid(pixel_lons, pixel_lats)
     is_ocean = _globe.is_ocean(lat_grid, lon_grid)
@@ -86,83 +90,108 @@ def _build_tile_land_mask(
 # Each ramp is an Nx4 float32 array: [[threshold, R, G, B], ...]
 # Alpha is applied per-field after ramp lookup.
 
-_WIND_RAMP = np.array([
-    [0,  30,  80, 220],
-    [5,   0, 200, 220],
-    [10,  0, 200,  50],
-    [15, 240, 220,   0],
-    [20, 240, 130,   0],
-    [25, 220,  30,  30],
-], dtype=np.float32)
+_WIND_RAMP = np.array(
+    [
+        [0, 30, 80, 220],
+        [5, 0, 200, 220],
+        [10, 0, 200, 50],
+        [15, 240, 220, 0],
+        [20, 240, 130, 0],
+        [25, 220, 30, 30],
+    ],
+    dtype=np.float32,
+)
 
-_WAVE_RAMP = np.array([
-    [0,    60, 110, 220],
-    [0.5,  30, 160, 240],
-    [1,     0, 200, 170],
-    [1.5, 120, 220,  40],
-    [2,   240, 220,   0],
-    [3,   240, 130,   0],
-    [4,   220,  30,  80],
-    [6,   160,   0, 180],
-], dtype=np.float32)
+_WAVE_RAMP = np.array(
+    [
+        [0, 60, 110, 220],
+        [0.5, 30, 160, 240],
+        [1, 0, 200, 170],
+        [1.5, 120, 220, 40],
+        [2, 240, 220, 0],
+        [3, 240, 130, 0],
+        [4, 220, 30, 80],
+        [6, 160, 0, 180],
+    ],
+    dtype=np.float32,
+)
 
-_ICE_RAMP = np.array([
-    [0.00,   0, 100, 255],
-    [0.10, 150, 200, 255],
-    [0.30, 140, 255, 160],
-    [0.60, 255, 255,   0],
-    [0.80, 255, 125,   7],
-    [1.00, 255,   0,   0],
-], dtype=np.float32)
+_ICE_RAMP = np.array(
+    [
+        [0.00, 0, 100, 255],
+        [0.10, 150, 200, 255],
+        [0.30, 140, 255, 160],
+        [0.60, 255, 255, 0],
+        [0.80, 255, 125, 7],
+        [1.00, 255, 0, 0],
+    ],
+    dtype=np.float32,
+)
 
-_SST_RAMP = np.array([
-    [-2,  20,  30, 140],
-    [ 2,  40,  80, 200],
-    [ 8,   0, 180, 220],
-    [14,   0, 200,  80],
-    [20, 220, 220,   0],
-    [26, 240, 130,   0],
-    [32, 220,  30,  30],
-], dtype=np.float32)
+_SST_RAMP = np.array(
+    [
+        [-2, 20, 30, 140],
+        [2, 40, 80, 200],
+        [8, 0, 180, 220],
+        [14, 0, 200, 80],
+        [20, 220, 220, 0],
+        [26, 240, 130, 0],
+        [32, 220, 30, 30],
+    ],
+    dtype=np.float32,
+)
 
-_SWELL_RAMP = np.array([
-    [0,  60, 120, 200],
-    [1,   0, 200, 180],
-    [2, 100, 200,  50],
-    [3, 240, 200,   0],
-    [5, 240, 100,   0],
-    [8, 200,  30,  30],
-], dtype=np.float32)
+_SWELL_RAMP = np.array(
+    [
+        [0, 60, 120, 200],
+        [1, 0, 200, 180],
+        [2, 100, 200, 50],
+        [3, 240, 200, 0],
+        [5, 240, 100, 0],
+        [8, 200, 30, 30],
+    ],
+    dtype=np.float32,
+)
 
-_VIS_RAMP = np.array([
-    [ 0,  20,  80,  10],
-    [ 1,  40, 120,  20],
-    [ 4,  80, 170,  40],
-    [10, 130, 210,  70],
-    [20, 180, 240, 120],
-], dtype=np.float32)
+_VIS_RAMP = np.array(
+    [
+        [0, 20, 80, 10],
+        [1, 40, 120, 20],
+        [4, 80, 170, 40],
+        [10, 130, 210, 70],
+        [20, 180, 240, 120],
+    ],
+    dtype=np.float32,
+)
 
-_CURRENT_RAMP = np.array([
-    [0.0,  34, 211, 238],   # cyan
-    [0.5,  59, 130, 246],   # blue
-    [1.0, 139,  92, 246],   # purple
-    [2.0, 217,  70, 239],   # magenta
-], dtype=np.float32)
+_CURRENT_RAMP = np.array(
+    [
+        [0.0, 34, 211, 238],  # cyan
+        [0.5, 59, 130, 246],  # blue
+        [1.0, 139, 92, 246],  # purple
+        [2.0, 217, 70, 239],  # magenta
+    ],
+    dtype=np.float32,
+)
 
 FIELD_RAMP = {
-    "wind":       (_WIND_RAMP,    180, 200, 180),
-    "waves":      (_WAVE_RAMP,    170, 190, 175),
-    "swell":      (_SWELL_RAMP,   140, 190, 160),
-    "ice":        (_ICE_RAMP,     120, 200, 180),
-    "sst":        (_SST_RAMP,     160, 180, 170),
-    "visibility": (_VIS_RAMP,       0,   0,   0),   # alpha handled specially
-    "currents":   (_CURRENT_RAMP,  170, 200, 175),
+    "wind": (_WIND_RAMP, 180, 200, 180),
+    "waves": (_WAVE_RAMP, 170, 190, 175),
+    "swell": (_SWELL_RAMP, 140, 190, 160),
+    "ice": (_ICE_RAMP, 120, 200, 180),
+    "sst": (_SST_RAMP, 160, 180, 170),
+    "visibility": (_VIS_RAMP, 0, 0, 0),  # alpha handled specially
+    "currents": (_CURRENT_RAMP, 170, 200, 175),
 }
 
 
-def _apply_ramp(values: np.ndarray, ramp: np.ndarray,
-                alpha_low: int, alpha_high: int, alpha_default: int,
-                ) -> np.ndarray:
+def _apply_ramp(
+    values: np.ndarray,
+    ramp: np.ndarray,
+    alpha_low: int,
+    alpha_high: int,
+    alpha_default: int,
+) -> np.ndarray:
     """Vectorised colour-ramp lookup.
 
     Parameters
@@ -255,9 +284,9 @@ def _apply_ice_ramp(values: np.ndarray) -> np.ndarray:
 
 # Max zoom per source resolution
 MAX_ZOOM = {
-    "gfs": 8,            # 0.5 deg
+    "gfs": 8,  # 0.5 deg
     "gfs_visibility": 8,
-    "cmems_wave": 10,    # 0.083 deg
+    "cmems_wave": 10,  # 0.083 deg
     "cmems_current": 10,
     "cmems_sst": 10,
     "cmems_ice": 10,
@@ -323,8 +352,8 @@ def _normalize_velocity_cache(cache_data: dict) -> dict:
         flat_v = frame_list[1].get("data", [])
         if len(flat_u) < nx * ny or len(flat_v) < nx * ny:
             continue
-        u_2d = [flat_u[j * nx: (j + 1) * nx] for j in range(ny)]
-        v_2d = [flat_v[j * nx: (j + 1) * nx] for j in range(ny)]
+        u_2d = [flat_u[j * nx : (j + 1) * nx] for j in range(ny)]
+        v_2d = [flat_v[j * nx : (j + 1) * nx] for j in range(ny)]
         new_frames[fh_key] = {"wind_u": u_2d, "wind_v": v_2d}
 
     result = dict(cache_data)
@@ -385,8 +414,12 @@ def render_tile(
     grid_lon_min, grid_lon_max = float(lons[0]), float(lons[-1])
 
     # Quick reject: tile completely outside grid coverage
-    if (lat_max < grid_lat_min or lat_min > grid_lat_max or
-            lon_max < grid_lon_min or lon_min > grid_lon_max):
+    if (
+        lat_max < grid_lat_min
+        or lat_min > grid_lat_max
+        or lon_max < grid_lon_min
+        or lon_min > grid_lon_max
+    ):
         return None
 
     # Load the frame data
@@ -436,14 +469,16 @@ def render_tile(
             (pixel_lats - grid_lat_min) / fade_deg,
             (grid_lat_max - pixel_lats) / fade_deg,
         ),
-        0, 1,
+        0,
+        1,
     )
     lon_fade = np.clip(
         np.minimum(
             (pixel_lons - grid_lon_min) / fade_deg,
             (grid_lon_max - pixel_lons) / fade_deg,
         ),
-        0, 1,
+        0,
+        1,
     )
     edge_fade = np.outer(lat_fade, lon_fade)  # (256, 256)
     rgba[..., 3] = (rgba[..., 3].astype(np.float32) * edge_fade).astype(np.uint8)
@@ -477,7 +512,7 @@ def _extract_values(
                 return None
         u = np.asarray(u, dtype=np.float64)
         v = np.asarray(v, dtype=np.float64)
-        values = np.sqrt(u ** 2 + v ** 2)
+        values = np.sqrt(u**2 + v**2)
     elif cfg.components == "wave_decomp":
         # Waves / swell: primary height field
         # Cache format stores swell either as flat keys (swell_hs) or nested
@@ -576,8 +611,10 @@ def _resample_to_tile(
 
     # Mask pixels outside grid coverage
     outside = (
-        (lat_idx_2d < -0.5) | (lat_idx_2d > ny - 0.5)
-        | (lon_idx_2d < -0.5) | (lon_idx_2d > nx - 0.5)
+        (lat_idx_2d < -0.5)
+        | (lat_idx_2d > ny - 0.5)
+        | (lon_idx_2d < -0.5)
+        | (lon_idx_2d > nx - 0.5)
     )
     result[outside] = np.nan
 

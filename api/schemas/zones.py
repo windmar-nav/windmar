@@ -7,12 +7,14 @@ from pydantic import BaseModel, Field
 
 class ZoneCoordinate(BaseModel):
     """A coordinate in a zone polygon."""
+
     lat: float
     lon: float
 
 
 class CreateZoneRequest(BaseModel):
     """Request to create a custom zone."""
+
     name: str
     zone_type: str = Field(..., description="eca, hra, tss, exclusion, custom, etc.")
     interaction: str = Field(..., description="mandatory, exclusion, penalty, advisory")
@@ -23,6 +25,7 @@ class CreateZoneRequest(BaseModel):
 
 class ZoneResponse(BaseModel):
     """Zone information response."""
+
     id: str
     name: str
     zone_type: str

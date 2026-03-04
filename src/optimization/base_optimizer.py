@@ -31,9 +31,11 @@ logger = logging.getLogger(__name__)
 # Shared result dataclass
 # -------------------------------------------------------------------
 
+
 @dataclass
 class ParetoSolution:
     """One point on the Pareto front (fuel vs time trade-off)."""
+
     lambda_value: float
     fuel_mt: float
     time_hours: float
@@ -46,6 +48,7 @@ class ParetoSolution:
 @dataclass
 class OptimizedRoute:
     """Result of route optimization."""
+
     waypoints: List[Tuple[float, float]]  # (lat, lon) pairs
     total_fuel_mt: float
     total_time_hours: float
@@ -95,6 +98,7 @@ class OptimizedRoute:
 # -------------------------------------------------------------------
 # Abstract optimizer
 # -------------------------------------------------------------------
+
 
 class BaseOptimizer(ABC):
     """
@@ -154,7 +158,9 @@ class BaseOptimizer(ABC):
     # -------------------------------------------------------------------
 
     @staticmethod
-    def _course_change_penalty(current_heading_deg: float, next_heading_deg: float) -> float:
+    def _course_change_penalty(
+        current_heading_deg: float, next_heading_deg: float
+    ) -> float:
         """
         Piecewise-linear penalty for course changes during route optimization.
 
@@ -179,9 +185,12 @@ class BaseOptimizer(ABC):
         R = 3440.065  # Earth radius in nm
         dlat = math.radians(lat2 - lat1)
         dlon = math.radians(lon2 - lon1)
-        a = (math.sin(dlat / 2) ** 2
-             + math.cos(math.radians(lat1)) * math.cos(math.radians(lat2))
-             * math.sin(dlon / 2) ** 2)
+        a = (
+            math.sin(dlat / 2) ** 2
+            + math.cos(math.radians(lat1))
+            * math.cos(math.radians(lat2))
+            * math.sin(dlon / 2) ** 2
+        )
         return R * 2 * math.asin(math.sqrt(a))
 
     @staticmethod
@@ -189,13 +198,15 @@ class BaseOptimizer(ABC):
         """Calculate initial bearing from point 1 to point 2 (degrees)."""
         dlon = math.radians(lon2 - lon1)
         x = math.sin(dlon) * math.cos(math.radians(lat2))
-        y = (math.cos(math.radians(lat1)) * math.sin(math.radians(lat2))
-             - math.sin(math.radians(lat1)) * math.cos(math.radians(lat2))
-             * math.cos(dlon))
+        y = math.cos(math.radians(lat1)) * math.sin(math.radians(lat2)) - math.sin(
+            math.radians(lat1)
+        ) * math.cos(math.radians(lat2)) * math.cos(dlon)
         return (math.degrees(math.atan2(x, y)) + 360) % 360
 
     @staticmethod
-    def current_effect(heading_deg: float, current_speed_ms: float, current_dir_deg: float) -> float:
+    def current_effect(
+        heading_deg: float, current_speed_ms: float, current_dir_deg: float
+    ) -> float:
         """
         Calculate effect of current on speed over ground.
 
@@ -236,7 +247,12 @@ class BaseOptimizer(ABC):
             dx, dy = b[0] - a[0], b[1] - a[1]
             if dx == 0 and dy == 0:
                 return math.sqrt((pt[0] - a[0]) ** 2 + (pt[1] - a[1]) ** 2) * 60
-            t = max(0, min(1, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / (dx * dx + dy * dy)))
+            t = max(
+                0,
+                min(
+                    1, ((pt[0] - a[0]) * dx + (pt[1] - a[1]) * dy) / (dx * dx + dy * dy)
+                ),
+            )
             px, py = a[0] + t * dx, a[1] + t * dy
             return math.sqrt((pt[0] - px) ** 2 + (pt[1] - py) ** 2) * 60
 
@@ -272,7 +288,9 @@ class BaseOptimizer(ABC):
             cur = smoothed[i]
             # Approximate distance in nm (Pythagorean on lat/lon, 60nm per degree)
             dlat = (cur[0] - prev[0]) * 60
-            dlon = (cur[1] - prev[1]) * 60 * math.cos(math.radians((prev[0] + cur[0]) / 2))
+            dlon = (
+                (cur[1] - prev[1]) * 60 * math.cos(math.radians((prev[0] + cur[0]) / 2))
+            )
             seg_nm = math.sqrt(dlat * dlat + dlon * dlon)
             if seg_nm > max_seg_nm:
                 n_sub = int(math.ceil(seg_nm / max_seg_nm))
@@ -350,24 +368,30 @@ class BaseOptimizer(ABC):
             else:
                 spd = calm_speed_kts
                 weather_dict = {
-                    'wind_speed_ms': weather.wind_speed_ms,
-                    'wind_dir_deg': weather.wind_dir_deg,
-                    'heading_deg': brg,
-                    'sig_wave_height_m': weather.sig_wave_height_m,
-                    'wave_dir_deg': weather.wave_dir_deg,
+                    "wind_speed_ms": weather.wind_speed_ms,
+                    "wind_dir_deg": weather.wind_dir_deg,
+                    "heading_deg": brg,
+                    "sig_wave_height_m": weather.sig_wave_height_m,
+                    "wave_dir_deg": weather.wave_dir_deg,
                 }
                 result = self.vessel_model.calculate_fuel_consumption(
-                    speed_kts=calm_speed_kts, is_laden=is_laden,
-                    weather=weather_dict, distance_nm=dist,
+                    speed_kts=calm_speed_kts,
+                    is_laden=is_laden,
+                    weather=weather_dict,
+                    distance_nm=dist,
                 )
-                fuel_mt = result['fuel_mt']
-                ce = self.current_effect(brg, weather.current_speed_ms, weather.current_dir_deg)
+                fuel_mt = result["fuel_mt"]
+                ce = self.current_effect(
+                    brg, weather.current_speed_ms, weather.current_dir_deg
+                )
                 sog = max(calm_speed_kts + ce, 0.1)
                 time_h = dist / sog
 
             speed_profile.append(spd)
 
-            ce = self.current_effect(brg, weather.current_speed_ms, weather.current_dir_deg)
+            ce = self.current_effect(
+                brg, weather.current_speed_ms, weather.current_dir_deg
+            )
             sog = max(spd + ce, 0.1)
 
             total_fuel += fuel_mt
@@ -394,31 +418,47 @@ class BaseOptimizer(ABC):
                         all_warnings.append(w)
                 if leg_safety.status == SafetyStatus.DANGEROUS:
                     worst = SafetyStatus.DANGEROUS
-                elif leg_safety.status == SafetyStatus.MARGINAL and worst != SafetyStatus.DANGEROUS:
+                elif (
+                    leg_safety.status == SafetyStatus.MARGINAL
+                    and worst != SafetyStatus.DANGEROUS
+                ):
                     worst = SafetyStatus.MARGINAL
 
-            leg_details.append({
-                'from': f_wp,
-                'to': t_wp,
-                'distance_nm': dist,
-                'bearing_deg': brg,
-                'fuel_mt': fuel_mt,
-                'time_hours': time_h,
-                'sog_kts': sog,
-                'stw_kts': spd,
-                'wind_speed_ms': weather.wind_speed_ms,
-                'wave_height_m': weather.sig_wave_height_m,
-                'safety_status': leg_safety.status.value if leg_safety else 'safe',
-                'roll_deg': leg_safety.motions.roll_amplitude_deg if leg_safety else 0.0,
-                'pitch_deg': leg_safety.motions.pitch_amplitude_deg if leg_safety else 0.0,
-            })
+            leg_details.append(
+                {
+                    "from": f_wp,
+                    "to": t_wp,
+                    "distance_nm": dist,
+                    "bearing_deg": brg,
+                    "fuel_mt": fuel_mt,
+                    "time_hours": time_h,
+                    "sog_kts": sog,
+                    "stw_kts": spd,
+                    "wind_speed_ms": weather.wind_speed_ms,
+                    "wave_height_m": weather.sig_wave_height_m,
+                    "safety_status": leg_safety.status.value if leg_safety else "safe",
+                    "roll_deg": (
+                        leg_safety.motions.roll_amplitude_deg if leg_safety else 0.0
+                    ),
+                    "pitch_deg": (
+                        leg_safety.motions.pitch_amplitude_deg if leg_safety else 0.0
+                    ),
+                }
+            )
             cur_time += timedelta(hours=time_h)
 
         safety_summary = {
-            'status': worst.value,
-            'warnings': all_warnings,
-            'max_roll_deg': max_roll,
-            'max_pitch_deg': max_pitch,
-            'max_accel_ms2': max_accel,
+            "status": worst.value,
+            "warnings": all_warnings,
+            "max_roll_deg": max_roll,
+            "max_pitch_deg": max_pitch,
+            "max_accel_ms2": max_accel,
         }
-        return total_fuel, total_time, total_dist, leg_details, safety_summary, speed_profile
+        return (
+            total_fuel,
+            total_time,
+            total_dist,
+            leg_details,
+            safety_summary,
+            speed_profile,
+        )

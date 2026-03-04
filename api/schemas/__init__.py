@@ -9,7 +9,11 @@ Re-exports all schema classes for backward-compatible imports:
 from .common import Position, WaypointModel, RouteModel  # noqa: F401
 
 # Weather
-from .weather import WindDataPoint, WeatherGridResponse, VelocityDataResponse  # noqa: F401
+from .weather import (
+    WindDataPoint,
+    WeatherGridResponse,
+    VelocityDataResponse,
+)  # noqa: F401
 
 # Voyage
 from .voyage import (  # noqa: F401

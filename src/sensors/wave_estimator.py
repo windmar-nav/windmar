@@ -29,14 +29,15 @@ logger = logging.getLogger(__name__)
 @dataclass
 class WaveEstimate:
     """Estimated wave parameters from ship motion."""
+
     significant_height_m: float  # Hs - significant wave height
-    peak_period_s: float         # Tp - peak period
-    mean_period_s: float         # Tm - mean period
-    dominant_frequency_hz: float # Peak frequency
-    spectral_energy: float       # Total energy (m0)
-    confidence: float            # 0-1 confidence in estimate
-    sample_count: int            # Number of samples used
-    duration_s: float            # Duration of analysis window
+    peak_period_s: float  # Tp - peak period
+    mean_period_s: float  # Tm - mean period
+    dominant_frequency_hz: float  # Peak frequency
+    spectral_energy: float  # Total energy (m0)
+    confidence: float  # 0-1 confidence in estimate
+    sample_count: int  # Number of samples used
+    duration_s: float  # Duration of analysis window
 
 
 class WaveEstimator:
@@ -162,15 +163,17 @@ class WaveEstimator:
                 fs=self.sample_rate,
                 nperseg=nperseg,
                 noverlap=nperseg // 2,
-                window='hann',
-                detrend='linear',
+                window="hann",
+                detrend="linear",
             )
         except Exception as e:
             logger.error(f"FFT failed: {e}")
             return None
 
         # Filter to wave frequency band
-        wave_mask = (frequencies >= self.MIN_WAVE_FREQ) & (frequencies <= self.MAX_WAVE_FREQ)
+        wave_mask = (frequencies >= self.MIN_WAVE_FREQ) & (
+            frequencies <= self.MAX_WAVE_FREQ
+        )
 
         if not np.any(wave_mask):
             logger.warning("No energy in wave frequency band")
@@ -244,7 +247,7 @@ class WaveEstimator:
             heave,
             fs=self.sample_rate,
             nperseg=nperseg,
-            window='hann',
+            window="hann",
         )
 
         return frequencies, psd
@@ -349,19 +352,26 @@ def simulate_wave_motion(
 
     # Spectrum
     alpha = 0.0081  # Phillips constant (adjusted for Hs)
-    S = (alpha * 9.81**2 / (2 * np.pi)**4 / frequencies**5 *
-         np.exp(-1.25 * (fp / frequencies)**4) *
-         gamma ** np.exp(-0.5 * ((frequencies - fp) / (sigma * fp))**2))
+    S = (
+        alpha
+        * 9.81**2
+        / (2 * np.pi) ** 4
+        / frequencies**5
+        * np.exp(-1.25 * (fp / frequencies) ** 4)
+        * gamma ** np.exp(-0.5 * ((frequencies - fp) / (sigma * fp)) ** 2)
+    )
 
     # Scale to match desired Hs
-    m0_target = (Hs / 4.0)**2
+    m0_target = (Hs / 4.0) ** 2
     m0_actual = trapezoid(S, frequencies)
     S = S * (m0_target / m0_actual) if m0_actual > 0 else S
 
     # Generate time series from spectrum
     heave = np.zeros(n_samples)
     for i, (f, s) in enumerate(zip(frequencies, S)):
-        amplitude = np.sqrt(2 * s * (frequencies[1] - frequencies[0]) if len(frequencies) > 1 else s)
+        amplitude = np.sqrt(
+            2 * s * (frequencies[1] - frequencies[0]) if len(frequencies) > 1 else s
+        )
         phase = np.random.uniform(0, 2 * np.pi)
         heave += amplitude * np.sin(2 * np.pi * f * t + phase)
 
@@ -399,8 +409,12 @@ def test_wave_estimator():
 
     if result:
         print(f"\nEstimated:")
-        print(f"  Hs: {result.significant_height_m:.2f} m (error: {abs(result.significant_height_m - target_Hs):.2f}m)")
-        print(f"  Tp: {result.peak_period_s:.1f} s (error: {abs(result.peak_period_s - target_Tp):.1f}s)")
+        print(
+            f"  Hs: {result.significant_height_m:.2f} m (error: {abs(result.significant_height_m - target_Hs):.2f}m)"
+        )
+        print(
+            f"  Tp: {result.peak_period_s:.1f} s (error: {abs(result.peak_period_s - target_Tp):.1f}s)"
+        )
         print(f"  Tm: {result.mean_period_s:.1f} s")
         print(f"  Confidence: {result.confidence:.0%}")
         print(f"  Samples: {result.sample_count}")

@@ -39,6 +39,7 @@ def _get_redis():
         return _redis_client
     try:
         from api.config import settings
+
         redis_url = os.environ.get("REDIS_URL", settings.redis_url)
         _redis_client = redis_lib.Redis.from_url(redis_url, decode_responses=False)
         _redis_client.ping()
@@ -53,9 +54,11 @@ def _get_redis():
 # Provider accessor (gets providers from ApplicationState)
 # ---------------------------------------------------------------------------
 
+
 def _providers() -> Dict:
     """Get weather providers dict from application state."""
     from api.state import get_app_state
+
     return get_app_state().weather_providers
 
 
@@ -63,10 +66,13 @@ def _providers() -> Dict:
 # GFS wind supplement for temporal providers
 # ---------------------------------------------------------------------------
 
+
 def supplement_temporal_wind(
     temporal_wx,
-    lat_min: float, lat_max: float,
-    lon_min: float, lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
     departure: datetime,
 ) -> bool:
     """Inject GFS wind snapshot into a temporal provider that lacks wind grids.
@@ -78,14 +84,17 @@ def supplement_temporal_wind(
     Returns True if wind was successfully injected.
     """
     import time as _time
+
     t0 = _time.monotonic()
     try:
-        gfs = _providers()['gfs']
+        gfs = _providers()["gfs"]
         wind_data = gfs.fetch_wind_data(
             lat_min, lat_max, lon_min, lon_max, departure, forecast_hour=0
         )
         if wind_data is None or wind_data.u_component is None:
-            logger.warning("GFS wind supplement: fetch returned None — wind resistance unavailable")
+            logger.warning(
+                "GFS wind supplement: fetch returned None — wind resistance unavailable"
+            )
             return False
 
         lats = wind_data.lats
@@ -109,11 +118,14 @@ def supplement_temporal_wind(
 # Weather field fetchers (provider chain pattern)
 # ---------------------------------------------------------------------------
 
+
 def get_wind_field(
-    lat_min: float, lat_max: float,
-    lon_min: float, lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
     resolution: float = 1.0,
-    time: datetime = None
+    time: datetime = None,
 ) -> WeatherData:
     """Get wind field data.
 
@@ -123,13 +135,15 @@ def get_wind_field(
         time = datetime.now(timezone.utc)
 
     p = _providers()
-    db_weather = p.get('db_weather')
-    gfs = p['gfs']
-    copernicus = p['copernicus']
-    synthetic = p['synthetic']
+    db_weather = p.get("db_weather")
+    gfs = p["gfs"]
+    copernicus = p["copernicus"]
+    synthetic = p["synthetic"]
 
     if db_weather is not None:
-        wind_data, _ = db_weather.get_wind_from_db(lat_min, lat_max, lon_min, lon_max, time)
+        wind_data, _ = db_weather.get_wind_from_db(
+            lat_min, lat_max, lon_min, lon_max, time
+        )
         if wind_data is not None:
             logger.info("Using DB pre-ingested wind data")
             return wind_data
@@ -151,8 +165,10 @@ def get_wind_field(
 
 
 def get_wave_field(
-    lat_min: float, lat_max: float,
-    lon_min: float, lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
     resolution: float = 1.0,
     wind_data: WeatherData = None,
 ) -> WeatherData:
@@ -161,9 +177,9 @@ def get_wave_field(
     Provider chain: DB (pre-ingested) -> CMEMS live -> Synthetic.
     """
     p = _providers()
-    db_weather = p.get('db_weather')
-    copernicus = p['copernicus']
-    synthetic = p['synthetic']
+    db_weather = p.get("db_weather")
+    copernicus = p["copernicus"]
+    synthetic = p["synthetic"]
 
     if db_weather is not None:
         wave_data, _ = db_weather.get_wave_from_db(lat_min, lat_max, lon_min, lon_max)
@@ -183,8 +199,10 @@ def get_wave_field(
 
 
 def get_current_field(
-    lat_min: float, lat_max: float,
-    lon_min: float, lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
     resolution: float = 1.0,
 ) -> WeatherData:
     """Get ocean current field.
@@ -192,12 +210,14 @@ def get_current_field(
     Provider chain: DB (pre-ingested) -> CMEMS live -> Synthetic.
     """
     p = _providers()
-    db_weather = p.get('db_weather')
-    copernicus = p['copernicus']
-    synthetic = p['synthetic']
+    db_weather = p.get("db_weather")
+    copernicus = p["copernicus"]
+    synthetic = p["synthetic"]
 
     if db_weather is not None:
-        current_data, _ = db_weather.get_current_from_db(lat_min, lat_max, lon_min, lon_max)
+        current_data, _ = db_weather.get_current_from_db(
+            lat_min, lat_max, lon_min, lon_max
+        )
         if current_data is not None:
             logger.info("Using DB pre-ingested current data")
             return current_data
@@ -214,8 +234,10 @@ def get_current_field(
 
 
 def get_sst_field(
-    lat_min: float, lat_max: float,
-    lon_min: float, lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
     resolution: float = 1.0,
     time: datetime = None,
 ) -> WeatherData:
@@ -227,8 +249,8 @@ def get_sst_field(
         time = datetime.now(timezone.utc)
 
     p = _providers()
-    copernicus = p['copernicus']
-    synthetic = p['synthetic']
+    copernicus = p["copernicus"]
+    synthetic = p["synthetic"]
 
     sst_data = copernicus.fetch_sst_data(lat_min, lat_max, lon_min, lon_max, time)
     if sst_data is None:
@@ -241,8 +263,10 @@ def get_sst_field(
 
 
 def get_visibility_field(
-    lat_min: float, lat_max: float,
-    lon_min: float, lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
     resolution: float = 1.0,
     time: datetime = None,
 ) -> WeatherData:
@@ -254,8 +278,8 @@ def get_visibility_field(
         time = datetime.now(timezone.utc)
 
     p = _providers()
-    gfs = p['gfs']
-    synthetic = p['synthetic']
+    gfs = p["gfs"]
+    synthetic = p["synthetic"]
 
     vis_data = gfs.fetch_visibility_data(lat_min, lat_max, lon_min, lon_max, time)
     if vis_data is None:
@@ -268,8 +292,10 @@ def get_visibility_field(
 
 
 def get_ice_field(
-    lat_min: float, lat_max: float,
-    lon_min: float, lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
     resolution: float = 1.0,
     time: datetime = None,
 ) -> WeatherData:
@@ -281,12 +307,14 @@ def get_ice_field(
         time = datetime.now(timezone.utc)
 
     p = _providers()
-    db_weather = p.get('db_weather')
-    copernicus = p['copernicus']
-    synthetic = p['synthetic']
+    db_weather = p.get("db_weather")
+    copernicus = p["copernicus"]
+    synthetic = p["synthetic"]
 
     if db_weather is not None:
-        ice_data, _ = db_weather.get_ice_from_db(lat_min, lat_max, lon_min, lon_max, time)
+        ice_data, _ = db_weather.get_ice_from_db(
+            lat_min, lat_max, lon_min, lon_max, time
+        )
         if ice_data is not None:
             logger.info("Ice data served from DB")
             return ice_data
@@ -305,7 +333,10 @@ def get_ice_field(
 # Point weather query + voyage weather provider
 # ---------------------------------------------------------------------------
 
-def get_weather_at_point(lat: float, lon: float, time: datetime) -> Tuple[Dict, Optional[WeatherDataSource]]:
+
+def get_weather_at_point(
+    lat: float, lon: float, time: datetime
+) -> Tuple[Dict, Optional[WeatherDataSource]]:
     """Get weather at a specific point.
 
     Uses unified provider that blends forecast and climatology.
@@ -315,20 +346,20 @@ def get_weather_at_point(lat: float, lon: float, time: datetime) -> Tuple[Dict, 
         whether data is from forecast, climatology, or blended.
     """
     p = _providers()
-    unified = p['unified']
-    copernicus = p['copernicus']
+    unified = p["unified"]
+    copernicus = p["copernicus"]
 
     try:
         point_wx, source = unified.get_weather_at_point(lat, lon, time)
 
         return {
-            'wind_speed_ms': point_wx.wind_speed_ms,
-            'wind_dir_deg': point_wx.wind_dir_deg,
-            'sig_wave_height_m': point_wx.wave_height_m,
-            'wave_period_s': point_wx.wave_period_s,
-            'wave_dir_deg': point_wx.wave_dir_deg,
-            'current_speed_ms': point_wx.current_speed_ms,
-            'current_dir_deg': point_wx.current_dir_deg,
+            "wind_speed_ms": point_wx.wind_speed_ms,
+            "wind_dir_deg": point_wx.wind_dir_deg,
+            "sig_wave_height_m": point_wx.wave_height_m,
+            "wave_period_s": point_wx.wave_period_s,
+            "wave_dir_deg": point_wx.wave_dir_deg,
+            "current_speed_ms": point_wx.current_speed_ms,
+            "current_dir_deg": point_wx.current_dir_deg,
         }, source
 
     except Exception as e:
@@ -347,13 +378,13 @@ def get_weather_at_point(lat: float, lon: float, time: datetime) -> Tuple[Dict, 
         )
 
         return {
-            'wind_speed_ms': point_wx.wind_speed_ms,
-            'wind_dir_deg': point_wx.wind_dir_deg,
-            'sig_wave_height_m': point_wx.wave_height_m,
-            'wave_period_s': point_wx.wave_period_s,
-            'wave_dir_deg': point_wx.wave_dir_deg,
-            'current_speed_ms': point_wx.current_speed_ms,
-            'current_dir_deg': point_wx.current_dir_deg,
+            "wind_speed_ms": point_wx.wind_speed_ms,
+            "wind_dir_deg": point_wx.wind_dir_deg,
+            "sig_wave_height_m": point_wx.wave_height_m,
+            "wave_period_s": point_wx.wave_period_s,
+            "wave_dir_deg": point_wx.wave_dir_deg,
+            "current_speed_ms": point_wx.current_speed_ms,
+            "current_dir_deg": point_wx.current_dir_deg,
         }, None
 
 
@@ -363,26 +394,27 @@ _voyage_data_sources: List[Dict] = []
 
 def weather_provider(lat: float, lon: float, time: datetime) -> LegWeather:
     """Weather provider function for voyage calculator."""
-    global _voyage_data_sources
 
     wx, source = get_weather_at_point(lat, lon, time)
 
     if source:
-        _voyage_data_sources.append({
-            'lat': lat,
-            'lon': lon,
-            'time': time.isoformat(),
-            'source': source.source,
-            'forecast_weight': source.forecast_weight,
-            'message': source.message,
-        })
+        _voyage_data_sources.append(
+            {
+                "lat": lat,
+                "lon": lon,
+                "time": time.isoformat(),
+                "source": source.source,
+                "forecast_weight": source.forecast_weight,
+                "message": source.message,
+            }
+        )
 
     return LegWeather(
-        wind_speed_ms=wx['wind_speed_ms'],
-        wind_dir_deg=wx['wind_dir_deg'],
-        sig_wave_height_m=wx['sig_wave_height_m'],
-        wave_period_s=wx.get('wave_period_s', 5.0 + wx['sig_wave_height_m']),
-        wave_dir_deg=wx['wave_dir_deg'],
+        wind_speed_ms=wx["wind_speed_ms"],
+        wind_dir_deg=wx["wind_dir_deg"],
+        sig_wave_height_m=wx["sig_wave_height_m"],
+        wave_period_s=wx.get("wave_period_s", 5.0 + wx["sig_wave_height_m"]),
+        wave_dir_deg=wx["wave_dir_deg"],
     )
 
 

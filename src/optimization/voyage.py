@@ -21,6 +21,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class LegWeather:
     """Weather conditions for a leg."""
+
     wind_speed_ms: float = 0.0
     wind_dir_deg: float = 0.0
     sig_wave_height_m: float = 0.0
@@ -47,6 +48,7 @@ class LegWeather:
 @dataclass
 class LegResult:
     """Calculation result for a single leg."""
+
     leg_index: int
     from_wp: Waypoint
     to_wp: Waypoint
@@ -80,6 +82,7 @@ class LegResult:
 @dataclass
 class VoyageResult:
     """Complete voyage calculation result."""
+
     route_name: str
     departure_time: datetime
     arrival_time: datetime
@@ -173,7 +176,9 @@ class VoyageCalculator:
             # Get weather at leg midpoint
             mid_lat = (leg.from_wp.lat + leg.to_wp.lat) / 2
             mid_lon = (leg.from_wp.lon + leg.to_wp.lon) / 2
-            leg_mid_time = current_time + timedelta(hours=leg.distance_nm / calm_speed_kts / 2)
+            leg_mid_time = current_time + timedelta(
+                hours=leg.distance_nm / calm_speed_kts / 2
+            )
 
             if weather_provider:
                 weather = weather_provider(mid_lat, mid_lon, leg_mid_time)
@@ -196,12 +201,18 @@ class VoyageCalculator:
                     current_speed_ms=weather.current_speed_ms,
                     current_dir_deg=weather.current_dir_deg,
                 )
-                speed_loss_pct = max(0.0, ((calm_speed_kts - sog_kts) / calm_speed_kts) * 100)
+                speed_loss_pct = max(
+                    0.0, ((calm_speed_kts - sog_kts) / calm_speed_kts) * 100
+                )
                 if sog_kts > 0:
                     leg_time_hours = leg.distance_nm / sog_kts
                 else:
                     leg_time_hours = time_hours
-                fuel_result = {'fuel_mt': fuel_mt, 'power_kw': power_kw, 'resistance_breakdown_kn': {}}
+                fuel_result = {
+                    "fuel_mt": fuel_mt,
+                    "power_kw": power_kw,
+                    "resistance_breakdown_kn": {},
+                }
             else:
                 # Fixed speed: use calm_speed_kts with weather-induced speed loss
                 stw_kts, speed_loss_pct, fuel_result = self._calculate_leg_performance(
@@ -219,11 +230,13 @@ class VoyageCalculator:
                     current_speed_ms=weather.current_speed_ms,
                     current_dir_deg=weather.current_dir_deg,
                 )
-                speed_loss_pct = max(0.0, ((calm_speed_kts - sog_kts) / calm_speed_kts) * 100)
+                speed_loss_pct = max(
+                    0.0, ((calm_speed_kts - sog_kts) / calm_speed_kts) * 100
+                )
                 if sog_kts > 0:
                     leg_time_hours = leg.distance_nm / sog_kts
                 else:
-                    leg_time_hours = float('inf')
+                    leg_time_hours = float("inf")
 
             speed_profile.append(round(opt_speed, 1))
 
@@ -243,20 +256,24 @@ class VoyageCalculator:
                 time_hours=leg_time_hours,
                 departure_time=current_time,
                 arrival_time=arrival_time,
-                fuel_mt=fuel_result['fuel_mt'],
-                power_kw=fuel_result['power_kw'],
-                resistance_breakdown=fuel_result.get('resistance_breakdown_kn', {}),
+                fuel_mt=fuel_result["fuel_mt"],
+                power_kw=fuel_result["power_kw"],
+                resistance_breakdown=fuel_result.get("resistance_breakdown_kn", {}),
             )
 
             legs_result.append(leg_result)
-            total_fuel += fuel_result['fuel_mt']
+            total_fuel += fuel_result["fuel_mt"]
             current_time = arrival_time
 
         # Calculate totals
         total_distance = sum(leg.distance_nm for leg in legs_result)
         total_time = sum(leg.time_hours for leg in legs_result)
         avg_sog = total_distance / total_time if total_time > 0 else 0
-        avg_stw = sum(leg.stw_kts * leg.time_hours for leg in legs_result) / total_time if total_time > 0 else 0
+        avg_stw = (
+            sum(leg.stw_kts * leg.time_hours for leg in legs_result) / total_time
+            if total_time > 0
+            else 0
+        )
 
         return VoyageResult(
             route_name=route.name,
@@ -269,10 +286,10 @@ class VoyageCalculator:
             avg_stw_kts=avg_stw,
             legs=legs_result,
             vessel_specs={
-                'dwt': self.vessel_model.specs.dwt,
-                'loa': self.vessel_model.specs.loa,
-                'service_speed_laden': self.vessel_model.specs.service_speed_laden,
-                'service_speed_ballast': self.vessel_model.specs.service_speed_ballast,
+                "dwt": self.vessel_model.specs.dwt,
+                "loa": self.vessel_model.specs.loa,
+                "service_speed_laden": self.vessel_model.specs.service_speed_laden,
+                "service_speed_ballast": self.vessel_model.specs.service_speed_ballast,
             },
             calm_speed_kts=calm_speed_kts,
             is_laden=is_laden,
@@ -306,13 +323,13 @@ class VoyageCalculator:
         weather_dict = None
         if weather.wind_speed_ms > 0 or weather.sig_wave_height_m > 0:
             weather_dict = {
-                'wind_speed_ms': weather.wind_speed_ms,
-                'wind_dir_deg': weather.wind_dir_deg,
-                'heading_deg': bearing_deg,
+                "wind_speed_ms": weather.wind_speed_ms,
+                "wind_dir_deg": weather.wind_dir_deg,
+                "heading_deg": bearing_deg,
             }
             if weather.sig_wave_height_m > 0:
-                weather_dict['sig_wave_height_m'] = weather.sig_wave_height_m
-                weather_dict['wave_dir_deg'] = weather.wave_dir_deg
+                weather_dict["sig_wave_height_m"] = weather.sig_wave_height_m
+                weather_dict["wave_dir_deg"] = weather.wave_dir_deg
 
         # Current effect (constant across speeds)
         current_effect_kts = 0.0
@@ -322,10 +339,10 @@ class VoyageCalculator:
             current_effect_kts = current_kts * np.cos(np.radians(rel_angle))
 
         best_speed = calm_speed_kts
-        best_fuel = float('inf')
+        best_fuel = float("inf")
         best_power = 0.0
-        best_time = float('inf')
-        best_score = float('inf')
+        best_time = float("inf")
+        best_score = float("inf")
 
         for spd in speeds:
             result = self.vessel_model.calculate_fuel_consumption(
@@ -340,7 +357,7 @@ class VoyageCalculator:
                 continue
 
             time_h = distance_nm / sog
-            fuel = result['fuel_mt']
+            fuel = result["fuel_mt"]
 
             # Score: fuel + time penalty (prevents extreme slow-steaming)
             score = fuel + self.LAMBDA_TIME * time_h
@@ -349,7 +366,7 @@ class VoyageCalculator:
                 best_score = score
                 best_speed = spd
                 best_fuel = fuel
-                best_power = result['power_kw']
+                best_power = result["power_kw"]
                 best_time = time_h
 
         return best_speed, best_fuel, best_power, best_time
@@ -372,13 +389,13 @@ class VoyageCalculator:
         weather_dict = None
         if weather.wind_speed_ms > 0 or weather.sig_wave_height_m > 0:
             weather_dict = {
-                'wind_speed_ms': weather.wind_speed_ms,
-                'wind_dir_deg': weather.wind_dir_deg,
-                'heading_deg': bearing_deg,
+                "wind_speed_ms": weather.wind_speed_ms,
+                "wind_dir_deg": weather.wind_dir_deg,
+                "heading_deg": bearing_deg,
             }
             if weather.sig_wave_height_m > 0:
-                weather_dict['sig_wave_height_m'] = weather.sig_wave_height_m
-                weather_dict['wave_dir_deg'] = weather.wave_dir_deg
+                weather_dict["sig_wave_height_m"] = weather.sig_wave_height_m
+                weather_dict["wave_dir_deg"] = weather.wave_dir_deg
 
         # Calculate fuel at calm speed first to get resistance
         fuel_result = self.vessel_model.calculate_fuel_consumption(
@@ -396,14 +413,14 @@ class VoyageCalculator:
             # Use UNCAPPED required power to determine speed reduction.
             # The capped power_kw hides weather differences because it's
             # always MCR when near service speed.
-            required_power = fuel_result['required_power_kw']
+            required_power = fuel_result["required_power_kw"]
             mcr = self.vessel_model.specs.mcr_kw
             available_power = mcr * 0.9  # 90% MCR operating limit
 
             if required_power > available_power:
                 # Engine cannot provide enough power at this speed.
                 # Reduce speed: Power ~ speed^3, so speed ~ power^(1/3)
-                speed_factor = (available_power / required_power) ** (1/3)
+                speed_factor = (available_power / required_power) ** (1 / 3)
                 stw_kts = calm_speed_kts * speed_factor
                 stw_kts = max(stw_kts, calm_speed_kts * 0.5)  # Floor at 50%
 
@@ -512,10 +529,10 @@ def interpolate_weather_along_leg(
 
         wx = weather_func(lat, lon, time)
 
-        winds_ms.append(wx.get('wind_speed_ms', 0))
-        winds_dir.append(wx.get('wind_dir_deg', 0))
-        waves_m.append(wx.get('sig_wave_height_m', 0))
-        waves_dir.append(wx.get('wave_dir_deg', 0))
+        winds_ms.append(wx.get("wind_speed_ms", 0))
+        winds_dir.append(wx.get("wind_dir_deg", 0))
+        waves_m.append(wx.get("sig_wave_height_m", 0))
+        waves_dir.append(wx.get("wave_dir_deg", 0))
 
     return LegWeather(
         wind_speed_ms=np.mean(winds_ms),

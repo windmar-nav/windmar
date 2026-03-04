@@ -39,7 +39,9 @@ class DbWeatherProvider:
         time: Optional[datetime] = None,
     ) -> tuple:
         """Load wind data from DB, cropped to bbox. Returns (data, ingested_at) or (None, None)."""
-        return self._load_vector_data("gfs", "wind_u", "wind_v", lat_min, lat_max, lon_min, lon_max, time)
+        return self._load_vector_data(
+            "gfs", "wind_u", "wind_v", lat_min, lat_max, lon_min, lon_max, time
+        )
 
     def get_wave_from_db(
         self,
@@ -72,26 +74,35 @@ class DbWeatherProvider:
                 return None, None
 
             lats, lons, hs_data = hs
-            lats_c, lons_c, hs_crop = self._crop_grid(lats, lons, hs_data, lat_min, lat_max, lon_min, lon_max)
+            lats_c, lons_c, hs_crop = self._crop_grid(
+                lats, lons, hs_data, lat_min, lat_max, lon_min, lon_max
+            )
 
             tp_crop = None
             if tp is not None:
-                _, _, tp_crop = self._crop_grid(tp[0], tp[1], tp[2], lat_min, lat_max, lon_min, lon_max)
+                _, _, tp_crop = self._crop_grid(
+                    tp[0], tp[1], tp[2], lat_min, lat_max, lon_min, lon_max
+                )
 
             wd_crop = None
             if wd is not None:
-                _, _, wd_crop = self._crop_grid(wd[0], wd[1], wd[2], lat_min, lat_max, lon_min, lon_max)
+                _, _, wd_crop = self._crop_grid(
+                    wd[0], wd[1], wd[2], lat_min, lat_max, lon_min, lon_max
+                )
 
-            return WeatherData(
-                parameter="wave_height",
-                time=datetime.now(timezone.utc),
-                lats=lats_c,
-                lons=lons_c,
-                values=hs_crop,
-                unit="m",
-                wave_period=tp_crop,
-                wave_direction=wd_crop,
-            ), ingested_at
+            return (
+                WeatherData(
+                    parameter="wave_height",
+                    time=datetime.now(timezone.utc),
+                    lats=lats_c,
+                    lons=lons_c,
+                    values=hs_crop,
+                    unit="m",
+                    wave_period=tp_crop,
+                    wave_direction=wd_crop,
+                ),
+                ingested_at,
+            )
         except Exception as e:
             logger.error(f"Failed to load wave data from DB: {e}")
             return None, None
@@ -106,7 +117,15 @@ class DbWeatherProvider:
         lon_max: float,
     ) -> tuple:
         """Load current data from DB, cropped to bbox. Returns (data, ingested_at) or (None, None)."""
-        return self._load_vector_data("cmems_current", "current_u", "current_v", lat_min, lat_max, lon_min, lon_max)
+        return self._load_vector_data(
+            "cmems_current",
+            "current_u",
+            "current_v",
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+        )
 
     def get_ice_from_db(
         self,
@@ -140,15 +159,18 @@ class DbWeatherProvider:
                 lats, lons, siconc, lat_min, lat_max, lon_min, lon_max
             )
 
-            return WeatherData(
-                parameter="ice_concentration",
-                time=datetime.now(timezone.utc),
-                lats=lats_c,
-                lons=lons_c,
-                values=siconc_crop,
-                unit="fraction",
-                ice_concentration=siconc_crop,
-            ), ingested_at
+            return (
+                WeatherData(
+                    parameter="ice_concentration",
+                    time=datetime.now(timezone.utc),
+                    lats=lats_c,
+                    lons=lons_c,
+                    values=siconc_crop,
+                    unit="fraction",
+                    ice_concentration=siconc_crop,
+                ),
+                ingested_at,
+            )
         except Exception as e:
             logger.error(f"Failed to load ice data from DB: {e}")
             return None, None
@@ -190,23 +212,30 @@ class DbWeatherProvider:
             lats, lons, u_data = u_grid
             _, _, v_data = v_grid
 
-            lats_c, lons_c, u_crop = self._crop_grid(lats, lons, u_data, lat_min, lat_max, lon_min, lon_max)
-            _, _, v_crop = self._crop_grid(lats, lons, v_data, lat_min, lat_max, lon_min, lon_max)
+            lats_c, lons_c, u_crop = self._crop_grid(
+                lats, lons, u_data, lat_min, lat_max, lon_min, lon_max
+            )
+            _, _, v_crop = self._crop_grid(
+                lats, lons, v_data, lat_min, lat_max, lon_min, lon_max
+            )
 
             # Compute wind speed as values for WeatherData compatibility
-            speed = np.sqrt(u_crop ** 2 + v_crop ** 2)
+            speed = np.sqrt(u_crop**2 + v_crop**2)
 
             param_name = "wind" if "wind" in u_param else "current"
-            return WeatherData(
-                parameter=param_name,
-                time=datetime.now(timezone.utc),
-                lats=lats_c,
-                lons=lons_c,
-                values=speed,
-                unit="m/s",
-                u_component=u_crop,
-                v_component=v_crop,
-            ), ingested_at
+            return (
+                WeatherData(
+                    parameter=param_name,
+                    time=datetime.now(timezone.utc),
+                    lats=lats_c,
+                    lons=lons_c,
+                    values=speed,
+                    unit="m/s",
+                    u_component=u_crop,
+                    v_component=v_crop,
+                ),
+                ingested_at,
+            )
         except Exception as e:
             logger.error(f"Failed to load {source} data from DB: {e}")
             return None, None
@@ -309,7 +338,9 @@ class DbWeatherProvider:
     @staticmethod
     def _decompress_2d(blob: bytes, rows: int, cols: int) -> np.ndarray:
         """Decompress zlib blob to 2D float32 numpy array."""
-        return np.frombuffer(zlib.decompress(blob), dtype=np.float32).reshape(rows, cols)
+        return np.frombuffer(zlib.decompress(blob), dtype=np.float32).reshape(
+            rows, cols
+        )
 
     @staticmethod
     def _crop_grid(lats, lons, data, lat_min, lat_max, lon_min, lon_max):
@@ -455,14 +486,17 @@ class DbWeatherProvider:
                 lats, lons, sst_vals, lat_min, lat_max, lon_min, lon_max
             )
 
-            return WeatherData(
-                parameter="sst",
-                time=datetime.now(timezone.utc),
-                lats=lats_c,
-                lons=lons_c,
-                values=sst_crop,
-                unit="°C",
-            ), ingested_at
+            return (
+                WeatherData(
+                    parameter="sst",
+                    time=datetime.now(timezone.utc),
+                    lats=lats_c,
+                    lons=lons_c,
+                    values=sst_crop,
+                    unit="°C",
+                ),
+                ingested_at,
+            )
         except Exception as e:
             logger.error(f"Failed to load SST data from DB: {e}")
             return None, None
@@ -497,14 +531,17 @@ class DbWeatherProvider:
                 lats, lons, vis_vals, lat_min, lat_max, lon_min, lon_max
             )
 
-            return WeatherData(
-                parameter="visibility",
-                time=datetime.now(timezone.utc),
-                lats=lats_c,
-                lons=lons_c,
-                values=vis_crop,
-                unit="km",
-            ), ingested_at
+            return (
+                WeatherData(
+                    parameter="visibility",
+                    time=datetime.now(timezone.utc),
+                    lats=lats_c,
+                    lons=lons_c,
+                    values=vis_crop,
+                    unit="km",
+                ),
+                ingested_at,
+            )
         except Exception as e:
             logger.error(f"Failed to load visibility data from DB: {e}")
             return None, None
@@ -619,7 +656,9 @@ class DbWeatherProvider:
             workers = min(4, len(rows)) if len(rows) > 1 else 1
             if workers > 1:
                 with ThreadPoolExecutor(max_workers=workers) as pool:
-                    for param, fh, lats_c, lons_c, data_c in pool.map(_process_row, rows):
+                    for param, fh, lats_c, lons_c, data_c in pool.map(
+                        _process_row, rows
+                    ):
                         if param in result:
                             result[param][fh] = (lats_c, lons_c, data_c)
             else:
@@ -725,7 +764,9 @@ class DbWeatherProvider:
                 ingested_at = row["ingested_at"]
                 if ingested_at.tzinfo is None:
                     ingested_at = ingested_at.replace(tzinfo=timezone.utc)
-                age_hours = (datetime.now(timezone.utc) - ingested_at).total_seconds() / 3600.0
+                age_hours = (
+                    datetime.now(timezone.utc) - ingested_at
+                ).total_seconds() / 3600.0
 
                 frame_count = row["frame_count"] or 0
                 threshold = sdef["expected_frames"] * 0.75
@@ -771,11 +812,9 @@ class DbWeatherProvider:
         conn = self._get_conn()
         try:
             cur = conn.cursor()
-            cur.execute(
-                """SELECT MIN(lat_min), MAX(lat_max), MIN(lon_min), MAX(lon_max)
+            cur.execute("""SELECT MIN(lat_min), MAX(lat_max), MIN(lon_min), MAX(lon_max)
                    FROM weather_forecast_runs
-                   WHERE status = 'complete'"""
-            )
+                   WHERE status = 'complete'""")
             row = cur.fetchone()
             if row is None or row[0] is None:
                 return None
@@ -851,13 +890,11 @@ class DbWeatherProvider:
         conn = self._get_conn()
         try:
             cur = conn.cursor(cursor_factory=psycopg2.extras.RealDictCursor)
-            cur.execute(
-                """SELECT source, ingested_at, status
+            cur.execute("""SELECT source, ingested_at, status
                    FROM weather_forecast_runs
                    WHERE status = 'complete'
                    ORDER BY ingested_at DESC
-                   LIMIT 3"""
-            )
+                   LIMIT 3""")
             rows = cur.fetchall()
             if not rows:
                 return None

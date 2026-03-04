@@ -18,6 +18,7 @@ logger = logging.getLogger(__name__)
 @dataclass
 class GridCell:
     """A cell in the routing grid."""
+
     lat: float
     lon: float
     row: int
@@ -38,13 +39,13 @@ class GridBuilder:
         Build a uniform-resolution routing grid covering the corridor.
 
         This is the logic extracted from RouteOptimizer._build_grid().
-        
+
         Args:
             corridor_waypoints: [(lat, lon), ...] defining the routing corridor
             resolution_deg: Grid cell size in degrees
             margin_deg: Margin around corridor bounding box
             filter_land: Whether to exclude land cells
-            
+
         Returns:
             Dict mapping (row, col) to GridCell
         """
@@ -81,8 +82,10 @@ class GridBuilder:
             row += 1
 
         total_cells = row * col if row > 0 and col > 0 else 1
-        logger.info(f"Built uniform grid: {len(grid)} ocean cells, {land_cells} land cells filtered "
-                   f"({row} rows x {col} cols, {land_cells/total_cells*100:.1f}% land)")
+        logger.info(
+            f"Built uniform grid: {len(grid)} ocean cells, {land_cells} land cells filtered "
+            f"({row} rows x {col} cols, {land_cells/total_cells*100:.1f}% land)"
+        )
         return grid
 
     @staticmethod
@@ -97,14 +100,14 @@ class GridBuilder:
         Build a 2-D (row, col) -> (lat, lon) ocean grid with bounds metadata.
 
         This is the logic extracted from VisirOptimizer._build_spatial_grid().
-        
+
         Args:
             origin: (lat, lon) start point
             destination: (lat, lon) end point
             resolution_deg: Grid cell size in degrees
             margin_deg: Margin around corridor bounding box
             filter_land: Whether to exclude land cells
-            
+
         Returns:
             Tuple of (grid dict, grid_bounds dict)
         """
@@ -136,5 +139,7 @@ class GridBuilder:
             "num_rows": num_rows,
             "num_cols": num_cols,
         }
-        logger.info(f"Built spatial grid: {len(grid)} ocean cells ({num_rows}x{num_cols})")
+        logger.info(
+            f"Built spatial grid: {len(grid)} ocean cells ({num_rows}x{num_cols})"
+        )
         return grid, grid_bounds

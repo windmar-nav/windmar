@@ -116,7 +116,9 @@ async def save_voyage(
 
 @router.get("/api/voyages", response_model=VoyageListResponse)
 async def list_voyages(
-    name: Optional[str] = Query(None, description="Search by name (case-insensitive contains)"),
+    name: Optional[str] = Query(
+        None, description="Search by name (case-insensitive contains)"
+    ),
     date_from: Optional[datetime] = Query(None, description="Filter departure >= date"),
     date_to: Optional[datetime] = Query(None, description="Filter departure <= date"),
     limit: int = Query(20, ge=1, le=100),
@@ -134,7 +136,9 @@ async def list_voyages(
         query = query.filter(Voyage.departure_time <= date_to)
 
     total = query.count()
-    voyages = query.order_by(Voyage.departure_time.desc()).offset(offset).limit(limit).all()
+    voyages = (
+        query.order_by(Voyage.departure_time.desc()).offset(offset).limit(limit).all()
+    )
 
     return VoyageListResponse(
         voyages=[_voyage_to_summary(v) for v in voyages],

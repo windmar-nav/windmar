@@ -13,6 +13,7 @@ Usage:
     python -m api.cli revoke-api-key --id <uuid>
     python -m api.cli check-health
 """
+
 import argparse
 import sys
 from datetime import datetime, timedelta, timezone
@@ -20,13 +21,12 @@ from typing import Optional
 
 # Ensure imports work
 from pathlib import Path
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
 def create_api_key(
-    name: str,
-    rate_limit: int = 1000,
-    expires_days: Optional[int] = None
+    name: str, rate_limit: int = 1000, expires_days: Optional[int] = None
 ) -> None:
     """Create a new API key."""
     from api.database import get_db_context
@@ -80,7 +80,9 @@ def list_api_keys() -> None:
     print("-" * 80)
 
     for key in keys:
-        last_used = key.last_used_at.strftime("%Y-%m-%d %H:%M") if key.last_used_at else "Never"
+        last_used = (
+            key.last_used_at.strftime("%Y-%m-%d %H:%M") if key.last_used_at else "Never"
+        )
         print(
             f"{str(key.id):<36} "
             f"{key.name[:18]:<20} "
@@ -163,7 +165,7 @@ Examples:
 
   Initialize database:
     python -m api.cli init-db
-        """
+        """,
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Available commands")
@@ -175,12 +177,12 @@ Examples:
         "--rate-limit",
         type=int,
         default=1000,
-        help="Rate limit (requests per hour, default: 1000)"
+        help="Rate limit (requests per hour, default: 1000)",
     )
     create_parser.add_argument(
         "--expires-days",
         type=int,
-        help="Number of days until expiration (default: never)"
+        help="Number of days until expiration (default: never)",
     )
 
     # list-api-keys
@@ -188,7 +190,9 @@ Examples:
 
     # revoke-api-key
     revoke_parser = subparsers.add_parser("revoke-api-key", help="Revoke an API key")
-    revoke_parser.add_argument("--id", required=True, help="UUID of the API key to revoke")
+    revoke_parser.add_argument(
+        "--id", required=True, help="UUID of the API key to revoke"
+    )
 
     # check-health
     subparsers.add_parser("check-health", help="Check API health")

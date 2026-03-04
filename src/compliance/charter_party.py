@@ -24,19 +24,97 @@ logger = logging.getLogger(__name__)
 # =============================================================================
 
 BEAUFORT_SCALE = [
-    {"force": 0,  "wind_min_kts": 0,  "wind_max_kts": 1,   "wave_height_m": 0.0,  "description": "Calm"},
-    {"force": 1,  "wind_min_kts": 1,  "wind_max_kts": 3,   "wave_height_m": 0.1,  "description": "Light air"},
-    {"force": 2,  "wind_min_kts": 4,  "wind_max_kts": 6,   "wave_height_m": 0.3,  "description": "Light breeze"},
-    {"force": 3,  "wind_min_kts": 7,  "wind_max_kts": 10,  "wave_height_m": 0.6,  "description": "Gentle breeze"},
-    {"force": 4,  "wind_min_kts": 11, "wind_max_kts": 16,  "wave_height_m": 1.0,  "description": "Moderate breeze"},
-    {"force": 5,  "wind_min_kts": 17, "wind_max_kts": 21,  "wave_height_m": 2.0,  "description": "Fresh breeze"},
-    {"force": 6,  "wind_min_kts": 22, "wind_max_kts": 27,  "wave_height_m": 3.0,  "description": "Strong breeze"},
-    {"force": 7,  "wind_min_kts": 28, "wind_max_kts": 33,  "wave_height_m": 4.0,  "description": "Near gale"},
-    {"force": 8,  "wind_min_kts": 34, "wind_max_kts": 40,  "wave_height_m": 5.5,  "description": "Gale"},
-    {"force": 9,  "wind_min_kts": 41, "wind_max_kts": 47,  "wave_height_m": 7.0,  "description": "Severe gale"},
-    {"force": 10, "wind_min_kts": 48, "wind_max_kts": 55,  "wave_height_m": 9.0,  "description": "Storm"},
-    {"force": 11, "wind_min_kts": 56, "wind_max_kts": 63,  "wave_height_m": 11.5, "description": "Violent storm"},
-    {"force": 12, "wind_min_kts": 64, "wind_max_kts": 999, "wave_height_m": 14.0, "description": "Hurricane"},
+    {
+        "force": 0,
+        "wind_min_kts": 0,
+        "wind_max_kts": 1,
+        "wave_height_m": 0.0,
+        "description": "Calm",
+    },
+    {
+        "force": 1,
+        "wind_min_kts": 1,
+        "wind_max_kts": 3,
+        "wave_height_m": 0.1,
+        "description": "Light air",
+    },
+    {
+        "force": 2,
+        "wind_min_kts": 4,
+        "wind_max_kts": 6,
+        "wave_height_m": 0.3,
+        "description": "Light breeze",
+    },
+    {
+        "force": 3,
+        "wind_min_kts": 7,
+        "wind_max_kts": 10,
+        "wave_height_m": 0.6,
+        "description": "Gentle breeze",
+    },
+    {
+        "force": 4,
+        "wind_min_kts": 11,
+        "wind_max_kts": 16,
+        "wave_height_m": 1.0,
+        "description": "Moderate breeze",
+    },
+    {
+        "force": 5,
+        "wind_min_kts": 17,
+        "wind_max_kts": 21,
+        "wave_height_m": 2.0,
+        "description": "Fresh breeze",
+    },
+    {
+        "force": 6,
+        "wind_min_kts": 22,
+        "wind_max_kts": 27,
+        "wave_height_m": 3.0,
+        "description": "Strong breeze",
+    },
+    {
+        "force": 7,
+        "wind_min_kts": 28,
+        "wind_max_kts": 33,
+        "wave_height_m": 4.0,
+        "description": "Near gale",
+    },
+    {
+        "force": 8,
+        "wind_min_kts": 34,
+        "wind_max_kts": 40,
+        "wave_height_m": 5.5,
+        "description": "Gale",
+    },
+    {
+        "force": 9,
+        "wind_min_kts": 41,
+        "wind_max_kts": 47,
+        "wave_height_m": 7.0,
+        "description": "Severe gale",
+    },
+    {
+        "force": 10,
+        "wind_min_kts": 48,
+        "wind_max_kts": 55,
+        "wave_height_m": 9.0,
+        "description": "Storm",
+    },
+    {
+        "force": 11,
+        "wind_min_kts": 56,
+        "wind_max_kts": 63,
+        "wave_height_m": 11.5,
+        "description": "Violent storm",
+    },
+    {
+        "force": 12,
+        "wind_min_kts": 64,
+        "wind_max_kts": 999,
+        "wave_height_m": 14.0,
+        "description": "Hurricane",
+    },
 ]
 
 
@@ -44,9 +122,11 @@ BEAUFORT_SCALE = [
 # Result Dataclasses
 # =============================================================================
 
+
 @dataclass
 class GoodWeatherLeg:
     """Per-leg good weather classification."""
+
     leg_index: int
     wind_speed_kts: float
     wave_height_m: float
@@ -59,6 +139,7 @@ class GoodWeatherLeg:
 @dataclass
 class GoodWeatherDayResult:
     """Result of good weather day counting."""
+
     total_days: float
     good_weather_days: float
     bad_weather_days: float
@@ -72,6 +153,7 @@ class GoodWeatherDayResult:
 @dataclass
 class WarrantyLegDetail:
     """Per-leg warranty verification detail."""
+
     leg_index: int
     sog_kts: float
     fuel_mt: float
@@ -84,6 +166,7 @@ class WarrantyLegDetail:
 @dataclass
 class WarrantyVerificationResult:
     """Result of warranted speed/consumption verification."""
+
     warranted_speed_kts: float
     achieved_speed_kts: float
     speed_margin_kts: float
@@ -102,6 +185,7 @@ class WarrantyVerificationResult:
 @dataclass
 class OffHireEvent:
     """Single off-hire event."""
+
     start_time: datetime
     end_time: datetime
     duration_hours: float
@@ -112,6 +196,7 @@ class OffHireEvent:
 @dataclass
 class OffHireAnalysisResult:
     """Result of off-hire event detection."""
+
     total_hours: float
     on_hire_hours: float
     off_hire_hours: float
@@ -122,6 +207,7 @@ class OffHireAnalysisResult:
 # =============================================================================
 # Calculator
 # =============================================================================
+
 
 class CharterPartyCalculator:
     """Charter party weather clause analysis calculator."""
@@ -198,21 +284,25 @@ class CharterPartyCalculator:
             else:
                 bad_hours += time_h
 
-            leg_results.append(GoodWeatherLeg(
-                leg_index=i,
-                wind_speed_kts=wind_kts,
-                wave_height_m=wave_m,
-                current_speed_ms=current_ms,
-                bf_force=bf,
-                is_good_weather=is_good,
-                time_hours=time_h,
-            ))
+            leg_results.append(
+                GoodWeatherLeg(
+                    leg_index=i,
+                    wind_speed_kts=wind_kts,
+                    wave_height_m=wave_m,
+                    current_speed_ms=current_ms,
+                    bf_force=bf,
+                    is_good_weather=is_good,
+                    time_hours=time_h,
+                )
+            )
 
         total_hours = good_hours + bad_hours
         total_days = round(total_hours / 24, 4)
         good_days = round(good_hours / 24, 4)
         bad_days = round(bad_hours / 24, 4)
-        good_pct = round((good_hours / total_hours * 100) if total_hours > 0 else 0.0, 2)
+        good_pct = round(
+            (good_hours / total_hours * 100) if total_hours > 0 else 0.0, 2
+        )
 
         return GoodWeatherDayResult(
             total_days=total_days,
@@ -276,15 +366,17 @@ class CharterPartyCalculator:
                 gw_fuel += fuel
                 gw_count += 1
 
-            leg_details.append(WarrantyLegDetail(
-                leg_index=i,
-                sog_kts=sog,
-                fuel_mt=fuel,
-                time_hours=time_h,
-                distance_nm=dist_nm,
-                bf_force=bf,
-                is_good_weather=is_good,
-            ))
+            leg_details.append(
+                WarrantyLegDetail(
+                    leg_index=i,
+                    sog_kts=sog,
+                    fuel_mt=fuel,
+                    time_hours=time_h,
+                    distance_nm=dist_nm,
+                    bf_force=bf,
+                    is_good_weather=is_good,
+                )
+            )
 
         # Calculate achieved speed: distance-weighted across good-weather legs
         if gw_time_hours > 0:
@@ -296,12 +388,13 @@ class CharterPartyCalculator:
 
         # Apply tolerances
         min_speed = warranted_speed_kts * (1 - speed_tolerance_pct / 100)
-        max_consumption = warranted_consumption_mt_day * (1 + consumption_tolerance_pct / 100)
+        max_consumption = warranted_consumption_mt_day * (
+            1 + consumption_tolerance_pct / 100
+        )
 
         speed_compliant = achieved_speed >= min_speed
         consumption_compliant = (
-            achieved_consumption <= max_consumption
-            if gw_time_hours > 0 else True
+            achieved_consumption <= max_consumption if gw_time_hours > 0 else True
         )
 
         speed_margin = round(achieved_speed - warranted_speed_kts, 4)
@@ -410,13 +503,15 @@ class CharterPartyCalculator:
                 reason = "Drifting"
 
             if reason:
-                raw_events.append(OffHireEvent(
-                    start_time=ts_curr,
-                    end_time=ts_next,
-                    duration_hours=round(interval_hours, 4),
-                    reason=reason,
-                    avg_speed_kts=round(speed, 2) if speed > 0 else 0.0,
-                ))
+                raw_events.append(
+                    OffHireEvent(
+                        start_time=ts_curr,
+                        end_time=ts_next,
+                        duration_hours=round(interval_hours, 4),
+                        reason=reason,
+                        avg_speed_kts=round(speed, 2) if speed > 0 else 0.0,
+                    )
+                )
 
         # Merge adjacent events within 1 hour with same reason
         merged = self._merge_off_hire_events(raw_events)

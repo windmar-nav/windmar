@@ -10,6 +10,7 @@ from .vessel import CalibrationFactorsModel
 
 class EngineLogUploadResponse(BaseModel):
     """Response from engine log upload."""
+
     status: str
     batch_id: str
     imported: int
@@ -20,6 +21,7 @@ class EngineLogUploadResponse(BaseModel):
 
 class EngineLogEntryResponse(BaseModel):
     """Serialized engine log entry."""
+
     id: str
     timestamp: datetime
     lapse_hours: Optional[float] = None
@@ -61,6 +63,7 @@ class EngineLogEntryResponse(BaseModel):
 
 class EngineLogSummaryResponse(BaseModel):
     """Aggregated engine log summary."""
+
     total_entries: int
     date_range: Optional[Dict] = None
     events_breakdown: Optional[Dict[str, int]] = None
@@ -72,6 +75,7 @@ class EngineLogSummaryResponse(BaseModel):
 
 class EngineLogCalibrateResponse(BaseModel):
     """Response from engine-log-based calibration."""
+
     status: str
     factors: CalibrationFactorsModel
     entries_used: int

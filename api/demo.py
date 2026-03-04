@@ -20,6 +20,7 @@ logger = logging.getLogger(__name__)
 # Tier resolution
 # ============================================================================
 
+
 def _parse_hashes(csv: str) -> list[str]:
     """Parse comma-separated bcrypt hashes, stripping whitespace."""
     if not csv:
@@ -95,6 +96,7 @@ def is_demo_user(request: Request) -> bool:
 # ============================================================================
 # FastAPI Depends guards
 # ============================================================================
+
 
 def require_not_demo(feature_name: str = "This feature"):
     """FastAPI Depends() guard — only full-tier users pass on demo deployments.

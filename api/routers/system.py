@@ -32,6 +32,7 @@ _log_event = asyncio.Event()
 
 class _BufferHandler(logging.Handler):
     """Captures log records into a ring buffer for SSE streaming."""
+
     def emit(self, record):
         try:
             entry = {
@@ -60,6 +61,7 @@ logging.getLogger("uvicorn.access").addHandler(_buf_handler)
 # Endpoints
 # =============================================================================
 
+
 @router.get("/")
 async def root():
     """
@@ -80,13 +82,14 @@ async def root():
             "voyage": "/api/voyage/...",
             "vessel": "/api/vessel/...",
             "zones": "/api/zones/...",
-        }
+        },
     }
 
 
 @router.get("/api/logs/stream")
 async def log_stream():
     """SSE endpoint streaming backend log entries to the frontend console."""
+
     async def _generate():
         last_idx = len(_log_buffer)
         # Send recent history first
@@ -129,6 +132,7 @@ async def health_check():
         - components: Individual component health status
     """
     from api.health import perform_full_health_check
+
     result = await perform_full_health_check()
     result["request_id"] = get_request_id()
     return result
@@ -143,6 +147,7 @@ async def liveness_check():
     Use this for K8s livenessProbe configuration.
     """
     from api.health import perform_liveness_check
+
     return await perform_liveness_check()
 
 
@@ -155,6 +160,7 @@ async def readiness_check():
     Use this for K8s readinessProbe configuration.
     """
     from api.health import perform_readiness_check
+
     result = await perform_readiness_check()
 
     # Return 503 if not ready
@@ -176,6 +182,7 @@ async def detailed_status():
     - Configuration summary
     """
     from api.health import get_detailed_status
+
     return await get_detailed_status()
 
 
@@ -213,11 +220,12 @@ async def get_data_sources():
     """
     # Resolve copernicus provider from app state
     _app_state = get_app_state()
-    copernicus_provider = _app_state.weather_providers['copernicus']
+    copernicus_provider = _app_state.weather_providers["copernicus"]
 
     # Check if pygrib is available for GFS
     try:
         import pygrib
+
         has_pygrib = True
     except ImportError:
         has_pygrib = False
@@ -254,9 +262,14 @@ async def get_data_sources():
             }
         },
         "wind_provider_chain": "GFS \u2192 ERA5 \u2192 Synthetic",
-        "active_wind_source": "gfs" if has_pygrib else (
-            "era5" if (copernicus_provider._has_cdsapi and settings.has_cds_credentials)
-            else "synthetic"
+        "active_wind_source": (
+            "gfs"
+            if has_pygrib
+            else (
+                "era5"
+                if (copernicus_provider._has_cdsapi and settings.has_cds_credentials)
+                else "synthetic"
+            )
         ),
     }
 
@@ -334,16 +347,19 @@ async def get_coastline(
 # Ocean / land point check (waypoint validation)
 # =============================================================================
 
+
 @router.get("/api/check-ocean")
 async def check_ocean(lat: float, lon: float):
     """Return whether a point is over ocean (True) or land (False)."""
     from src.data.land_mask import is_ocean as _is_ocean
+
     return {"ocean": _is_ocean(lat, lon)}
 
 
 # =============================================================================
 # Demo Authentication
 # =============================================================================
+
 
 @router.post("/api/demo/verify")
 @limiter.limit("5/minute")

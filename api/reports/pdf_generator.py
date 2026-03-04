@@ -20,14 +20,14 @@ logger = logging.getLogger(__name__)
 def _safe(text: str) -> str:
     """Sanitize text for Latin-1 PDF fonts (replace unsupported Unicode chars)."""
     replacements = {
-        "\u2014": "-",   # em dash
-        "\u2013": "-",   # en dash
-        "\u2018": "'",   # left single quote
-        "\u2019": "'",   # right single quote
-        "\u201c": '"',   # left double quote
-        "\u201d": '"',   # right double quote
-        "\u2026": "...", # ellipsis
-        "\u00b0": "deg", # degree sign
+        "\u2014": "-",  # em dash
+        "\u2013": "-",  # en dash
+        "\u2018": "'",  # left single quote
+        "\u2019": "'",  # right single quote
+        "\u201c": '"',  # left double quote
+        "\u201d": '"',  # right double quote
+        "\u2026": "...",  # ellipsis
+        "\u00b0": "deg",  # degree sign
     }
     for char, repl in replacements.items():
         text = text.replace(char, repl)
@@ -45,7 +45,14 @@ class VoyagePDF(FPDF):
     def header(self):
         self.set_font("Helvetica", "B", 10)
         self.set_text_color(100, 100, 100)
-        self.cell(0, 6, "WINDMAR - Voyage Report", new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="R")
+        self.cell(
+            0,
+            6,
+            "WINDMAR - Voyage Report",
+            new_x=XPos.LMARGIN,
+            new_y=YPos.NEXT,
+            align="R",
+        )
         self.line(10, self.get_y(), 200, self.get_y())
         self.ln(4)
 
@@ -129,7 +136,9 @@ def _add_cover_page(pdf: VoyagePDF, voyage: Voyage, dep: dict, arr: dict):
     if voyage.name:
         pdf.set_font("Helvetica", "", 14)
         pdf.set_text_color(80, 80, 80)
-        pdf.cell(0, 10, _safe(voyage.name), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C")
+        pdf.cell(
+            0, 10, _safe(voyage.name), new_x=XPos.LMARGIN, new_y=YPos.NEXT, align="C"
+        )
 
     pdf.ln(10)
 
@@ -139,10 +148,16 @@ def _add_cover_page(pdf: VoyagePDF, voyage: Voyage, dep: dict, arr: dict):
 
     info_lines = [
         ("Vessel", dep.get("vessel_name") or "Default Vessel"),
-        ("Departure", f"{voyage.departure_port or 'N/A'} - {_fmt_dt(voyage.departure_time)}"),
+        (
+            "Departure",
+            f"{voyage.departure_port or 'N/A'} - {_fmt_dt(voyage.departure_time)}",
+        ),
         ("Arrival", f"{voyage.arrival_port or 'N/A'} - {_fmt_dt(voyage.arrival_time)}"),
         ("Distance", f"{voyage.total_distance_nm:.1f} NM"),
-        ("Duration", f"{voyage.total_time_hours:.1f} hours ({voyage.total_time_hours / 24:.1f} days)"),
+        (
+            "Duration",
+            f"{voyage.total_time_hours:.1f} hours ({voyage.total_time_hours / 24:.1f} days)",
+        ),
         ("Total Fuel", f"{voyage.total_fuel_mt:.2f} MT"),
         ("Avg SOG", f"{_fmt_num(voyage.avg_sog_kts)} kts"),
         ("Condition", "Laden" if voyage.is_laden else "Ballast"),
@@ -169,8 +184,13 @@ def _add_voyage_summary(pdf: VoyagePDF, voyage: Voyage, arr: dict):
     pdf.section_title("Voyage Summary")
 
     pdf.kv_row("Route", voyage.name or "Unnamed Route")
-    pdf.kv_row("Departure", f"{voyage.departure_port or 'N/A'} at {_fmt_dt(voyage.departure_time)}")
-    pdf.kv_row("Arrival", f"{voyage.arrival_port or 'N/A'} at {_fmt_dt(voyage.arrival_time)}")
+    pdf.kv_row(
+        "Departure",
+        f"{voyage.departure_port or 'N/A'} at {_fmt_dt(voyage.departure_time)}",
+    )
+    pdf.kv_row(
+        "Arrival", f"{voyage.arrival_port or 'N/A'} at {_fmt_dt(voyage.arrival_time)}"
+    )
     pdf.kv_row("Total Distance", f"{voyage.total_distance_nm:.1f} NM")
     pdf.kv_row("Total Time", f"{voyage.total_time_hours:.1f} hours")
     pdf.kv_row("Total Fuel", f"{voyage.total_fuel_mt:.2f} MT")
@@ -188,7 +208,17 @@ def _add_leg_details(pdf: VoyagePDF, voyage: Voyage):
     legs = sorted(voyage.legs, key=lambda l: l.leg_index)
 
     # Table header
-    headers = ["#", "From", "To", "Dist(NM)", "SOG(kts)", "Fuel(MT)", "Time(h)", "Wind(kts)", "Wave(m)"]
+    headers = [
+        "#",
+        "From",
+        "To",
+        "Dist(NM)",
+        "SOG(kts)",
+        "Fuel(MT)",
+        "Time(h)",
+        "Wind(kts)",
+        "Wave(m)",
+    ]
     widths = [8, 30, 30, 20, 20, 20, 18, 22, 22]
 
     def _draw_header():
@@ -208,8 +238,12 @@ def _add_leg_details(pdf: VoyagePDF, voyage: Voyage):
             pdf.section_title("Leg Details (continued)")
             _draw_header()
 
-        from_label = _safe((leg.from_name or "")[:12] or f"{leg.from_lat:.2f},{leg.from_lon:.2f}")
-        to_label = _safe((leg.to_name or "")[:12] or f"{leg.to_lat:.2f},{leg.to_lon:.2f}")
+        from_label = _safe(
+            (leg.from_name or "")[:12] or f"{leg.from_lat:.2f},{leg.from_lon:.2f}"
+        )
+        to_label = _safe(
+            (leg.to_name or "")[:12] or f"{leg.to_lat:.2f},{leg.to_lon:.2f}"
+        )
 
         values = [
             str(leg.leg_index),
@@ -232,7 +266,17 @@ def _add_noon_reports(pdf: VoyagePDF, noon_reports: List[dict]):
     pdf.add_page()
     pdf.section_title("Noon Reports (24h intervals)")
 
-    headers = ["#", "Date/Time", "Lat", "Lon", "SOG", "Dist(NM)", "Fuel(MT)", "Wind", "Wave"]
+    headers = [
+        "#",
+        "Date/Time",
+        "Lat",
+        "Lon",
+        "SOG",
+        "Dist(NM)",
+        "Fuel(MT)",
+        "Wind",
+        "Wave",
+    ]
     widths = [8, 35, 18, 18, 16, 22, 22, 22, 22]
 
     def _draw_header():
@@ -252,7 +296,9 @@ def _add_noon_reports(pdf: VoyagePDF, noon_reports: List[dict]):
             _draw_header()
 
         ts = nr.get("timestamp")
-        ts_str = ts.strftime("%Y-%m-%d %H:%M") if isinstance(ts, datetime) else str(ts)[:16]
+        ts_str = (
+            ts.strftime("%Y-%m-%d %H:%M") if isinstance(ts, datetime) else str(ts)[:16]
+        )
 
         values = [
             str(nr.get("report_number", "")),

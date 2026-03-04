@@ -18,12 +18,12 @@ from typing import Dict, List, Optional, Tuple
 
 import numpy as np
 
-
 logger = logging.getLogger(__name__)
 
 
 class VesselType(Enum):
     """IMO ship type categories for CII reference lines."""
+
     BULK_CARRIER = "bulk_carrier"
     GAS_CARRIER = "gas_carrier"
     TANKER = "tanker"
@@ -39,6 +39,7 @@ class VesselType(Enum):
 
 class CIIRating(Enum):
     """CII Rating grades (A = best, E = worst)."""
+
     A = "A"
     B = "B"
     C = "C"
@@ -49,6 +50,7 @@ class CIIRating(Enum):
 @dataclass
 class CIIResult:
     """Result of CII calculation."""
+
     attained_cii: float  # Actual carbon intensity (g CO2 / dwt·nm)
     required_cii: float  # Reference line value
     rating: CIIRating
@@ -70,6 +72,7 @@ class CIIResult:
 @dataclass
 class CIIProjection:
     """Multi-year CII projection result."""
+
     year: int
     attained_cii: float
     required_cii: float
@@ -100,12 +103,12 @@ class CIICalculator:
 
     # CO2 emission factors (g CO2 / g fuel) - IMO MEPC.308(73)
     CO2_FACTORS = {
-        "hfo": 3.114,      # Heavy Fuel Oil
-        "lfo": 3.114,      # Light Fuel Oil
-        "vlsfo": 3.114,    # Very Low Sulphur Fuel Oil
-        "mdo": 3.206,      # Marine Diesel Oil
-        "mgo": 3.206,      # Marine Gas Oil
-        "lng": 2.750,      # LNG (tank-to-wake)
+        "hfo": 3.114,  # Heavy Fuel Oil
+        "lfo": 3.114,  # Light Fuel Oil
+        "vlsfo": 3.114,  # Very Low Sulphur Fuel Oil
+        "mdo": 3.206,  # Marine Diesel Oil
+        "mgo": 3.206,  # Marine Gas Oil
+        "lng": 2.750,  # LNG (tank-to-wake)
         "lpg_propane": 3.000,
         "lpg_butane": 3.030,
         "methanol": 1.375,
@@ -136,22 +139,42 @@ class CIICalculator:
         VesselType.TANKER: {"dd1": 0.82, "dd2": 0.93, "dd3": 1.08, "dd4": 1.28},
         VesselType.CONTAINER: {"dd1": 0.83, "dd2": 0.94, "dd3": 1.07, "dd4": 1.19},
         VesselType.GENERAL_CARGO: {"dd1": 0.83, "dd2": 0.94, "dd3": 1.06, "dd4": 1.19},
-        VesselType.REFRIGERATED_CARGO: {"dd1": 0.78, "dd2": 0.91, "dd3": 1.07, "dd4": 1.20},
-        VesselType.COMBINATION_CARRIER: {"dd1": 0.87, "dd2": 0.96, "dd3": 1.06, "dd4": 1.14},
+        VesselType.REFRIGERATED_CARGO: {
+            "dd1": 0.78,
+            "dd2": 0.91,
+            "dd3": 1.07,
+            "dd4": 1.20,
+        },
+        VesselType.COMBINATION_CARRIER: {
+            "dd1": 0.87,
+            "dd2": 0.96,
+            "dd3": 1.06,
+            "dd4": 1.14,
+        },
         VesselType.LNG_CARRIER: {"dd1": 0.89, "dd2": 0.98, "dd3": 1.06, "dd4": 1.13},
         VesselType.RO_RO_CARGO: {"dd1": 0.66, "dd2": 0.90, "dd3": 1.11, "dd4": 1.37},
-        VesselType.RO_RO_PASSENGER: {"dd1": 0.72, "dd2": 0.90, "dd3": 1.12, "dd4": 1.41},
-        VesselType.CRUISE_PASSENGER: {"dd1": 0.87, "dd2": 0.95, "dd3": 1.06, "dd4": 1.16},
+        VesselType.RO_RO_PASSENGER: {
+            "dd1": 0.72,
+            "dd2": 0.90,
+            "dd3": 1.12,
+            "dd4": 1.41,
+        },
+        VesselType.CRUISE_PASSENGER: {
+            "dd1": 0.87,
+            "dd2": 0.95,
+            "dd3": 1.06,
+            "dd4": 1.16,
+        },
     }
 
     # Annual reduction factors (Z%) from MEPC.338(76)
     # Required CII = Reference × (1 - Z/100)
     REDUCTION_FACTORS = {
-        2019: 0.0,   # Baseline year
+        2019: 0.0,  # Baseline year
         2020: 1.0,
         2021: 2.0,
         2022: 3.0,
-        2023: 5.0,   # CII became mandatory
+        2023: 5.0,  # CII became mandatory
         2024: 7.0,
         2025: 9.0,
         2026: 11.0,
@@ -324,14 +347,16 @@ class CIICalculator:
             else:
                 status = "non_compliant"
 
-            projections.append(CIIProjection(
-                year=year,
-                attained_cii=result.attained_cii,
-                required_cii=result.required_cii,
-                rating=result.rating,
-                reduction_factor=result.reduction_factor,
-                status=status,
-            ))
+            projections.append(
+                CIIProjection(
+                    year=year,
+                    attained_cii=result.attained_cii,
+                    required_cii=result.required_cii,
+                    rating=result.rating,
+                    reduction_factor=result.reduction_factor,
+                    status=status,
+                )
+            )
 
         return projections
 
@@ -355,7 +380,9 @@ class CIICalculator:
             Dict with reduction requirements
         """
         # Get current CII
-        current_result = self.calculate(current_fuel_mt, current_distance_nm, target_year)
+        current_result = self.calculate(
+            current_fuel_mt, current_distance_nm, target_year
+        )
 
         # Get boundary for target rating
         boundaries = current_result.rating_boundaries

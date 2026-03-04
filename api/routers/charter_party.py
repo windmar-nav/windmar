@@ -42,6 +42,7 @@ _calc = CharterPartyCalculator()
 
 # ---- helpers ----------------------------------------------------------------
 
+
 def _get_voyage_or_404(voyage_id: str, db) -> Voyage:
     try:
         vid = uuid_mod.UUID(voyage_id)
@@ -118,6 +119,7 @@ def _warranty_to_response(result) -> WarrantyVerificationResponse:
 
 # ---- reference data ---------------------------------------------------------
 
+
 @router.get("/beaufort-scale", response_model=BeaufortScaleResponse)
 async def get_beaufort_scale():
     """Return the Beaufort wind force scale reference table."""
@@ -127,6 +129,7 @@ async def get_beaufort_scale():
 
 
 # ---- good weather days ------------------------------------------------------
+
 
 @router.post("/good-weather", response_model=GoodWeatherResponse)
 @limiter.limit(get_rate_limit_string())
@@ -162,6 +165,7 @@ async def analyze_good_weather_from_legs(body: GoodWeatherFromLegsRequest):
 
 
 # ---- warranty verification --------------------------------------------------
+
 
 @router.post("/verify-warranty", response_model=WarrantyVerificationResponse)
 @limiter.limit(get_rate_limit_string())
@@ -201,6 +205,7 @@ async def verify_warranty_from_legs(body: WarrantyFromLegsRequest):
 
 
 # ---- off-hire detection -----------------------------------------------------
+
 
 @router.post("/off-hire", response_model=OffHireResponse)
 @limiter.limit(get_rate_limit_string())

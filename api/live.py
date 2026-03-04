@@ -21,11 +21,11 @@ from pydantic import BaseModel, Field
 
 # Import sensor modules
 import sys
+
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 from src.sensors.sbg_ellipse import SBGEllipseN, SBGSimulator, SBGData, ConnectionType
 from src.sensors.timeseries import SensorDataStore
-
 
 logger = logging.getLogger(__name__)
 
@@ -37,8 +37,10 @@ router = APIRouter(prefix="/api/live", tags=["live"])
 # Request/Response Models
 # ============================================================================
 
+
 class SensorConfig(BaseModel):
     """Sensor connection configuration."""
+
     connection_type: str = "serial"  # serial, tcp, udp, simulator
     port: str = "/dev/ttyUSB0"
     baudrate: int = 115200
@@ -48,6 +50,7 @@ class SensorConfig(BaseModel):
 
 class SensorStatus(BaseModel):
     """Sensor connection status."""
+
     connected: bool
     streaming: bool
     connection_type: str
@@ -58,6 +61,7 @@ class SensorStatus(BaseModel):
 
 class LiveDataResponse(BaseModel):
     """Current sensor data."""
+
     timestamp: str
     position: Dict
     velocity: Dict
@@ -68,6 +72,7 @@ class LiveDataResponse(BaseModel):
 
 class TimeSeriesRequest(BaseModel):
     """Time series data request."""
+
     channel: str
     start_time: Optional[str] = None
     end_time: Optional[str] = None
@@ -76,6 +81,7 @@ class TimeSeriesRequest(BaseModel):
 
 class TimeSeriesResponse(BaseModel):
     """Time series data response."""
+
     channel: str
     timestamps: List[str]
     values: List[float]
@@ -84,6 +90,7 @@ class TimeSeriesResponse(BaseModel):
 
 class MotionStatistics(BaseModel):
     """Motion statistics response."""
+
     heave: Dict
     roll: Dict
     pitch: Dict
@@ -136,6 +143,7 @@ def _on_sensor_data(data: SBGData) -> None:
 # ============================================================================
 # REST Endpoints
 # ============================================================================
+
 
 @router.get("/status", response_model=SensorStatus)
 async def get_sensor_status():
@@ -366,12 +374,15 @@ async def get_motion_statistics(
         sog_stats = stats.get("sog", {})
 
         # Compute motion severity
-        motion_severity = min(10, (
-            heave_stats.get("std", 0) * 2 +
-            roll_stats.get("std", 0) * 0.5 +
-            pitch_stats.get("std", 0) * 0.5 +
-            sog_stats.get("std", 0) * 0.2
-        ))
+        motion_severity = min(
+            10,
+            (
+                heave_stats.get("std", 0) * 2
+                + roll_stats.get("std", 0) * 0.5
+                + pitch_stats.get("std", 0) * 0.5
+                + sog_stats.get("std", 0) * 0.2
+            ),
+        )
 
         return MotionStatistics(
             heave={
@@ -420,7 +431,7 @@ async def get_available_channels():
             "accel_x": "Forward acceleration (m/s²)",
             "accel_y": "Starboard acceleration (m/s²)",
             "accel_z": "Downward acceleration (m/s²)",
-        }
+        },
     }
 
 
@@ -455,6 +466,7 @@ async def export_data(
 # WebSocket Streaming
 # ============================================================================
 
+
 @router.websocket("/ws")
 async def websocket_endpoint(websocket: WebSocket):
     """
@@ -476,10 +488,7 @@ async def websocket_endpoint(websocket: WebSocket):
 
             # Also handle incoming messages (for configuration)
             try:
-                msg = await asyncio.wait_for(
-                    websocket.receive_text(),
-                    timeout=0.1
-                )
+                msg = await asyncio.wait_for(websocket.receive_text(), timeout=0.1)
                 # Handle commands if needed
                 logger.debug(f"Received WS message: {msg}")
             except asyncio.TimeoutError:
@@ -499,6 +508,7 @@ async def websocket_endpoint(websocket: WebSocket):
 # ============================================================================
 # Integration with Main API
 # ============================================================================
+
 
 def include_in_app(app):
     """Include this router in the main FastAPI app."""

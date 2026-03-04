@@ -29,6 +29,7 @@ logger = logging.getLogger(__name__)
 def _is_retriable(exc: Exception) -> bool:
     """Check if an exception is retriable (transient network error)."""
     import urllib.error
+
     if isinstance(exc, urllib.error.HTTPError):
         return exc.code >= 500 or exc.code == 429
     if isinstance(exc, (urllib.error.URLError, TimeoutError, ConnectionError, OSError)):
@@ -69,15 +70,14 @@ def _retry_download(fn, max_retries: int = 2, delays: tuple = (10, 30)):
                 )
                 _time.sleep(delay)
             else:
-                logger.error(
-                    f"Download failed after {1 + max_retries} attempts: {e}"
-                )
+                logger.error(f"Download failed after {1 + max_retries} attempts: {e}")
     raise last_exc
 
 
 @dataclass
 class WeatherData:
     """Container for weather grid data."""
+
     parameter: str
     time: datetime
     lats: np.ndarray
@@ -112,6 +112,7 @@ class WeatherData:
 @dataclass
 class PointWeather:
     """Weather at a specific point."""
+
     lat: float
     lon: float
     time: datetime
@@ -172,8 +173,12 @@ class CopernicusDataProvider:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
 
         # CMEMS credentials — resolve from param, then COPERNICUSMARINE_SERVICE_* env vars
-        self.cmems_username = cmems_username or os.environ.get("COPERNICUSMARINE_SERVICE_USERNAME")
-        self.cmems_password = cmems_password or os.environ.get("COPERNICUSMARINE_SERVICE_PASSWORD")
+        self.cmems_username = cmems_username or os.environ.get(
+            "COPERNICUSMARINE_SERVICE_USERNAME"
+        )
+        self.cmems_password = cmems_password or os.environ.get(
+            "COPERNICUSMARINE_SERVICE_PASSWORD"
+        )
 
         # Cached xarray datasets
         self._wind_data: Optional[any] = None
@@ -191,18 +196,23 @@ class CopernicusDataProvider:
 
         try:
             import xarray
+
             self._has_xarray = True
         except ImportError:
             logger.warning("xarray not installed. Run: pip install xarray netcdf4")
 
         try:
             import copernicusmarine
+
             self._has_copernicusmarine = True
         except ImportError:
-            logger.warning("copernicusmarine not installed. Run: pip install copernicusmarine")
+            logger.warning(
+                "copernicusmarine not installed. Run: pip install copernicusmarine"
+            )
 
         try:
             import cdsapi
+
             self._has_cdsapi = True
         except ImportError:
             logger.warning("cdsapi not installed. Run: pip install cdsapi")
@@ -233,7 +243,9 @@ class CopernicusDataProvider:
             return None
 
         if not os.environ.get("CDSAPI_KEY"):
-            logger.warning("CDS API key not configured (set CDSAPI_KEY), returning None")
+            logger.warning(
+                "CDS API key not configured (set CDSAPI_KEY), returning None"
+            )
             return None
 
         import cdsapi
@@ -273,16 +285,19 @@ class CopernicusDataProvider:
                 client.retrieve(
                     self.CDS_WIND_DATASET,
                     {
-                        'product_type': 'reanalysis',
-                        'variable': ['10m_u_component_of_wind', '10m_v_component_of_wind'],
-                        'year': start_time.strftime('%Y'),
-                        'month': start_time.strftime('%m'),
-                        'day': [start_time.strftime('%d')],
-                        'time': ['00:00', '06:00', '12:00', '18:00'],
-                        'area': [lat_max, lon_min, lat_min, lon_max],
-                        'format': 'netcdf',
+                        "product_type": "reanalysis",
+                        "variable": [
+                            "10m_u_component_of_wind",
+                            "10m_v_component_of_wind",
+                        ],
+                        "year": start_time.strftime("%Y"),
+                        "month": start_time.strftime("%m"),
+                        "day": [start_time.strftime("%d")],
+                        "time": ["00:00", "06:00", "12:00", "18:00"],
+                        "area": [lat_max, lon_min, lat_min, lon_max],
+                        "format": "netcdf",
                     },
-                    str(cache_file)
+                    str(cache_file),
                 )
 
                 ds = xr.open_dataset(cache_file)
@@ -293,11 +308,11 @@ class CopernicusDataProvider:
 
         # Extract data
         try:
-            u10 = ds['u10'].values
-            v10 = ds['v10'].values
-            lats = ds['latitude'].values
-            lons = ds['longitude'].values
-            time = ds['time'].values[0] if 'time' in ds.dims else start_time
+            u10 = ds["u10"].values
+            v10 = ds["v10"].values
+            lats = ds["latitude"].values
+            lons = ds["longitude"].values
+            time = ds["time"].values[0] if "time" in ds.dims else start_time
 
             # Take first time step if multiple
             if len(u10.shape) == 3:
@@ -363,7 +378,9 @@ class CopernicusDataProvider:
             try:
                 ds = xr.open_dataset(cache_file, engine="h5netcdf")
             except Exception as e:
-                logger.warning(f"Corrupted wave cache, deleting and re-downloading: {e}")
+                logger.warning(
+                    f"Corrupted wave cache, deleting and re-downloading: {e}"
+                )
                 cache_file.unlink(missing_ok=True)
                 ds = None
         else:
@@ -376,16 +393,24 @@ class CopernicusDataProvider:
                 ds = copernicusmarine.open_dataset(
                     dataset_id=self.CMEMS_WAVE_DATASET,
                     variables=[
-                        "VHM0", "VTPK", "VMDR",        # Combined: Hs, peak period, direction
-                        "VHM0_WW", "VTM01_WW", "VMDR_WW",  # Wind-wave component
-                        "VHM0_SW1", "VTM01_SW1", "VMDR_SW1",  # Primary swell component
+                        "VHM0",
+                        "VTPK",
+                        "VMDR",  # Combined: Hs, peak period, direction
+                        "VHM0_WW",
+                        "VTM01_WW",
+                        "VMDR_WW",  # Wind-wave component
+                        "VHM0_SW1",
+                        "VTM01_SW1",
+                        "VMDR_SW1",  # Primary swell component
                     ],
                     minimum_longitude=lon_min,
                     maximum_longitude=lon_max,
                     minimum_latitude=lat_min,
                     maximum_latitude=lat_max,
                     start_datetime=start_time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    end_datetime=(start_time + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S"),
+                    end_datetime=(start_time + timedelta(hours=6)).strftime(
+                        "%Y-%m-%dT%H:%M:%S"
+                    ),
                     username=self.cmems_username,
                     password=self.cmems_password,
                 )
@@ -404,9 +429,9 @@ class CopernicusDataProvider:
         # Extract data
         try:
             # VHM0 = Significant wave height
-            hs = ds['VHM0'].values
-            lats = ds['latitude'].values
-            lons = ds['longitude'].values
+            hs = ds["VHM0"].values
+            lats = ds["latitude"].values
+            lons = ds["longitude"].values
 
             # Take first time step
             if len(hs.shape) == 3:
@@ -414,16 +439,16 @@ class CopernicusDataProvider:
 
             # VTPK = Peak wave period (if available)
             tp = None
-            if 'VTPK' in ds:
-                tp = ds['VTPK'].values
+            if "VTPK" in ds:
+                tp = ds["VTPK"].values
                 if len(tp.shape) == 3:
                     tp = tp[0]
                 logger.info("Extracted wave period (VTPK) from CMEMS")
 
             # VMDR = Mean wave direction (if available)
             wave_dir = None
-            if 'VMDR' in ds:
-                wave_dir = ds['VMDR'].values
+            if "VMDR" in ds:
+                wave_dir = ds["VMDR"].values
                 if len(wave_dir.shape) == 3:
                     wave_dir = wave_dir[0]
                 logger.info("Extracted wave direction (VMDR) from CMEMS")
@@ -437,12 +462,12 @@ class CopernicusDataProvider:
                     return v
                 return None
 
-            ww_hs = _extract_var('VHM0_WW')
-            ww_tp = _extract_var('VTM01_WW')
-            ww_dir = _extract_var('VMDR_WW')
-            sw_hs = _extract_var('VHM0_SW1')
-            sw_tp = _extract_var('VTM01_SW1')
-            sw_dir = _extract_var('VMDR_SW1')
+            ww_hs = _extract_var("VHM0_WW")
+            ww_tp = _extract_var("VTM01_WW")
+            ww_dir = _extract_var("VMDR_WW")
+            sw_hs = _extract_var("VHM0_SW1")
+            sw_tp = _extract_var("VTM01_SW1")
+            sw_dir = _extract_var("VMDR_SW1")
 
             has_decomp = ww_hs is not None and sw_hs is not None
             if has_decomp:
@@ -510,7 +535,9 @@ class CopernicusDataProvider:
         import copernicusmarine
         import xarray as xr
 
-        logger.info(f"Wave forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
+        logger.info(
+            f"Wave forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]"
+        )
 
         now = datetime.now(timezone.utc)
         # CMEMS analysis+forecast dataset — request next 120 hours
@@ -518,7 +545,10 @@ class CopernicusDataProvider:
         end_dt = now + timedelta(hours=122)
 
         cache_key = now.strftime("%Y%m%d_%H")
-        cache_file = self.cache_dir / f"wave_forecast_{cache_key}_lat{lat_min:.0f}_{lat_max:.0f}_lon{lon_min:.0f}_{lon_max:.0f}.nc"
+        cache_file = (
+            self.cache_dir
+            / f"wave_forecast_{cache_key}_lat{lat_min:.0f}_{lat_max:.0f}_lon{lon_min:.0f}_{lon_max:.0f}.nc"
+        )
 
         try:
             if cache_file.exists():
@@ -526,7 +556,9 @@ class CopernicusDataProvider:
                 try:
                     ds = xr.open_dataset(cache_file, engine="h5netcdf")
                 except Exception as e:
-                    logger.warning(f"Corrupted wave forecast cache, deleting and re-downloading: {e}")
+                    logger.warning(
+                        f"Corrupted wave forecast cache, deleting and re-downloading: {e}"
+                    )
                     cache_file.unlink(missing_ok=True)
                     ds = None
             else:
@@ -536,25 +568,33 @@ class CopernicusDataProvider:
                 logger.info(f"Downloading CMEMS wave forecast {start_dt} → {end_dt}")
                 # Use subset() for server-side download — much faster than
                 # open_dataset() which streams chunk-by-chunk from S3.
-                _retry_download(lambda: copernicusmarine.subset(
-                    dataset_id=self.CMEMS_WAVE_DATASET,
-                    variables=[
-                        "VHM0", "VTPK", "VMDR",
-                        "VHM0_WW", "VTM01_WW", "VMDR_WW",
-                        "VHM0_SW1", "VTM01_SW1", "VMDR_SW1",
-                    ],
-                    minimum_longitude=lon_min,
-                    maximum_longitude=lon_max,
-                    minimum_latitude=lat_min,
-                    maximum_latitude=lat_max,
-                    start_datetime=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                    end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                    username=self.cmems_username,
-                    password=self.cmems_password,
-                    output_directory=str(cache_file.parent),
-                    output_filename=cache_file.name,
-                    overwrite=True,
-                ))
+                _retry_download(
+                    lambda: copernicusmarine.subset(
+                        dataset_id=self.CMEMS_WAVE_DATASET,
+                        variables=[
+                            "VHM0",
+                            "VTPK",
+                            "VMDR",
+                            "VHM0_WW",
+                            "VTM01_WW",
+                            "VMDR_WW",
+                            "VHM0_SW1",
+                            "VTM01_SW1",
+                            "VMDR_SW1",
+                        ],
+                        minimum_longitude=lon_min,
+                        maximum_longitude=lon_max,
+                        minimum_latitude=lat_min,
+                        maximum_latitude=lat_max,
+                        start_datetime=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                        end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                        username=self.cmems_username,
+                        password=self.cmems_password,
+                        output_directory=str(cache_file.parent),
+                        output_filename=cache_file.name,
+                        overwrite=True,
+                    )
+                )
                 if not cache_file.exists():
                     logger.error("CMEMS returned no file for wave forecast")
                     return None
@@ -562,13 +602,15 @@ class CopernicusDataProvider:
                 # Validate file isn't truncated (should be at least 1MB for any real forecast)
                 fsize = cache_file.stat().st_size
                 if fsize < 1_000_000:
-                    logger.warning(f"Wave forecast cache suspiciously small ({fsize} bytes), deleting")
+                    logger.warning(
+                        f"Wave forecast cache suspiciously small ({fsize} bytes), deleting"
+                    )
                     cache_file.unlink(missing_ok=True)
                     return None
                 ds = xr.open_dataset(cache_file, engine="h5netcdf")
                 # Subsample to ~0.25° if grid is large (for downstream memory)
-                lat_count = ds.sizes.get('latitude', 0)
-                lon_count = ds.sizes.get('longitude', 0)
+                lat_count = ds.sizes.get("latitude", 0)
+                lon_count = ds.sizes.get("longitude", 0)
                 if lat_count > 1000 or lon_count > 2000:
                     sub_step = max(1, round(0.25 / 0.083))  # 3
                     ds = ds.isel(
@@ -577,7 +619,8 @@ class CopernicusDataProvider:
                     )
                     logger.info(
                         "Wave forecast subsampled to ~0.25°: %s×%s",
-                        ds.sizes.get('latitude', '?'), ds.sizes.get('longitude', '?'),
+                        ds.sizes.get("latitude", "?"),
+                        ds.sizes.get("longitude", "?"),
                     )
 
             # Extract coordinate arrays
@@ -629,7 +672,9 @@ class CopernicusDataProvider:
                     swell_direction=_extract_var("VMDR_SW1", t_idx),
                 )
 
-            logger.info(f"Wave forecast: {len(frames)} frames extracted (hours: {sorted(frames.keys())})")
+            logger.info(
+                f"Wave forecast: {len(frames)} frames extracted (hours: {sorted(frames.keys())})"
+            )
             return frames if frames else None
 
         except Exception as e:
@@ -678,7 +723,9 @@ class CopernicusDataProvider:
             try:
                 ds = xr.open_dataset(cache_file, engine="h5netcdf")
             except Exception as e:
-                logger.warning(f"Corrupted current cache, deleting and re-downloading: {e}")
+                logger.warning(
+                    f"Corrupted current cache, deleting and re-downloading: {e}"
+                )
                 cache_file.unlink(missing_ok=True)
                 ds = None
         else:
@@ -696,7 +743,9 @@ class CopernicusDataProvider:
                     minimum_latitude=lat_min,
                     maximum_latitude=lat_max,
                     start_datetime=start_time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    end_datetime=(start_time + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S"),
+                    end_datetime=(start_time + timedelta(hours=6)).strftime(
+                        "%Y-%m-%dT%H:%M:%S"
+                    ),
                     minimum_depth=0,
                     maximum_depth=10,  # Surface currents
                     username=self.cmems_username,
@@ -714,10 +763,10 @@ class CopernicusDataProvider:
                 return None
 
         try:
-            uo = ds['uo'].values
-            vo = ds['vo'].values
-            lats = ds['latitude'].values
-            lons = ds['longitude'].values
+            uo = ds["uo"].values
+            vo = ds["vo"].values
+            lats = ds["latitude"].values
+            lons = ds["longitude"].values
 
             # Take first time/depth
             if len(uo.shape) == 4:
@@ -788,7 +837,9 @@ class CopernicusDataProvider:
         import copernicusmarine
         import xarray as xr
 
-        logger.info(f"Current forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
+        logger.info(
+            f"Current forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]"
+        )
 
         now = datetime.now(timezone.utc)
         start_dt = now - timedelta(hours=1)
@@ -806,47 +857,55 @@ class CopernicusDataProvider:
                 try:
                     ds = xr.open_dataset(cache_file, engine="h5netcdf")
                 except Exception as e:
-                    logger.warning(f"Corrupted current forecast cache, deleting and re-downloading: {e}")
+                    logger.warning(
+                        f"Corrupted current forecast cache, deleting and re-downloading: {e}"
+                    )
                     cache_file.unlink(missing_ok=True)
                     ds = None
             else:
                 ds = None
 
             if ds is None:
-                logger.info(f"Downloading CMEMS current forecast {start_dt} -> {end_dt}")
+                logger.info(
+                    f"Downloading CMEMS current forecast {start_dt} -> {end_dt}"
+                )
                 # Use subset() for server-side download — much faster than
                 # open_dataset() which streams chunk-by-chunk from S3.
-                _retry_download(lambda: copernicusmarine.subset(
-                    dataset_id=self.CMEMS_PHYSICS_DATASET,
-                    variables=["uo", "vo"],
-                    minimum_longitude=lon_min,
-                    maximum_longitude=lon_max,
-                    minimum_latitude=lat_min,
-                    maximum_latitude=lat_max,
-                    start_datetime=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                    end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                    minimum_depth=0,
-                    maximum_depth=10,
-                    username=self.cmems_username,
-                    password=self.cmems_password,
-                    output_directory=str(cache_file.parent),
-                    output_filename=cache_file.name,
-                    overwrite=True,
-                ))
+                _retry_download(
+                    lambda: copernicusmarine.subset(
+                        dataset_id=self.CMEMS_PHYSICS_DATASET,
+                        variables=["uo", "vo"],
+                        minimum_longitude=lon_min,
+                        maximum_longitude=lon_max,
+                        minimum_latitude=lat_min,
+                        maximum_latitude=lat_max,
+                        start_datetime=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                        end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                        minimum_depth=0,
+                        maximum_depth=10,
+                        username=self.cmems_username,
+                        password=self.cmems_password,
+                        output_directory=str(cache_file.parent),
+                        output_filename=cache_file.name,
+                        overwrite=True,
+                    )
+                )
                 if not cache_file.exists():
                     logger.error("CMEMS returned no file for current forecast")
                     return None
                 logger.info(f"Current forecast cached: {cache_file}")
                 fsize = cache_file.stat().st_size
                 if fsize < 5_000_000:
-                    logger.warning(f"Current forecast cache suspiciously small ({fsize} bytes), deleting")
+                    logger.warning(
+                        f"Current forecast cache suspiciously small ({fsize} bytes), deleting"
+                    )
                     cache_file.unlink(missing_ok=True)
                     return None
                 ds = xr.open_dataset(cache_file, engine="h5netcdf")
 
             # Subsample to ~0.167° for downstream memory
-            lat_count = ds.sizes.get('latitude', 0)
-            lon_count = ds.sizes.get('longitude', 0)
+            lat_count = ds.sizes.get("latitude", 0)
+            lon_count = ds.sizes.get("longitude", 0)
             if lat_count > 500 or lon_count > 1000:
                 sub_step = 2  # ~0.167° effective resolution
                 ds = ds.isel(
@@ -855,7 +914,8 @@ class CopernicusDataProvider:
                 )
                 logger.info(
                     "Current forecast subsampled to ~0.167°: %s×%s",
-                    ds.sizes.get('latitude', '?'), ds.sizes.get('longitude', '?'),
+                    ds.sizes.get("latitude", "?"),
+                    ds.sizes.get("longitude", "?"),
                 )
 
             lats = ds["latitude"].values
@@ -894,13 +954,15 @@ class CopernicusDataProvider:
                     time=ts,
                     lats=lats,
                     lons=lons,
-                    values=np.sqrt(uo_2d ** 2 + vo_2d ** 2),
+                    values=np.sqrt(uo_2d**2 + vo_2d**2),
                     unit="m/s",
                     u_component=uo_2d,
                     v_component=vo_2d,
                 )
 
-            logger.info(f"Current forecast: {len(frames)} frames extracted (hours: {sorted(frames.keys())})")
+            logger.info(
+                f"Current forecast: {len(frames)} frames extracted (hours: {sorted(frames.keys())})"
+            )
             return frames if frames else None
 
         except Exception as e:
@@ -964,7 +1026,9 @@ class CopernicusDataProvider:
                     minimum_latitude=lat_min,
                     maximum_latitude=lat_max,
                     start_datetime=start_time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    end_datetime=(start_time + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S"),
+                    end_datetime=(start_time + timedelta(hours=6)).strftime(
+                        "%Y-%m-%dT%H:%M:%S"
+                    ),
                     minimum_depth=0,
                     maximum_depth=2,
                     username=self.cmems_username,
@@ -976,17 +1040,19 @@ class CopernicusDataProvider:
                 # Subsample to ~0.25° for visualisation overlay
                 lat_step = max(1, round(0.25 / 0.083))
                 lon_step = max(1, round(0.25 / 0.083))
-                ds = ds.isel(latitude=slice(None, None, lat_step),
-                             longitude=slice(None, None, lon_step))
+                ds = ds.isel(
+                    latitude=slice(None, None, lat_step),
+                    longitude=slice(None, None, lon_step),
+                )
                 ds.to_netcdf(cache_file)
             except Exception as e:
                 logger.error(f"Failed to download SST data: {e}")
                 return None
 
         try:
-            sst = ds['thetao'].values
-            lats = ds['latitude'].values
-            lons = ds['longitude'].values
+            sst = ds["thetao"].values
+            lats = ds["latitude"].values
+            lons = ds["longitude"].values
 
             # Take first time/depth
             if len(sst.shape) == 4:
@@ -1036,7 +1102,9 @@ class CopernicusDataProvider:
         import copernicusmarine
         import xarray as xr
 
-        logger.info(f"SST forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
+        logger.info(
+            f"SST forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]"
+        )
 
         now = datetime.now(timezone.utc)
         start_dt = now - timedelta(hours=1)
@@ -1054,7 +1122,9 @@ class CopernicusDataProvider:
                 try:
                     ds = xr.open_dataset(cache_file, engine="h5netcdf")
                 except Exception as e:
-                    logger.warning(f"Corrupted SST forecast cache, deleting and re-downloading: {e}")
+                    logger.warning(
+                        f"Corrupted SST forecast cache, deleting and re-downloading: {e}"
+                    )
                     cache_file.unlink(missing_ok=True)
                     ds = None
             else:
@@ -1062,26 +1132,28 @@ class CopernicusDataProvider:
 
             if ds is None:
                 logger.info(f"Downloading CMEMS SST forecast {start_dt} -> {end_dt}")
-                ds = _retry_download(lambda: copernicusmarine.open_dataset(
-                    dataset_id=self.CMEMS_PHYSICS_DATASET,
-                    variables=["thetao"],
-                    minimum_longitude=lon_min,
-                    maximum_longitude=lon_max,
-                    minimum_latitude=lat_min,
-                    maximum_latitude=lat_max,
-                    start_datetime=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                    end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                    minimum_depth=0,
-                    maximum_depth=2,
-                    username=self.cmems_username,
-                    password=self.cmems_password,
-                ))
+                ds = _retry_download(
+                    lambda: copernicusmarine.open_dataset(
+                        dataset_id=self.CMEMS_PHYSICS_DATASET,
+                        variables=["thetao"],
+                        minimum_longitude=lon_min,
+                        maximum_longitude=lon_max,
+                        minimum_latitude=lat_min,
+                        maximum_latitude=lat_max,
+                        start_datetime=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                        end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                        minimum_depth=0,
+                        maximum_depth=2,
+                        username=self.cmems_username,
+                        password=self.cmems_password,
+                    )
+                )
                 if ds is None:
                     logger.error("CMEMS returned None for SST forecast")
                     return None
                 # Subsample to ~0.25° before loading to reduce memory
-                lat_count = ds.sizes.get('latitude', 0)
-                lon_count = ds.sizes.get('longitude', 0)
+                lat_count = ds.sizes.get("latitude", 0)
+                lon_count = ds.sizes.get("longitude", 0)
                 if lat_count > 500 or lon_count > 1000:
                     sub_step = max(1, round(0.25 / 0.083))  # 3
                     ds = ds.isel(
@@ -1090,7 +1162,8 @@ class CopernicusDataProvider:
                     )
                     logger.info(
                         "SST forecast subsampled to ~0.25°: %s×%s",
-                        ds.sizes.get('latitude', '?'), ds.sizes.get('longitude', '?'),
+                        ds.sizes.get("latitude", "?"),
+                        ds.sizes.get("longitude", "?"),
                     )
                 logger.info("Loading SST forecast data into memory...")
                 ds = ds.load()
@@ -1099,7 +1172,9 @@ class CopernicusDataProvider:
                 logger.info(f"SST forecast cached: {cache_file}")
                 fsize = cache_file.stat().st_size
                 if fsize < 1_000_000:
-                    logger.warning(f"SST forecast cache suspiciously small ({fsize} bytes), deleting")
+                    logger.warning(
+                        f"SST forecast cache suspiciously small ({fsize} bytes), deleting"
+                    )
                     cache_file.unlink(missing_ok=True)
                     return None
                 ds = xr.open_dataset(cache_file, engine="h5netcdf")
@@ -1164,7 +1239,9 @@ class CopernicusDataProvider:
                     sst=sst_2d,
                 )
 
-            logger.info(f"SST forecast: {len(frames)} frames after fill (hours: {sorted(frames.keys())})")
+            logger.info(
+                f"SST forecast: {len(frames)} frames after fill (hours: {sorted(frames.keys())})"
+            )
             return frames
 
         except Exception as e:
@@ -1200,7 +1277,9 @@ class CopernicusDataProvider:
             logger.warning("CMEMS credentials not configured for ice data")
             return None
 
-        logger.debug(f"Ice fetch for bbox lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
+        logger.debug(
+            f"Ice fetch for bbox lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]"
+        )
 
         import copernicusmarine
         import xarray as xr
@@ -1234,7 +1313,9 @@ class CopernicusDataProvider:
                     minimum_latitude=lat_min,
                     maximum_latitude=lat_max,
                     start_datetime=start_time.strftime("%Y-%m-%dT%H:%M:%S"),
-                    end_datetime=(start_time + timedelta(hours=6)).strftime("%Y-%m-%dT%H:%M:%S"),
+                    end_datetime=(start_time + timedelta(hours=6)).strftime(
+                        "%Y-%m-%dT%H:%M:%S"
+                    ),
                     username=self.cmems_username,
                     password=self.cmems_password,
                 )
@@ -1247,9 +1328,9 @@ class CopernicusDataProvider:
                 return None
 
         try:
-            siconc = ds['siconc'].values
-            lats = ds['latitude'].values
-            lons = ds['longitude'].values
+            siconc = ds["siconc"].values
+            lats = ds["latitude"].values
+            lons = ds["longitude"].values
 
             if len(siconc.shape) == 3:
                 siconc = siconc[0]
@@ -1293,12 +1374,16 @@ class CopernicusDataProvider:
             logger.warning("CMEMS credentials not configured for ice forecast")
             return None
 
-        logger.debug(f"Ice forecast fetch for bbox lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
+        logger.debug(
+            f"Ice forecast fetch for bbox lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]"
+        )
 
         import copernicusmarine
         import xarray as xr
 
-        logger.info(f"Ice forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]")
+        logger.info(
+            f"Ice forecast bbox: lat[{lat_min:.1f},{lat_max:.1f}] lon[{lon_min:.1f},{lon_max:.1f}]"
+        )
 
         now = datetime.now(timezone.utc)
         start_dt = now - timedelta(hours=1)
@@ -1316,7 +1401,9 @@ class CopernicusDataProvider:
                 try:
                     ds = xr.open_dataset(cache_file, engine="h5netcdf")
                 except Exception as e:
-                    logger.warning(f"Corrupted ice forecast cache, deleting and re-downloading: {e}")
+                    logger.warning(
+                        f"Corrupted ice forecast cache, deleting and re-downloading: {e}"
+                    )
                     cache_file.unlink(missing_ok=True)
                     ds = None
             else:
@@ -1324,18 +1411,20 @@ class CopernicusDataProvider:
 
             if ds is None:
                 logger.info(f"Downloading CMEMS ice forecast {start_dt} → {end_dt}")
-                ds = _retry_download(lambda: copernicusmarine.open_dataset(
-                    dataset_id=self.CMEMS_ICE_DATASET,
-                    variables=["siconc"],
-                    minimum_longitude=lon_min,
-                    maximum_longitude=lon_max,
-                    minimum_latitude=lat_min,
-                    maximum_latitude=lat_max,
-                    start_datetime=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                    end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
-                    username=self.cmems_username,
-                    password=self.cmems_password,
-                ))
+                ds = _retry_download(
+                    lambda: copernicusmarine.open_dataset(
+                        dataset_id=self.CMEMS_ICE_DATASET,
+                        variables=["siconc"],
+                        minimum_longitude=lon_min,
+                        maximum_longitude=lon_max,
+                        minimum_latitude=lat_min,
+                        maximum_latitude=lat_max,
+                        start_datetime=start_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                        end_datetime=end_dt.strftime("%Y-%m-%dT%H:%M:%S"),
+                        username=self.cmems_username,
+                        password=self.cmems_password,
+                    )
+                )
                 if ds is None:
                     logger.error("CMEMS returned None for ice forecast")
                     return None
@@ -1346,7 +1435,9 @@ class CopernicusDataProvider:
                 logger.info(f"Ice forecast cached: {cache_file}")
                 fsize = cache_file.stat().st_size
                 if fsize < 100_000:
-                    logger.warning(f"Ice forecast cache suspiciously small ({fsize} bytes), deleting")
+                    logger.warning(
+                        f"Ice forecast cache suspiciously small ({fsize} bytes), deleting"
+                    )
                     cache_file.unlink(missing_ok=True)
                     return None
                 ds = xr.open_dataset(cache_file, engine="h5netcdf")
@@ -1389,7 +1480,9 @@ class CopernicusDataProvider:
                     ice_concentration=siconc_2d,
                 )
 
-            logger.info(f"Ice forecast: {len(frames)} frames extracted (hours: {sorted(frames.keys())})")
+            logger.info(
+                f"Ice forecast: {len(frames)} frames extracted (hours: {sorted(frames.keys())})"
+            )
             return frames if frames else None
 
         except Exception as e:
@@ -1432,40 +1525,56 @@ class CopernicusDataProvider:
         # Interpolate wind
         if wind_data is not None and wind_data.u_component is not None:
             u, v = self._interpolate_vector(
-                wind_data.lats, wind_data.lons,
-                wind_data.u_component, wind_data.v_component,
-                lat, lon
+                wind_data.lats,
+                wind_data.lons,
+                wind_data.u_component,
+                wind_data.v_component,
+                lat,
+                lon,
             )
             result.wind_speed_ms = float(np.sqrt(u**2 + v**2))
             result.wind_dir_deg = float((np.degrees(np.arctan2(-u, -v)) + 360) % 360)
 
         # Interpolate waves
         if wave_data is not None:
-            result.wave_height_m = float(self._interpolate_scalar(
-                wave_data.lats, wave_data.lons, wave_data.values, lat, lon
-            ))
+            result.wave_height_m = float(
+                self._interpolate_scalar(
+                    wave_data.lats, wave_data.lons, wave_data.values, lat, lon
+                )
+            )
 
             # Interpolate wave period if available
             if wave_data.wave_period is not None:
-                result.wave_period_s = float(self._interpolate_scalar(
-                    wave_data.lats, wave_data.lons, wave_data.wave_period, lat, lon
-                ))
+                result.wave_period_s = float(
+                    self._interpolate_scalar(
+                        wave_data.lats, wave_data.lons, wave_data.wave_period, lat, lon
+                    )
+                )
             else:
                 # Fallback: estimate from wave height
                 result.wave_period_s = 5.0 + result.wave_height_m
 
             # Interpolate wave direction if available
             if wave_data.wave_direction is not None:
-                result.wave_dir_deg = float(self._interpolate_scalar(
-                    wave_data.lats, wave_data.lons, wave_data.wave_direction, lat, lon
-                ))
+                result.wave_dir_deg = float(
+                    self._interpolate_scalar(
+                        wave_data.lats,
+                        wave_data.lons,
+                        wave_data.wave_direction,
+                        lat,
+                        lon,
+                    )
+                )
 
         # Interpolate currents
         if current_data is not None and current_data.u_component is not None:
             u, v = self._interpolate_vector(
-                current_data.lats, current_data.lons,
-                current_data.u_component, current_data.v_component,
-                lat, lon
+                current_data.lats,
+                current_data.lons,
+                current_data.u_component,
+                current_data.v_component,
+                lat,
+                lon,
             )
             result.current_speed_ms = float(np.sqrt(u**2 + v**2))
             result.current_dir_deg = float((np.degrees(np.arctan2(u, v)) + 360) % 360)
@@ -1488,10 +1597,11 @@ class CopernicusDataProvider:
             values = np.nan_to_num(values, nan=0.0)
 
             interp = RegularGridInterpolator(
-                (lats, lons), values,
-                method='linear',
+                (lats, lons),
+                values,
+                method="linear",
                 bounds_error=False,
-                fill_value=0.0
+                fill_value=0.0,
             )
             return float(interp([lat, lon])[0])
         except Exception:
@@ -1574,12 +1684,12 @@ class SyntheticDataProvider:
         center_lat = 45.0 + 5.0 * hour_factor
         center_lon = 0.0 + 10.0 * hour_factor
 
-        dist = np.sqrt((lat_grid - center_lat)**2 + (lon_grid - center_lon)**2)
+        dist = np.sqrt((lat_grid - center_lat) ** 2 + (lon_grid - center_lon) ** 2)
         system_strength = 8.0 * np.exp(-dist / 10.0)
 
         angle_to_center = np.arctan2(lat_grid - center_lat, lon_grid - center_lon)
-        u_cyclonic = -system_strength * np.sin(angle_to_center + np.pi/2)
-        v_cyclonic = system_strength * np.cos(angle_to_center + np.pi/2)
+        u_cyclonic = -system_strength * np.sin(angle_to_center + np.pi / 2)
+        v_cyclonic = system_strength * np.cos(angle_to_center + np.pi / 2)
 
         u_wind = base_u + u_cyclonic + np.random.randn(*lat_grid.shape) * 0.5
         v_wind = base_v + v_cyclonic + np.random.randn(*lat_grid.shape) * 0.5
@@ -1618,7 +1728,12 @@ class SyntheticDataProvider:
             ww_height = 0.12 * wind_speed + np.random.randn(*wind_speed.shape) * 0.2
             # Wind-wave direction follows wind direction
             if wind_data.u_component is not None and wind_data.v_component is not None:
-                ww_dir = np.degrees(np.arctan2(-wind_data.u_component, -wind_data.v_component)) % 360
+                ww_dir = (
+                    np.degrees(
+                        np.arctan2(-wind_data.u_component, -wind_data.v_component)
+                    )
+                    % 360
+                )
             else:
                 ww_dir = np.full_like(ww_height, 270.0)
         else:
@@ -1631,9 +1746,13 @@ class SyntheticDataProvider:
         # Swell component: long-period waves from distant storms
         # Swell typically comes from a consistent direction, independent of local wind
         swell_base = 1.0 + 0.8 * np.sin(np.radians(lat_grid * 2 + 30))
-        sw_height = np.maximum(swell_base + np.random.randn(*lat_grid.shape) * 0.15, 0.3)
+        sw_height = np.maximum(
+            swell_base + np.random.randn(*lat_grid.shape) * 0.15, 0.3
+        )
         sw_period = 10.0 + 2.0 * sw_height  # Long-period swell
-        sw_dir = np.full_like(sw_height, 300.0) + np.random.randn(*lat_grid.shape) * 5  # NW swell
+        sw_dir = (
+            np.full_like(sw_height, 300.0) + np.random.randn(*lat_grid.shape) * 5
+        )  # NW swell
 
         # Combined sea state (RSS of components)
         wave_height = np.sqrt(ww_height**2 + sw_height**2)
@@ -1664,7 +1783,6 @@ class SyntheticDataProvider:
             swell_direction=sw_dir % 360,
         )
 
-
     def generate_sst_field(
         self,
         lat_min: float,
@@ -1687,7 +1805,11 @@ class SyntheticDataProvider:
         month = time.month
         seasonal = 3.0 * np.cos(np.radians((month - 7) * 30))  # Peak in July (NH)
         base_sst = 28.0 - 0.5 * np.abs(lat_grid)
-        sst = base_sst + seasonal * np.sign(lat_grid) + np.random.randn(*lat_grid.shape) * 0.3
+        sst = (
+            base_sst
+            + seasonal * np.sign(lat_grid)
+            + np.random.randn(*lat_grid.shape) * 0.3
+        )
         sst = np.clip(sst, -2.0, 32.0)
 
         return WeatherData(
@@ -1754,7 +1876,9 @@ class SyntheticDataProvider:
         # Seasonal: more in winter, less in summer
         month = time.month
         # NH winter months
-        nh_seasonal = 1.0 if month in [12, 1, 2, 3] else 0.5 if month in [4, 11] else 0.2
+        nh_seasonal = (
+            1.0 if month in [12, 1, 2, 3] else 0.5 if month in [4, 11] else 0.2
+        )
         sh_seasonal = 1.0 if month in [6, 7, 8, 9] else 0.5 if month in [5, 10] else 0.2
 
         ice = np.zeros_like(lat_grid)
@@ -1798,14 +1922,22 @@ class SyntheticDataProvider:
             lon_grid, lat_grid = np.meshgrid(lons, lats)
 
             month = time.month
-            nh_seasonal = 1.0 if month in [12, 1, 2, 3] else 0.5 if month in [4, 11] else 0.2
-            sh_seasonal = 1.0 if month in [6, 7, 8, 9] else 0.5 if month in [5, 10] else 0.2
+            nh_seasonal = (
+                1.0 if month in [12, 1, 2, 3] else 0.5 if month in [4, 11] else 0.2
+            )
+            sh_seasonal = (
+                1.0 if month in [6, 7, 8, 9] else 0.5 if month in [5, 10] else 0.2
+            )
 
             ice = np.zeros_like(lat_grid)
             nh_mask = lat_grid > (65 + lat_shift)
-            ice[nh_mask] = np.clip((lat_grid[nh_mask] - 65 - lat_shift) / 15 * nh_seasonal, 0, 1)
+            ice[nh_mask] = np.clip(
+                (lat_grid[nh_mask] - 65 - lat_shift) / 15 * nh_seasonal, 0, 1
+            )
             sh_mask = lat_grid < (-60 - lat_shift)
-            ice[sh_mask] = np.clip((-lat_grid[sh_mask] - 60 - lat_shift) / 15 * sh_seasonal, 0, 1)
+            ice[sh_mask] = np.clip(
+                (-lat_grid[sh_mask] - 60 - lat_shift) / 15 * sh_seasonal, 0, 1
+            )
 
             # Add random noise for daily variation
             ice += np.random.randn(*ice.shape) * 0.02
@@ -1861,7 +1993,9 @@ class SyntheticDataProvider:
         # Mediterranean counter-clockwise gyre
         med_lat_center = 37.0
         med_lon_center = 18.0
-        med_dist = np.sqrt((lat_grid - med_lat_center) ** 2 + (lon_grid - med_lon_center) ** 2)
+        med_dist = np.sqrt(
+            (lat_grid - med_lat_center) ** 2 + (lon_grid - med_lon_center) ** 2
+        )
         med_strength = 0.3 * np.exp(-med_dist / 8)
         med_angle = np.arctan2(lat_grid - med_lat_center, lon_grid - med_lon_center)
         med_u = -med_strength * np.sin(med_angle)
@@ -1875,7 +2009,7 @@ class SyntheticDataProvider:
             time=time,
             lats=lats,
             lons=lons,
-            values=np.sqrt(u_current ** 2 + v_current ** 2),
+            values=np.sqrt(u_current**2 + v_current**2),
             unit="m/s",
             u_component=u_current,
             v_component=v_current,
@@ -1984,7 +2118,9 @@ class GFSDataProvider:
         }
 
         url = f"{self.NOMADS_BASE}?{urllib.parse.urlencode(params)}"
-        logger.info(f"Downloading GFS GRIB2: run={run_date}/{run_hour}z f{forecast_hour:03d}, region=[{lat_min},{lat_max}]x[{lon_min},{lon_max}]")
+        logger.info(
+            f"Downloading GFS GRIB2: run={run_date}/{run_hour}z f{forecast_hour:03d}, region=[{lat_min},{lat_max}]x[{lon_min},{lon_max}]"
+        )
 
         try:
             req = urllib.request.Request(url, headers={"User-Agent": "Windmar/2.1"})
@@ -1996,7 +2132,9 @@ class GFSDataProvider:
             data = _retry_download(_do_gfs_download)
 
             if len(data) < 100:
-                logger.warning(f"GFS download too small ({len(data)} bytes), likely an error page")
+                logger.warning(
+                    f"GFS download too small ({len(data)} bytes), likely an error page"
+                )
                 return None
 
             cache_file.write_bytes(data)
@@ -2041,15 +2179,17 @@ class GFSDataProvider:
         if run_date is None or run_hour is None:
             run_date, run_hour = self._get_latest_run()
 
-        grib_path = self._download_grib(lat_min, lat_max, lon_min, lon_max, run_date, run_hour, forecast_hour)
+        grib_path = self._download_grib(
+            lat_min, lat_max, lon_min, lon_max, run_date, run_hour, forecast_hour
+        )
         if grib_path is None:
             return None
 
         try:
             grbs = pygrib.open(str(grib_path))
 
-            u_msgs = grbs.select(shortName='10u')
-            v_msgs = grbs.select(shortName='10v')
+            u_msgs = grbs.select(shortName="10u")
+            v_msgs = grbs.select(shortName="10v")
 
             if not u_msgs or not v_msgs:
                 logger.warning("GFS GRIB2 missing U/V wind messages")
@@ -2086,7 +2226,9 @@ class GFSDataProvider:
 
             speed = np.sqrt(u_data**2 + v_data**2)
 
-            ref_time = datetime.strptime(f"{run_date}{run_hour}", "%Y%m%d%H") + timedelta(hours=forecast_hour)
+            ref_time = datetime.strptime(
+                f"{run_date}{run_hour}", "%Y%m%d%H"
+            ) + timedelta(hours=forecast_hour)
 
             logger.info(
                 f"GFS wind data fetched: {len(lats)}x{len(lons)} grid, "
@@ -2175,7 +2317,9 @@ class GFSDataProvider:
                 with urllib.request.urlopen(req, timeout=30) as resp:
                     data = resp.read()
                 if len(data) < 100:
-                    logger.warning(f"GFS visibility download too small ({len(data)} bytes)")
+                    logger.warning(
+                        f"GFS visibility download too small ({len(data)} bytes)"
+                    )
                     return None
                 cache_file.write_bytes(data)
             except Exception as e:
@@ -2184,7 +2328,7 @@ class GFSDataProvider:
 
         try:
             grbs = pygrib.open(str(cache_file))
-            vis_msgs = grbs.select(shortName='vis')
+            vis_msgs = grbs.select(shortName="vis")
             if not vis_msgs:
                 grbs.close()
                 logger.warning("GFS GRIB2 missing VIS message")
@@ -2209,7 +2353,9 @@ class GFSDataProvider:
             vis_km = np.nan_to_num(vis_data, nan=50000.0) / 1000.0
             vis_km = np.clip(vis_km, 0.0, 100.0)
 
-            ref_time = datetime.strptime(f"{run_date}{run_hour}", "%Y%m%d%H") + timedelta(hours=forecast_hour)
+            ref_time = datetime.strptime(
+                f"{run_date}{run_hour}", "%Y%m%d%H"
+            ) + timedelta(hours=forecast_hour)
 
             logger.info(
                 f"GFS visibility fetched: {len(lats)}x{len(lons)} grid, "
@@ -2253,18 +2399,25 @@ class GFSDataProvider:
         """
         import time as _time
 
-        logger.info(f"Visibility forecast: fetching {len(self.VIS_FORECAST_HOURS)} hours from GFS")
+        logger.info(
+            f"Visibility forecast: fetching {len(self.VIS_FORECAST_HOURS)} hours from GFS"
+        )
 
         frames: Dict[int, WeatherData] = {}
         for fh in self.VIS_FORECAST_HOURS:
             try:
                 wd = self.fetch_visibility_data(
-                    lat_min, lat_max, lon_min, lon_max,
+                    lat_min,
+                    lat_max,
+                    lon_min,
+                    lon_max,
                     forecast_hour=fh,
                 )
                 if wd is not None:
                     frames[fh] = wd
-                    logger.info(f"Visibility forecast f{fh:03d}: OK ({wd.values.min():.1f}-{wd.values.max():.1f} km)")
+                    logger.info(
+                        f"Visibility forecast f{fh:03d}: OK ({wd.values.min():.1f}-{wd.values.max():.1f} km)"
+                    )
                 else:
                     logger.warning(f"Visibility forecast f{fh:03d}: no data")
             except Exception as e:
@@ -2274,7 +2427,9 @@ class GFSDataProvider:
             if fh < self.VIS_FORECAST_HOURS[-1]:
                 _time.sleep(2)
 
-        logger.info(f"Visibility forecast complete: {len(frames)}/{len(self.VIS_FORECAST_HOURS)} frames")
+        logger.info(
+            f"Visibility forecast complete: {len(frames)}/{len(self.VIS_FORECAST_HOURS)} frames"
+        )
         return frames if frames else None
 
     # All GFS forecast hours: f000 to f120 in 3h steps
@@ -2301,7 +2456,9 @@ class GFSDataProvider:
         results: Dict[int, Path] = {}
 
         for fh in self.FORECAST_HOURS:
-            path = self._download_grib(lat_min, lat_max, lon_min, lon_max, run_date, run_hour, fh)
+            path = self._download_grib(
+                lat_min, lat_max, lon_min, lon_max, run_date, run_hour, fh
+            )
             if path is not None:
                 results[fh] = path
             else:
@@ -2311,7 +2468,9 @@ class GFSDataProvider:
             if path is not None and (_time.time() - path.stat().st_mtime) < 5:
                 _time.sleep(2)
 
-        logger.info(f"GFS prefetch complete: {len(results)}/{len(self.FORECAST_HOURS)} forecast hours cached")
+        logger.info(
+            f"GFS prefetch complete: {len(results)}/{len(self.FORECAST_HOURS)} forecast hours cached"
+        )
         return results
 
     def get_cached_forecast_hours(
@@ -2344,11 +2503,13 @@ class GFSDataProvider:
                 / f"gfs_{run_date}_{run_hour}_f{fh:03d}_lat{lat_min:.0f}_{lat_max:.0f}_lon{lon_min:.0f}_{lon_max:.0f}.grib2"
             )
             valid_time = run_time + timedelta(hours=fh)
-            result.append({
-                "forecast_hour": fh,
-                "valid_time": valid_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
-                "cached": cache_file.exists(),
-            })
+            result.append(
+                {
+                    "forecast_hour": fh,
+                    "valid_time": valid_time.strftime("%Y-%m-%dT%H:%M:%SZ"),
+                    "cached": cache_file.exists(),
+                }
+            )
 
         return result
 
@@ -2366,8 +2527,11 @@ class GFSDataProvider:
         the newest (run_date, run_hour) tuple, or None if no cached run found.
         """
         import re
+
         bbox_suffix = f"lat{lat_min:.0f}_{lat_max:.0f}_lon{lon_min:.0f}_{lon_max:.0f}"
-        pattern = re.compile(r"gfs_(\d{8})_(\d{2})_f\d{3}_" + re.escape(bbox_suffix) + r"\.grib2$")
+        pattern = re.compile(
+            r"gfs_(\d{8})_(\d{2})_f\d{3}_" + re.escape(bbox_suffix) + r"\.grib2$"
+        )
         runs = set()
         for f in self.cache_dir.glob(f"gfs_*_{bbox_suffix}.grib2"):
             m = pattern.match(f.name)
@@ -2423,11 +2587,13 @@ class ClimatologyProvider:
         self._has_xarray = False
         try:
             import xarray
+
             self._has_xarray = True
         except ImportError:
             pass
         try:
             import cdsapi
+
             self._has_cdsapi = True
         except ImportError:
             pass
@@ -2483,6 +2649,7 @@ class ClimatologyProvider:
 
         if cache_file.exists():
             import xarray as xr
+
             try:
                 ds = xr.open_dataset(cache_file)
                 self._monthly_cache[cache_key] = ds
@@ -2504,25 +2671,25 @@ class ClimatologyProvider:
             client.retrieve(
                 self.CDS_MONTHLY_DATASET,
                 {
-                    'product_type': 'monthly_averaged_reanalysis',
-                    'variable': [
-                        '10m_u_component_of_wind',
-                        '10m_v_component_of_wind',
-                        'significant_height_of_combined_wind_waves_and_swell',
-                        'mean_wave_direction',
+                    "product_type": "monthly_averaged_reanalysis",
+                    "variable": [
+                        "10m_u_component_of_wind",
+                        "10m_v_component_of_wind",
+                        "significant_height_of_combined_wind_waves_and_swell",
+                        "mean_wave_direction",
                     ],
-                    'year': ['2019', '2020', '2021', '2022', '2023'],
-                    'month': [f'{month:02d}'],
-                    'time': '00:00',
-                    'format': 'netcdf',
+                    "year": ["2019", "2020", "2021", "2022", "2023"],
+                    "month": [f"{month:02d}"],
+                    "time": "00:00",
+                    "format": "netcdf",
                 },
-                str(cache_file)
+                str(cache_file),
             )
 
             ds = xr.open_dataset(cache_file)
 
             # Average across years
-            ds = ds.mean(dim='time')
+            ds = ds.mean(dim="time")
             self._monthly_cache[cache_key] = ds
 
             return self._interpolate_from_cache(ds, lat, lon, month)
@@ -2542,22 +2709,32 @@ class ClimatologyProvider:
         from scipy.interpolate import RegularGridInterpolator
 
         try:
-            lats = ds['latitude'].values
-            lons = ds['longitude'].values
+            lats = ds["latitude"].values
+            lons = ds["longitude"].values
 
             # Normalize longitude to dataset range
             if lon < 0 and lons.min() >= 0:
                 lon = lon + 360
 
             # Get variables (names may vary)
-            u10 = ds['u10'].values if 'u10' in ds else ds['10m_u_component_of_wind'].values
-            v10 = ds['v10'].values if 'v10' in ds else ds['10m_v_component_of_wind'].values
+            u10 = (
+                ds["u10"].values
+                if "u10" in ds
+                else ds["10m_u_component_of_wind"].values
+            )
+            v10 = (
+                ds["v10"].values
+                if "v10" in ds
+                else ds["10m_v_component_of_wind"].values
+            )
 
             # Wave height (may not be in monthly means)
-            if 'swh' in ds:
-                wave_h = ds['swh'].values
-            elif 'significant_height_of_combined_wind_waves_and_swell' in ds:
-                wave_h = ds['significant_height_of_combined_wind_waves_and_swell'].values
+            if "swh" in ds:
+                wave_h = ds["swh"].values
+            elif "significant_height_of_combined_wind_waves_and_swell" in ds:
+                wave_h = ds[
+                    "significant_height_of_combined_wind_waves_and_swell"
+                ].values
             else:
                 wave_h = None
 
@@ -2572,8 +2749,11 @@ class ClimatologyProvider:
             def interp_scalar(values):
                 values = np.nan_to_num(values, nan=0.0)
                 interp = RegularGridInterpolator(
-                    (lats, lons), values,
-                    method='linear', bounds_error=False, fill_value=0.0
+                    (lats, lons),
+                    values,
+                    method="linear",
+                    bounds_error=False,
+                    fill_value=0.0,
                 )
                 return float(interp([lat, lon])[0])
 
@@ -2583,7 +2763,11 @@ class ClimatologyProvider:
             wind_speed = np.sqrt(u_val**2 + v_val**2)
             wind_dir = (np.degrees(np.arctan2(-u_val, -v_val)) + 360) % 360
 
-            wave_height = interp_scalar(wave_h) if wave_h is not None else self._estimate_wave_height(wind_speed)
+            wave_height = (
+                interp_scalar(wave_h)
+                if wave_h is not None
+                else self._estimate_wave_height(wind_speed)
+            )
 
             return PointWeather(
                 lat=lat,
@@ -2679,6 +2863,7 @@ class ClimatologyProvider:
 @dataclass
 class WeatherDataSource:
     """Indicates the source of weather data."""
+
     source: str  # "forecast", "climatology", or "blended"
     forecast_weight: float  # 1.0 = pure forecast, 0.0 = pure climatology
     forecast_age_hours: float  # How old is the forecast
@@ -2709,7 +2894,9 @@ class UnifiedWeatherProvider:
             cache_dir: Cache directory
         """
         self.copernicus = copernicus or CopernicusDataProvider(cache_dir=cache_dir)
-        self.climatology = climatology or ClimatologyProvider(cache_dir=f"{cache_dir}/climatology")
+        self.climatology = climatology or ClimatologyProvider(
+            cache_dir=f"{cache_dir}/climatology"
+        )
 
         # Forecast horizon settings
         self.forecast_horizon_days = ClimatologyProvider.FORECAST_HORIZON_DAYS
@@ -2746,7 +2933,9 @@ class UnifiedWeatherProvider:
             source_type = "forecast"
         elif days_ahead <= self.forecast_horizon_days + self.blend_window_days:
             # In blend window - transition
-            blend_progress = (days_ahead - self.forecast_horizon_days) / self.blend_window_days
+            blend_progress = (
+                days_ahead - self.forecast_horizon_days
+            ) / self.blend_window_days
             forecast_weight = 1.0 - blend_progress
             source_type = "blended"
         else:
@@ -2771,7 +2960,9 @@ class UnifiedWeatherProvider:
         elif forecast_weight == 0.0 and clim_wx:
             result_wx = clim_wx
         elif forecast_wx and clim_wx:
-            result_wx = self._blend_weather(forecast_wx, clim_wx, forecast_weight, lat, lon, time)
+            result_wx = self._blend_weather(
+                forecast_wx, clim_wx, forecast_weight, lat, lon, time
+            )
         elif forecast_wx:
             result_wx = forecast_wx
         elif clim_wx:
@@ -2805,25 +2996,36 @@ class UnifiedWeatherProvider:
         try:
             # Fetch wind data
             wind_data = self.copernicus.fetch_wind_data(
-                lat_min, lat_max, lon_min, lon_max,
+                lat_min,
+                lat_max,
+                lon_min,
+                lon_max,
                 start_time=time,
                 end_time=time + timedelta(hours=6),
             )
 
             # Fetch wave data
             wave_data = self.copernicus.fetch_wave_data(
-                lat_min, lat_max, lon_min, lon_max,
+                lat_min,
+                lat_max,
+                lon_min,
+                lon_max,
                 start_time=time,
             )
 
             # Fetch current data
             current_data = self.copernicus.fetch_current_data(
-                lat_min, lat_max, lon_min, lon_max,
+                lat_min,
+                lat_max,
+                lon_min,
+                lon_max,
                 start_time=time,
             )
 
             return self.copernicus.get_weather_at_point(
-                lat, lon, time,
+                lat,
+                lon,
+                time,
                 wind_data=wind_data,
                 wave_data=wave_data,
                 current_data=current_data,
@@ -2846,9 +3048,15 @@ class UnifiedWeatherProvider:
         cw = 1.0 - forecast_weight  # climatology weight
 
         # Blend scalar values
-        wind_speed = forecast.wind_speed_ms * forecast_weight + climatology.wind_speed_ms * cw
-        wave_height = forecast.wave_height_m * forecast_weight + climatology.wave_height_m * cw
-        wave_period = forecast.wave_period_s * forecast_weight + climatology.wave_period_s * cw
+        wind_speed = (
+            forecast.wind_speed_ms * forecast_weight + climatology.wind_speed_ms * cw
+        )
+        wave_height = (
+            forecast.wave_height_m * forecast_weight + climatology.wave_height_m * cw
+        )
+        wave_period = (
+            forecast.wave_period_s * forecast_weight + climatology.wave_period_s * cw
+        )
 
         # Blend directions using circular mean
         def blend_direction(d1: float, d2: float, w1: float) -> float:
@@ -2857,8 +3065,12 @@ class UnifiedWeatherProvider:
             y = w1 * np.sin(r1) + (1 - w1) * np.sin(r2)
             return (np.degrees(np.arctan2(y, x)) + 360) % 360
 
-        wind_dir = blend_direction(forecast.wind_dir_deg, climatology.wind_dir_deg, forecast_weight)
-        wave_dir = blend_direction(forecast.wave_dir_deg, climatology.wave_dir_deg, forecast_weight)
+        wind_dir = blend_direction(
+            forecast.wind_dir_deg, climatology.wind_dir_deg, forecast_weight
+        )
+        wave_dir = blend_direction(
+            forecast.wave_dir_deg, climatology.wave_dir_deg, forecast_weight
+        )
 
         # Currents (forecast only, climatology typically doesn't have)
         current_speed = forecast.current_speed_ms * forecast_weight

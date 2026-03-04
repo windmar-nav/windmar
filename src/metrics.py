@@ -42,10 +42,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class TimingStats:
     """Statistics for a timed operation."""
+
     name: str
     count: int = 0
     total_ms: float = 0.0
-    min_ms: float = float('inf')
+    min_ms: float = float("inf")
     max_ms: float = 0.0
     recent_ms: deque = field(default_factory=lambda: deque(maxlen=100))
 
@@ -71,7 +72,7 @@ class TimingStats:
         return {
             "count": self.count,
             "avg_ms": round(self.avg_ms, 3),
-            "min_ms": round(self.min_ms, 3) if self.min_ms != float('inf') else 0,
+            "min_ms": round(self.min_ms, 3) if self.min_ms != float("inf") else 0,
             "max_ms": round(self.max_ms, 3),
             "recent_avg_ms": round(self.recent_avg_ms, 3),
         }
@@ -178,8 +179,7 @@ class PerformanceMetrics:
             return {
                 "uptime_seconds": round(uptime, 1),
                 "timings": {
-                    name: stats.to_dict()
-                    for name, stats in self._timings.items()
+                    name: stats.to_dict() for name, stats in self._timings.items()
                 },
                 "counters": self._counters.copy(),
                 "gauges": {k: round(v, 4) for k, v in self._gauges.items()},
@@ -222,14 +222,12 @@ class PerformanceMetrics:
 
         # Format counters
         counter_str = ", ".join(
-            f"{name}={value}"
-            for name, value in summary["counters"].items()
+            f"{name}={value}" for name, value in summary["counters"].items()
         )
 
         # Format throughput
         throughput_str = ", ".join(
-            f"{name}={value:.1f}"
-            for name, value in summary["throughput"].items()
+            f"{name}={value:.1f}" for name, value in summary["throughput"].items()
         )
 
         logger.info(
@@ -262,12 +260,15 @@ def timed(name: str):
         def my_function():
             ...
     """
+
     def decorator(func: Callable) -> Callable:
         @wraps(func)
         def wrapper(*args, **kwargs):
             with metrics.timer(name):
                 return func(*args, **kwargs)
+
         return wrapper
+
     return decorator
 
 

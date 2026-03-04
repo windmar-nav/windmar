@@ -5,6 +5,7 @@ Provides proper locking and isolation for shared state in concurrent environment
 This replaces the unsafe global state pattern with a singleton that ensures
 thread safety and proper initialization.
 """
+
 import threading
 import logging
 from typing import Optional, Dict, Any
@@ -23,6 +24,7 @@ class VesselState:
     Uses a lock to ensure atomic updates across all related objects
     (specs, model, calculators).
     """
+
     _lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
 
     # Lazy imports to avoid circular dependencies
@@ -47,7 +49,9 @@ class VesselState:
         self._specs = VesselSpecs()
         self._model = VesselModel(specs=self._specs)
         self._voyage_calculator = VoyageCalculator(vessel_model=self._model)
-        self._monte_carlo_sim = MonteCarloSimulator(voyage_calculator=self._voyage_calculator)
+        self._monte_carlo_sim = MonteCarloSimulator(
+            voyage_calculator=self._voyage_calculator
+        )
         self._calibrator = VesselCalibrator(vessel_specs=self._specs)
         self._calibration = None
 
@@ -118,7 +122,9 @@ class VesselState:
             self._specs = VesselSpecs(**specs_dict)
             self._model = VesselModel(specs=self._specs)
             self._voyage_calculator = VoyageCalculator(vessel_model=self._model)
-            self._monte_carlo_sim = MonteCarloSimulator(voyage_calculator=self._voyage_calculator)
+            self._monte_carlo_sim = MonteCarloSimulator(
+                voyage_calculator=self._voyage_calculator
+            )
             self._calibrator = VesselCalibrator(vessel_specs=self._specs)
             self._calibration = None
 
@@ -142,14 +148,16 @@ class VesselState:
             self._model = VesselModel(
                 specs=self._specs,
                 calibration_factors={
-                    'calm_water': calibration_factors.calm_water,
-                    'wind': calibration_factors.wind,
-                    'waves': calibration_factors.waves,
-                    'sfoc_factor': calibration_factors.sfoc_factor,
-                }
+                    "calm_water": calibration_factors.calm_water,
+                    "wind": calibration_factors.wind,
+                    "waves": calibration_factors.waves,
+                    "sfoc_factor": calibration_factors.sfoc_factor,
+                },
             )
             self._voyage_calculator = VoyageCalculator(vessel_model=self._model)
-            self._monte_carlo_sim = MonteCarloSimulator(voyage_calculator=self._voyage_calculator)
+            self._monte_carlo_sim = MonteCarloSimulator(
+                voyage_calculator=self._voyage_calculator
+            )
 
             logger.info("Vessel calibration updated")
 
@@ -161,12 +169,12 @@ class VesselState:
         """
         with self._lock:
             return {
-                'specs': self._specs,
-                'model': self._model,
-                'voyage_calculator': self._voyage_calculator,
-                'monte_carlo_sim': self._monte_carlo_sim,
-                'calibrator': self._calibrator,
-                'calibration': self._calibration,
+                "specs": self._specs,
+                "model": self._model,
+                "voyage_calculator": self._voyage_calculator,
+                "monte_carlo_sim": self._monte_carlo_sim,
+                "calibrator": self._calibrator,
+                "calibration": self._calibration,
             }
 
 
@@ -178,7 +186,7 @@ class ApplicationState:
     Use get_app_state() to access the singleton instance.
     """
 
-    _instance: Optional['ApplicationState'] = None
+    _instance: Optional["ApplicationState"] = None
     _lock: threading.Lock = threading.Lock()
 
     def __new__(cls):
@@ -257,22 +265,21 @@ class ApplicationState:
         try:
             from src.data.db_weather_provider import DbWeatherProvider
             from src.data.weather_ingestion import WeatherIngestionService
+
             if _db_url.startswith("postgresql"):
                 db_weather = DbWeatherProvider(_db_url)
-                weather_ingestion = WeatherIngestionService(
-                    _db_url, copernicus, gfs
-                )
+                weather_ingestion = WeatherIngestionService(_db_url, copernicus, gfs)
         except ImportError:
             pass
 
         self._weather_providers = {
-            'copernicus': copernicus,
-            'climatology': climatology,
-            'unified': unified,
-            'synthetic': synthetic,
-            'gfs': gfs,
-            'db_weather': db_weather,
-            'weather_ingestion': weather_ingestion,
+            "copernicus": copernicus,
+            "climatology": climatology,
+            "unified": unified,
+            "synthetic": synthetic,
+            "gfs": gfs,
+            "db_weather": db_weather,
+            "weather_ingestion": weather_ingestion,
         }
 
         logger.info("Weather providers initialized")
@@ -290,9 +297,13 @@ class ApplicationState:
             Dict with health status of each component
         """
         return {
-            'vessel_state': 'healthy' if self._vessel_state.specs is not None else 'unhealthy',
-            'weather_providers': 'healthy' if self._weather_providers is not None else 'not_initialized',
-            'uptime_seconds': self.uptime_seconds,
+            "vessel_state": (
+                "healthy" if self._vessel_state.specs is not None else "unhealthy"
+            ),
+            "weather_providers": (
+                "healthy" if self._weather_providers is not None else "not_initialized"
+            ),
+            "uptime_seconds": self.uptime_seconds,
         }
 
 

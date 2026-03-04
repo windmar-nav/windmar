@@ -16,7 +16,6 @@ from typing import Dict, List, Optional
 
 import pandas as pd
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -207,7 +206,7 @@ class ExcelParser:
             val = float(value)
             if val <= 12:  # Likely Beaufort scale
                 # Beaufort to m/s approximation
-                return 0.836 * (val ** 1.5)
+                return 0.836 * (val**1.5)
             else:
                 return val
 

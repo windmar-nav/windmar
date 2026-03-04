@@ -10,13 +10,20 @@ from dataclasses import asdict
 from fastapi import APIRouter
 
 from api.schemas.fueleu import (
-    FuelEUCalculateRequest, FuelEUCalculateResponse,
-    FuelEUComplianceRequest, FuelEUComplianceResponse,
-    FuelEUPenaltyRequest, FuelEUPenaltyResponse,
-    FuelEUPoolingRequest, FuelEUPoolingResponse,
-    FuelEUProjectRequest, FuelEUProjectResponse,
-    FuelEULimitsResponse, FuelEULimitYear,
-    FuelEUFuelTypesResponse, FuelEUFuelInfo,
+    FuelEUCalculateRequest,
+    FuelEUCalculateResponse,
+    FuelEUComplianceRequest,
+    FuelEUComplianceResponse,
+    FuelEUPenaltyRequest,
+    FuelEUPenaltyResponse,
+    FuelEUPoolingRequest,
+    FuelEUPoolingResponse,
+    FuelEUProjectRequest,
+    FuelEUProjectResponse,
+    FuelEULimitsResponse,
+    FuelEULimitYear,
+    FuelEUFuelTypesResponse,
+    FuelEUFuelInfo,
 )
 from src.compliance.fueleu import FuelEUCalculator, REFERENCE_GHG
 
@@ -26,6 +33,7 @@ _calc = FuelEUCalculator()
 
 
 # ---- reference data endpoints -----------------------------------------------
+
 
 @router.get("/fuel-types", response_model=FuelEUFuelTypesResponse)
 async def get_fueleu_fuel_types():
@@ -48,6 +56,7 @@ async def get_fueleu_limits():
 
 # ---- calculation endpoints --------------------------------------------------
 
+
 @router.post("/calculate", response_model=FuelEUCalculateResponse)
 async def calculate_ghg_intensity(request: FuelEUCalculateRequest):
     """Calculate Well-to-Wake GHG intensity for given fuel consumption."""
@@ -64,7 +73,8 @@ async def calculate_ghg_intensity(request: FuelEUCalculateRequest):
 async def calculate_compliance(request: FuelEUComplianceRequest):
     """Calculate compliance balance (surplus/deficit) against annual limit."""
     result = _calc.calculate_compliance_balance(
-        request.fuel_consumption_mt.to_dict(), request.year,
+        request.fuel_consumption_mt.to_dict(),
+        request.year,
     )
     return FuelEUComplianceResponse(**asdict(result))
 

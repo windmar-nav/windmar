@@ -30,6 +30,7 @@ logger = logging.getLogger(__name__)
 # Leaflet-velocity helpers
 # ---------------------------------------------------------------------------
 
+
 def _velocity_header(lats, lons, run_time, fh):
     """Build a leaflet-velocity header dict."""
     dx = abs(float(lons[1] - lons[0])) if len(lons) > 1 else 0.25
@@ -67,11 +68,14 @@ def _order_north_to_south(u, v, lats):
 # Build frames from DB grids
 # ---------------------------------------------------------------------------
 
+
 def build_frames_from_db(
     field_name: str,
     db_weather,
-    lat_min: float, lat_max: float,
-    lon_min: float, lon_max: float,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
 ):
     """Rebuild forecast frame cache from PostgreSQL for any field.
 
@@ -85,8 +89,13 @@ def build_frames_from_db(
     logger.info(f"Rebuilding {field_name} cache from DB: {len(hours)} hours")
 
     grids = db_weather.get_grids_for_timeline(
-        cfg.source, list(cfg.parameters),
-        lat_min, lat_max, lon_min, lon_max, hours,
+        cfg.source,
+        list(cfg.parameters),
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
+        hours,
     )
 
     if not grids:
@@ -110,29 +119,52 @@ def build_frames_from_db(
             ocean_mask_data, ice_ocean_arr = build_ice_ocean_mask(grid)
         else:
             ocean_mask_data = build_ocean_mask_from_data(
-                grids, primary_param, sorted(hours), grid, lats_full, lons_full,
+                grids,
+                primary_param,
+                sorted(hours),
+                grid,
+                lats_full,
+                lons_full,
             )
 
     frames = {}
 
     if cfg.components == "vector":
         frames = _build_vector_frames_db(
-            cfg, field_name, grids, hours, grid, lats_full, lons_full, run_time,
+            cfg,
+            field_name,
+            grids,
+            hours,
+            grid,
+            lats_full,
+            lons_full,
+            run_time,
         )
     elif cfg.components == "wave_decomp":
         frames = _build_wave_frames_db(cfg, grids, hours, grid)
     elif cfg.components == "scalar":
         frames = _build_scalar_frames_db(
-            cfg, field_name, grids, hours, grid, ice_ocean_arr,
+            cfg,
+            field_name,
+            grids,
+            hours,
+            grid,
+            ice_ocean_arr,
         )
 
     return _assemble_envelope(
-        cfg, field_name, grid, frames, run_time,
+        cfg,
+        field_name,
+        grid,
+        frames,
+        run_time,
         ocean_mask_data=ocean_mask_data,
     )
 
 
-def _build_vector_frames_db(cfg, field_name, grids, hours, grid, lats_full, lons_full, run_time):
+def _build_vector_frames_db(
+    cfg, field_name, grids, hours, grid, lats_full, lons_full, run_time
+):
     """Build vector frames (wind/currents) from DB grids."""
     u_param, v_param = cfg.parameters[0], cfg.parameters[1]
     frames = {}
@@ -141,26 +173,42 @@ def _build_vector_frames_db(cfg, field_name, grids, hours, grid, lats_full, lons
             continue
         _, _, u_data = grids[u_param][fh]
         _, _, v_data = grids[v_param][fh]
-        u_sub = u_data[::grid.step, ::grid.step]
-        v_sub = v_data[::grid.step, ::grid.step]
+        u_sub = u_data[:: grid.step, :: grid.step]
+        v_sub = v_data[:: grid.step, :: grid.step]
 
         if field_name == "wind":
             u_m, v_m = mask_velocity_with_nan(
-                u_sub, v_sub, grid,
-                grids=grids, primary_param=u_param,
-                hours=sorted(hours), full_lats=lats_full, full_lons=lons_full,
+                u_sub,
+                v_sub,
+                grid,
+                grids=grids,
+                primary_param=u_param,
+                hours=sorted(hours),
+                full_lats=lats_full,
+                full_lons=lons_full,
             )
             u_ord, v_ord = _order_north_to_south(u_m, v_m, grid.lats)
             header = _velocity_header(grid.lats, grid.lons, run_time, fh)
             frames[str(fh)] = [
-                {"header": {**header, "parameterNumber": 2}, "data": u_ord.flatten().tolist()},
-                {"header": {**header, "parameterNumber": 3}, "data": v_ord.flatten().tolist()},
+                {
+                    "header": {**header, "parameterNumber": 2},
+                    "data": u_ord.flatten().tolist(),
+                },
+                {
+                    "header": {**header, "parameterNumber": 3},
+                    "data": v_ord.flatten().tolist(),
+                },
             ]
         else:
             u_m, v_m = mask_velocity_with_nan(
-                u_sub, v_sub, grid,
-                grids=grids, primary_param=u_param,
-                hours=sorted(hours), full_lats=lats_full, full_lons=lons_full,
+                u_sub,
+                v_sub,
+                grid,
+                grids=grids,
+                primary_param=u_param,
+                hours=sorted(hours),
+                full_lats=lats_full,
+                full_lons=lons_full,
             )
             frames[str(fh)] = {
                 "u": np.round(u_m[::-1], cfg.decimals).tolist(),
@@ -176,23 +224,40 @@ def _build_wave_frames_db(cfg, grids, hours, grid):
         frame = {}
         if "wave_hs" in grids and fh in grids["wave_hs"]:
             _, _, d = grids["wave_hs"][fh]
-            frame["data"] = np.round(d[::grid.step, ::grid.step], cfg.decimals).tolist()
+            frame["data"] = np.round(
+                d[:: grid.step, :: grid.step], cfg.decimals
+            ).tolist()
         if "wave_dir" in grids and fh in grids["wave_dir"]:
             _, _, d = grids["wave_dir"][fh]
-            frame["direction"] = np.round(d[::grid.step, ::grid.step], cfg.decimals).tolist()
-        has_decomp = (fh in grids.get("windwave_hs", {}) and
-                      fh in grids.get("swell_hs", {}))
+            frame["direction"] = np.round(
+                d[:: grid.step, :: grid.step], cfg.decimals
+            ).tolist()
+        has_decomp = fh in grids.get("windwave_hs", {}) and fh in grids.get(
+            "swell_hs", {}
+        )
         if has_decomp:
             frame["windwave"] = {}
-            for p, k in [("windwave_hs", "height"), ("windwave_tp", "period"), ("windwave_dir", "direction")]:
+            for p, k in [
+                ("windwave_hs", "height"),
+                ("windwave_tp", "period"),
+                ("windwave_dir", "direction"),
+            ]:
                 if fh in grids.get(p, {}):
                     _, _, d = grids[p][fh]
-                    frame["windwave"][k] = np.round(d[::grid.step, ::grid.step], cfg.decimals).tolist()
+                    frame["windwave"][k] = np.round(
+                        d[:: grid.step, :: grid.step], cfg.decimals
+                    ).tolist()
             frame["swell"] = {}
-            for p, k in [("swell_hs", "height"), ("swell_tp", "period"), ("swell_dir", "direction")]:
+            for p, k in [
+                ("swell_hs", "height"),
+                ("swell_tp", "period"),
+                ("swell_dir", "direction"),
+            ]:
                 if fh in grids.get(p, {}):
                     _, _, d = grids[p][fh]
-                    frame["swell"][k] = np.round(d[::grid.step, ::grid.step], cfg.decimals).tolist()
+                    frame["swell"][k] = np.round(
+                        d[:: grid.step, :: grid.step], cfg.decimals
+                    ).tolist()
         if frame:
             frames[str(fh)] = frame
     return frames
@@ -206,7 +271,7 @@ def _build_scalar_frames_db(cfg, field_name, grids, hours, grid, ice_ocean_arr):
         if fh not in grids.get(param, {}):
             continue
         _, _, d = grids[param][fh]
-        clean = np.nan_to_num(d[::grid.step, ::grid.step], nan=cfg.nan_fill)
+        clean = np.nan_to_num(d[:: grid.step, :: grid.step], nan=cfg.nan_fill)
         if clean.shape != (grid.ny, grid.nx):
             logger.error(
                 f"{field_name} fh={fh} shape mismatch: data={clean.shape} "
@@ -221,6 +286,7 @@ def _build_scalar_frames_db(cfg, field_name, grids, hours, grid, ice_ocean_arr):
 # ---------------------------------------------------------------------------
 # Build frames from provider WeatherData
 # ---------------------------------------------------------------------------
+
 
 def build_frames_from_provider(
     field_name: str,
@@ -241,7 +307,11 @@ def build_frames_from_provider(
             ocean_mask_data, ice_ocean_arr = build_ice_ocean_mask(grid)
         else:
             ocean_mask_data = build_ocean_mask_from_weather_data(
-                result, cfg, grid, first_wd.lats, first_wd.lons,
+                result,
+                cfg,
+                grid,
+                first_wd.lats,
+                first_wd.lons,
             )
 
     frames = {}
@@ -252,12 +322,20 @@ def build_frames_from_provider(
         frames = _build_wave_frames_provider(cfg, result, grid)
     elif cfg.components == "scalar":
         frames = _build_scalar_frames_provider(
-            cfg, field_name, result, grid, ice_ocean_arr,
+            cfg,
+            field_name,
+            result,
+            grid,
+            ice_ocean_arr,
         )
 
     run_time = first_wd.time
     return _assemble_envelope(
-        cfg, field_name, grid, frames, run_time,
+        cfg,
+        field_name,
+        grid,
+        frames,
+        run_time,
         ocean_mask_data=ocean_mask_data,
     )
 
@@ -267,8 +345,8 @@ def _build_vector_frames_provider(cfg, result, grid):
     frames = {}
     for fh, wd in sorted(result.items()):
         if wd.u_component is not None and wd.v_component is not None:
-            u_sub = wd.u_component[::grid.step, ::grid.step]
-            v_sub = wd.v_component[::grid.step, ::grid.step]
+            u_sub = wd.u_component[:: grid.step, :: grid.step]
+            v_sub = wd.v_component[:: grid.step, :: grid.step]
             u_m, v_m = mask_velocity_with_nan(u_sub, v_sub, grid)
             frames[str(fh)] = {
                 "u": np.round(u_m[::-1], cfg.decimals).tolist(),
@@ -283,20 +361,60 @@ def _build_wave_frames_provider(cfg, result, grid):
     for fh, wd in sorted(result.items()):
         frame = {}
         if wd.values is not None:
-            frame["data"] = np.round(wd.values[::grid.step, ::grid.step], cfg.decimals).tolist()
+            frame["data"] = np.round(
+                wd.values[:: grid.step, :: grid.step], cfg.decimals
+            ).tolist()
         if wd.wave_direction is not None:
-            frame["direction"] = np.round(wd.wave_direction[::grid.step, ::grid.step], cfg.decimals).tolist()
+            frame["direction"] = np.round(
+                wd.wave_direction[:: grid.step, :: grid.step], cfg.decimals
+            ).tolist()
         has_decomp = wd.windwave_height is not None and wd.swell_height is not None
         if has_decomp:
             frame["windwave"] = {
-                "height": np.round(wd.windwave_height[::grid.step, ::grid.step], cfg.decimals).tolist() if wd.windwave_height is not None else None,
-                "period": np.round(wd.windwave_period[::grid.step, ::grid.step], cfg.decimals).tolist() if wd.windwave_period is not None else None,
-                "direction": np.round(wd.windwave_direction[::grid.step, ::grid.step], cfg.decimals).tolist() if wd.windwave_direction is not None else None,
+                "height": (
+                    np.round(
+                        wd.windwave_height[:: grid.step, :: grid.step], cfg.decimals
+                    ).tolist()
+                    if wd.windwave_height is not None
+                    else None
+                ),
+                "period": (
+                    np.round(
+                        wd.windwave_period[:: grid.step, :: grid.step], cfg.decimals
+                    ).tolist()
+                    if wd.windwave_period is not None
+                    else None
+                ),
+                "direction": (
+                    np.round(
+                        wd.windwave_direction[:: grid.step, :: grid.step], cfg.decimals
+                    ).tolist()
+                    if wd.windwave_direction is not None
+                    else None
+                ),
             }
             frame["swell"] = {
-                "height": np.round(wd.swell_height[::grid.step, ::grid.step], cfg.decimals).tolist() if wd.swell_height is not None else None,
-                "period": np.round(wd.swell_period[::grid.step, ::grid.step], cfg.decimals).tolist() if wd.swell_period is not None else None,
-                "direction": np.round(wd.swell_direction[::grid.step, ::grid.step], cfg.decimals).tolist() if wd.swell_direction is not None else None,
+                "height": (
+                    np.round(
+                        wd.swell_height[:: grid.step, :: grid.step], cfg.decimals
+                    ).tolist()
+                    if wd.swell_height is not None
+                    else None
+                ),
+                "period": (
+                    np.round(
+                        wd.swell_period[:: grid.step, :: grid.step], cfg.decimals
+                    ).tolist()
+                    if wd.swell_period is not None
+                    else None
+                ),
+                "direction": (
+                    np.round(
+                        wd.swell_direction[:: grid.step, :: grid.step], cfg.decimals
+                    ).tolist()
+                    if wd.swell_direction is not None
+                    else None
+                ),
             }
         frames[str(fh)] = frame
     return frames
@@ -308,7 +426,7 @@ def _build_scalar_frames_provider(cfg, field_name, result, grid, ice_ocean_arr):
     for fh, wd in sorted(result.items()):
         vals = _pick_scalar_values(wd, field_name)
         if vals is not None:
-            clean = np.nan_to_num(vals[::grid.step, ::grid.step], nan=cfg.nan_fill)
+            clean = np.nan_to_num(vals[:: grid.step, :: grid.step], nan=cfg.nan_fill)
             if ice_ocean_arr is not None and clean.shape == ice_ocean_arr.shape:
                 clean = np.where(ice_ocean_arr, clean, cfg.nan_fill)
             frames[str(fh)] = {"data": np.round(clean, cfg.decimals).tolist()}
@@ -333,11 +451,15 @@ def _pick_scalar_values(wd, field_name):
 # Build wind frames from GFS GRIB cache
 # ---------------------------------------------------------------------------
 
+
 def build_wind_frames_from_grib(
     gfs_provider,
-    lat_min: float, lat_max: float,
-    lon_min: float, lon_max: float,
-    run_date: str, run_hour: str,
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
+    run_date: str,
+    run_hour: str,
 ):
     """Process all cached GRIB files into leaflet-velocity frame cache.
 
@@ -348,7 +470,12 @@ def build_wind_frames_from_grib(
 
     run_time = datetime.strptime(f"{run_date}{run_hour}", "%Y%m%d%H")
     hours_status = gfs_provider.get_cached_forecast_hours(
-        lat_min, lat_max, lon_min, lon_max, run_date, run_hour,
+        lat_min,
+        lat_max,
+        lon_min,
+        lon_max,
+        run_date,
+        run_hour,
     )
 
     cfg = get_field("wind")
@@ -360,8 +487,13 @@ def build_wind_frames_from_grib(
             continue
         fh = h_info["forecast_hour"]
         wind_data = gfs_provider.fetch_wind_data(
-            lat_min, lat_max, lon_min, lon_max,
-            forecast_hour=fh, run_date=run_date, run_hour=run_hour,
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
+            forecast_hour=fh,
+            run_date=run_date,
+            run_hour=run_hour,
         )
         if wind_data is None:
             continue
@@ -370,15 +502,21 @@ def build_wind_frames_from_grib(
         if grid is None:
             grid = make_grid(wind_data.lats, wind_data.lons, cfg)
 
-        u_sub = wind_data.u_component[::grid.step, ::grid.step]
-        v_sub = wind_data.v_component[::grid.step, ::grid.step]
+        u_sub = wind_data.u_component[:: grid.step, :: grid.step]
+        v_sub = wind_data.v_component[:: grid.step, :: grid.step]
         u_m, v_m = mask_velocity_with_nan(u_sub, v_sub, grid)
         u_ord, v_ord = _order_north_to_south(u_m, v_m, grid.lats)
 
         header = _velocity_header(grid.lats, grid.lons, run_time, fh)
         frames[str(fh)] = [
-            {"header": {**header, "parameterNumber": 2}, "data": u_ord.flatten().tolist()},
-            {"header": {**header, "parameterNumber": 3}, "data": v_ord.flatten().tolist()},
+            {
+                "header": {**header, "parameterNumber": 2},
+                "data": u_ord.flatten().tolist(),
+            },
+            {
+                "header": {**header, "parameterNumber": 3},
+                "data": v_ord.flatten().tolist(),
+            },
         ]
 
     return {
@@ -397,6 +535,7 @@ def build_wind_frames_from_grib(
 # ---------------------------------------------------------------------------
 # Cache envelope assembly
 # ---------------------------------------------------------------------------
+
 
 def _assemble_envelope(
     cfg: FieldConfig,
@@ -424,6 +563,7 @@ def _assemble_envelope(
     # Wind uses leaflet-velocity format — different envelope
     if field_name == "wind":
         from src.data.copernicus import GFSDataProvider
+
         run_date_str = run_time.strftime("%Y%m%d") if run_time else ""
         run_hour_str = run_time.strftime("%H") if run_time else "00"
         envelope["run_date"] = run_date_str

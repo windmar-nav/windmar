@@ -22,24 +22,26 @@ from enum import Enum
 
 try:
     import serial
+
     SERIAL_AVAILABLE = True
 except ImportError:
     SERIAL_AVAILABLE = False
 
 try:
     import socket
+
     SOCKET_AVAILABLE = True
 except ImportError:
     SOCKET_AVAILABLE = False
 
 import numpy as np
 
-
 logger = logging.getLogger(__name__)
 
 
 class ConnectionType(Enum):
     """SBG connection types."""
+
     SERIAL = "serial"
     TCP = "tcp"
     UDP = "udp"
@@ -52,43 +54,44 @@ class SBGData:
 
     Contains all relevant navigation and motion data.
     """
+
     timestamp: datetime = field(default_factory=datetime.utcnow)
 
     # Position (GNSS)
-    latitude: float = 0.0          # degrees
-    longitude: float = 0.0         # degrees
-    altitude: float = 0.0          # meters (above ellipsoid)
+    latitude: float = 0.0  # degrees
+    longitude: float = 0.0  # degrees
+    altitude: float = 0.0  # meters (above ellipsoid)
 
     # Velocity
-    sog: float = 0.0               # Speed Over Ground (knots)
-    cog: float = 0.0               # Course Over Ground (degrees)
-    velocity_north: float = 0.0    # m/s
-    velocity_east: float = 0.0     # m/s
-    velocity_down: float = 0.0     # m/s
+    sog: float = 0.0  # Speed Over Ground (knots)
+    cog: float = 0.0  # Course Over Ground (degrees)
+    velocity_north: float = 0.0  # m/s
+    velocity_east: float = 0.0  # m/s
+    velocity_down: float = 0.0  # m/s
 
     # Attitude (roll, pitch, yaw)
-    roll: float = 0.0              # degrees (positive = starboard down)
-    pitch: float = 0.0             # degrees (positive = bow up)
-    heading: float = 0.0           # degrees (true north)
+    roll: float = 0.0  # degrees (positive = starboard down)
+    pitch: float = 0.0  # degrees (positive = bow up)
+    heading: float = 0.0  # degrees (true north)
 
     # Heave and motion
-    heave: float = 0.0             # meters (positive = up)
-    surge: float = 0.0             # meters (positive = forward)
-    sway: float = 0.0              # meters (positive = starboard)
+    heave: float = 0.0  # meters (positive = up)
+    surge: float = 0.0  # meters (positive = forward)
+    sway: float = 0.0  # meters (positive = starboard)
 
     # Angular rates
-    roll_rate: float = 0.0         # deg/s
-    pitch_rate: float = 0.0        # deg/s
-    yaw_rate: float = 0.0          # deg/s
+    roll_rate: float = 0.0  # deg/s
+    pitch_rate: float = 0.0  # deg/s
+    yaw_rate: float = 0.0  # deg/s
 
     # Accelerations
-    accel_x: float = 0.0           # m/s² (forward)
-    accel_y: float = 0.0           # m/s² (starboard)
-    accel_z: float = 0.0           # m/s² (down)
+    accel_x: float = 0.0  # m/s² (forward)
+    accel_y: float = 0.0  # m/s² (starboard)
+    accel_z: float = 0.0  # m/s² (down)
 
     # Status
-    gnss_fix: int = 0              # 0=no fix, 1=2D, 2=3D, 4=RTK float, 5=RTK fixed
-    ins_status: int = 0            # Solution status
+    gnss_fix: int = 0  # 0=no fix, 1=2D, 2=3D, 4=RTK float, 5=RTK fixed
+    ins_status: int = 0  # Solution status
     num_satellites: int = 0
     hdop: float = 99.9
 
@@ -155,12 +158,12 @@ class NMEAParser:
         """Parse a single NMEA sentence."""
         sentence = sentence.strip()
 
-        if not sentence.startswith('$'):
+        if not sentence.startswith("$"):
             return None
 
         # Validate checksum
-        if '*' in sentence:
-            data_part, checksum = sentence[1:].split('*')
+        if "*" in sentence:
+            data_part, checksum = sentence[1:].split("*")
             calculated = NMEAParser._calculate_checksum(data_part)
             if calculated.upper() != checksum.upper():
                 logger.warning(f"NMEA checksum mismatch: {sentence}")
@@ -168,21 +171,21 @@ class NMEAParser:
         else:
             data_part = sentence[1:]
 
-        fields = data_part.split(',')
+        fields = data_part.split(",")
         sentence_type = fields[0]
 
         try:
-            if sentence_type.endswith('GGA'):
+            if sentence_type.endswith("GGA"):
                 return NMEAParser._parse_gga(fields)
-            elif sentence_type.endswith('RMC'):
+            elif sentence_type.endswith("RMC"):
                 return NMEAParser._parse_rmc(fields)
-            elif sentence_type.endswith('HDT'):
+            elif sentence_type.endswith("HDT"):
                 return NMEAParser._parse_hdt(fields)
-            elif sentence_type.endswith('VTG'):
+            elif sentence_type.endswith("VTG"):
                 return NMEAParser._parse_vtg(fields)
-            elif sentence_type == 'PASHR':
+            elif sentence_type == "PASHR":
                 return NMEAParser._parse_pashr(fields)
-            elif sentence_type == 'PSBGI':
+            elif sentence_type == "PSBGI":
                 return NMEAParser._parse_psbgi(fields)
         except (ValueError, IndexError) as e:
             logger.debug(f"Failed to parse {sentence_type}: {e}")
@@ -203,7 +206,7 @@ class NMEAParser:
         if not value:
             return 0.0
 
-        if len(value.split('.')[0]) <= 4:
+        if len(value.split(".")[0]) <= 4:
             # Latitude: DDMM.MMMM
             degrees = int(value[:2])
             minutes = float(value[2:])
@@ -214,7 +217,7 @@ class NMEAParser:
 
         result = degrees + minutes / 60.0
 
-        if direction in ('S', 'W'):
+        if direction in ("S", "W"):
             result = -result
 
         return result
@@ -224,8 +227,12 @@ class NMEAParser:
         """Parse GGA sentence (Position fix)."""
         return {
             "type": "position",
-            "latitude": NMEAParser._parse_coordinate(fields[2], fields[3]) if fields[2] else 0,
-            "longitude": NMEAParser._parse_coordinate(fields[4], fields[5]) if fields[4] else 0,
+            "latitude": (
+                NMEAParser._parse_coordinate(fields[2], fields[3]) if fields[2] else 0
+            ),
+            "longitude": (
+                NMEAParser._parse_coordinate(fields[4], fields[5]) if fields[4] else 0
+            ),
             "gnss_fix": int(fields[6]) if fields[6] else 0,
             "num_satellites": int(fields[7]) if fields[7] else 0,
             "hdop": float(fields[8]) if fields[8] else 99.9,
@@ -240,11 +247,15 @@ class NMEAParser:
 
         return {
             "type": "velocity",
-            "latitude": NMEAParser._parse_coordinate(fields[3], fields[4]) if fields[3] else 0,
-            "longitude": NMEAParser._parse_coordinate(fields[5], fields[6]) if fields[5] else 0,
+            "latitude": (
+                NMEAParser._parse_coordinate(fields[3], fields[4]) if fields[3] else 0
+            ),
+            "longitude": (
+                NMEAParser._parse_coordinate(fields[5], fields[6]) if fields[5] else 0
+            ),
             "sog": sog_knots,
             "cog": cog,
-            "valid": fields[2] == 'A',
+            "valid": fields[2] == "A",
         }
 
     @staticmethod
@@ -380,7 +391,9 @@ class SBGEllipseN:
         try:
             if self.connection_type == ConnectionType.SERIAL:
                 if not SERIAL_AVAILABLE:
-                    raise ImportError("pyserial not installed. Run: pip install pyserial")
+                    raise ImportError(
+                        "pyserial not installed. Run: pip install pyserial"
+                    )
 
                 self._connection = serial.Serial(
                     port=self.port,
@@ -390,7 +403,9 @@ class SBGEllipseN:
                     parity=serial.PARITY_NONE,
                     stopbits=serial.STOPBITS_ONE,
                 )
-                logger.info(f"Connected to SBG via serial: {self.port} @ {self.baudrate}")
+                logger.info(
+                    f"Connected to SBG via serial: {self.port} @ {self.baudrate}"
+                )
 
             elif self.connection_type == ConnectionType.TCP:
                 self._connection = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -400,7 +415,7 @@ class SBGEllipseN:
 
             elif self.connection_type == ConnectionType.UDP:
                 self._connection = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-                self._connection.bind(('', self.tcp_port))
+                self._connection.bind(("", self.tcp_port))
                 self._connection.settimeout(1.0)
                 logger.info(f"Listening for SBG UDP on port {self.tcp_port}")
 
@@ -445,9 +460,7 @@ class SBGEllipseN:
         self._streaming = True
 
         self._read_thread = threading.Thread(
-            target=self._read_loop,
-            daemon=True,
-            name="SBG-Reader"
+            target=self._read_loop, daemon=True, name="SBG-Reader"
         )
         self._read_thread.start()
 
@@ -495,18 +508,18 @@ class SBGEllipseN:
     def _process_data(self, raw_data: bytes) -> None:
         """Process raw data and extract NMEA sentences."""
         try:
-            text = raw_data.decode('ascii', errors='ignore')
+            text = raw_data.decode("ascii", errors="ignore")
         except (UnicodeDecodeError, AttributeError):
             return
 
         self._nmea_buffer += text
 
         # Process complete sentences
-        while '\n' in self._nmea_buffer:
-            line, self._nmea_buffer = self._nmea_buffer.split('\n', 1)
+        while "\n" in self._nmea_buffer:
+            line, self._nmea_buffer = self._nmea_buffer.split("\n", 1)
             line = line.strip()
 
-            if line.startswith('$'):
+            if line.startswith("$"):
                 parsed = self._nmea_parser.parse_sentence(line)
                 if parsed:
                     self._update_data(parsed)
@@ -521,11 +534,21 @@ class SBGEllipseN:
             data_type = parsed.get("type", "")
 
             if data_type == "position":
-                self._current_data.latitude = parsed.get("latitude", self._current_data.latitude)
-                self._current_data.longitude = parsed.get("longitude", self._current_data.longitude)
-                self._current_data.altitude = parsed.get("altitude", self._current_data.altitude)
-                self._current_data.gnss_fix = parsed.get("gnss_fix", self._current_data.gnss_fix)
-                self._current_data.num_satellites = parsed.get("num_satellites", self._current_data.num_satellites)
+                self._current_data.latitude = parsed.get(
+                    "latitude", self._current_data.latitude
+                )
+                self._current_data.longitude = parsed.get(
+                    "longitude", self._current_data.longitude
+                )
+                self._current_data.altitude = parsed.get(
+                    "altitude", self._current_data.altitude
+                )
+                self._current_data.gnss_fix = parsed.get(
+                    "gnss_fix", self._current_data.gnss_fix
+                )
+                self._current_data.num_satellites = parsed.get(
+                    "num_satellites", self._current_data.num_satellites
+                )
                 self._current_data.hdop = parsed.get("hdop", self._current_data.hdop)
 
             elif data_type == "velocity":
@@ -536,18 +559,24 @@ class SBGEllipseN:
                     self._current_data.longitude = parsed["longitude"]
 
             elif data_type == "heading":
-                self._current_data.heading = parsed.get("heading", self._current_data.heading)
+                self._current_data.heading = parsed.get(
+                    "heading", self._current_data.heading
+                )
 
             elif data_type == "attitude":
                 self._current_data.roll = parsed.get("roll", self._current_data.roll)
                 self._current_data.pitch = parsed.get("pitch", self._current_data.pitch)
-                self._current_data.heading = parsed.get("heading", self._current_data.heading)
+                self._current_data.heading = parsed.get(
+                    "heading", self._current_data.heading
+                )
                 self._current_data.heave = parsed.get("heave", self._current_data.heave)
 
             elif data_type == "ins":
                 self._current_data.roll = parsed.get("roll", self._current_data.roll)
                 self._current_data.pitch = parsed.get("pitch", self._current_data.pitch)
-                self._current_data.heading = parsed.get("heading", self._current_data.heading)
+                self._current_data.heading = parsed.get(
+                    "heading", self._current_data.heading
+                )
                 self._current_data.heave = parsed.get("heave", self._current_data.heave)
                 self._current_data.surge = parsed.get("surge", self._current_data.surge)
                 self._current_data.sway = parsed.get("sway", self._current_data.sway)
@@ -606,7 +635,9 @@ class SBGEllipseN:
             "message_count": self._message_count,
             "parse_errors": self._parse_errors,
             "buffer_size": len(self._data_buffer),
-            "last_message_time": self._last_message_time.isoformat() if self._last_message_time else None,
+            "last_message_time": (
+                self._last_message_time.isoformat() if self._last_message_time else None
+            ),
         }
 
     def compute_motion_statistics(self, window_seconds: float = 60.0) -> Dict:
@@ -660,12 +691,15 @@ class SBGEllipseN:
 
         # Estimate motion severity index (0-10 scale)
         # Based on combined motion parameters
-        motion_severity = min(10, (
-            np.std(heave) * 2 +       # Heave contribution
-            np.std(roll) * 0.5 +      # Roll contribution
-            np.std(pitch) * 0.5 +     # Pitch contribution
-            np.std(sog) * 0.2         # SOG variation
-        ))
+        motion_severity = min(
+            10,
+            (
+                np.std(heave) * 2  # Heave contribution
+                + np.std(roll) * 0.5  # Roll contribution
+                + np.std(pitch) * 0.5  # Pitch contribution
+                + np.std(sog) * 0.2  # SOG variation
+            ),
+        )
         stats["motion_severity_index"] = float(motion_severity)
 
         return stats
@@ -721,9 +755,7 @@ class SBGSimulator:
         """Start generating simulated data."""
         self._running = True
         self._thread = threading.Thread(
-            target=self._generate_loop,
-            args=(rate_hz,),
-            daemon=True
+            target=self._generate_loop, args=(rate_hz,), daemon=True
         )
         self._thread.start()
 
@@ -757,8 +789,12 @@ class SBGSimulator:
 
         # Generate motion
         heave = wave_height * 0.5 * math.sin(2 * math.pi * t / wave_period)
-        roll = self.sea_state * 2 * math.sin(2 * math.pi * t / (wave_period * 1.2) + 0.5)
-        pitch = self.sea_state * 1.5 * math.sin(2 * math.pi * t / (wave_period * 0.8) + 1.0)
+        roll = (
+            self.sea_state * 2 * math.sin(2 * math.pi * t / (wave_period * 1.2) + 0.5)
+        )
+        pitch = (
+            self.sea_state * 1.5 * math.sin(2 * math.pi * t / (wave_period * 0.8) + 1.0)
+        )
 
         # Add some noise
         heave += np.random.normal(0, wave_height * 0.1)
@@ -771,7 +807,12 @@ class SBGSimulator:
 
         # Simple position update (flat earth approximation for small distances)
         dlat = speed_ms * math.cos(math.radians(self.heading)) * dt / 111320
-        dlon = speed_ms * math.sin(math.radians(self.heading)) * dt / (111320 * math.cos(math.radians(self.latitude)))
+        dlon = (
+            speed_ms
+            * math.sin(math.radians(self.heading))
+            * dt
+            / (111320 * math.cos(math.radians(self.latitude)))
+        )
 
         self.latitude += dlat
         self.longitude += dlon

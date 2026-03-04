@@ -22,13 +22,13 @@ import numpy as np
 
 from .sbg_ellipse import SBGData
 
-
 logger = logging.getLogger(__name__)
 
 
 @dataclass
 class TimeSeriesPoint:
     """Single point in a time series."""
+
     timestamp: datetime
     value: float
     quality: int = 0  # 0=good, 1=interpolated, 2=suspect
@@ -163,12 +163,23 @@ class SensorDataStore:
 
     # Channel names for SBG data
     CHANNELS = [
-        "latitude", "longitude", "altitude",
-        "sog", "cog", "heading",
-        "roll", "pitch", "heave",
-        "surge", "sway",
-        "roll_rate", "pitch_rate", "yaw_rate",
-        "accel_x", "accel_y", "accel_z",
+        "latitude",
+        "longitude",
+        "altitude",
+        "sog",
+        "cog",
+        "heading",
+        "roll",
+        "pitch",
+        "heave",
+        "surge",
+        "sway",
+        "roll_rate",
+        "pitch_rate",
+        "yaw_rate",
+        "accel_x",
+        "accel_y",
+        "accel_z",
     ]
 
     def __init__(
@@ -292,10 +303,12 @@ class SensorDataStore:
         # Queue for persistence
         if self.db_path:
             with self._pending_lock:
-                self._pending_writes.append({
-                    "timestamp": timestamp.isoformat(),
-                    "values": channel_values,
-                })
+                self._pending_writes.append(
+                    {
+                        "timestamp": timestamp.isoformat(),
+                        "values": channel_values,
+                    }
+                )
 
     def get_channel(
         self,
@@ -373,9 +386,7 @@ class SensorDataStore:
 
         self._stop_event.clear()
         self._persist_thread = threading.Thread(
-            target=self._persistence_loop,
-            daemon=True,
-            name="SensorPersist"
+            target=self._persistence_loop, daemon=True, name="SensorPersist"
         )
         self._persist_thread.start()
         logger.info("Started persistence thread")
@@ -415,7 +426,7 @@ class SensorDataStore:
                     for channel, value in record["values"].items():
                         cursor.execute(
                             "INSERT INTO sensor_data (timestamp, channel, value) VALUES (?, ?, ?)",
-                            (record["timestamp"], channel, value)
+                            (record["timestamp"], channel, value),
                         )
                 self._db.commit()
                 logger.debug(f"Persisted {len(to_write)} records")
@@ -451,7 +462,7 @@ class SensorDataStore:
                 WHERE channel = ? AND timestamp >= ? AND timestamp <= ?
                 ORDER BY timestamp
                 """,
-                (channel, start.isoformat(), end.isoformat())
+                (channel, start.isoformat(), end.isoformat()),
             )
             rows = cursor.fetchall()
 
@@ -460,9 +471,7 @@ class SensorDataStore:
 
         # Resample if requested
         if resample_seconds and timestamps:
-            timestamps, values = self._resample(
-                timestamps, values, resample_seconds
-            )
+            timestamps, values = self._resample(timestamps, values, resample_seconds)
 
         return timestamps, values
 
@@ -490,8 +499,7 @@ class SensorDataStore:
 
             # Find values in this bin
             bin_values = [
-                v for t, v in zip(timestamps, values)
-                if bin_start <= t < bin_end
+                v for t, v in zip(timestamps, values) if bin_start <= t < bin_end
             ]
 
             if bin_values:
@@ -538,7 +546,7 @@ class SensorDataStore:
         sorted_timestamps = sorted(timestamps)
 
         # Write CSV
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             # Header
             f.write("timestamp," + ",".join(channels) + "\n")
 

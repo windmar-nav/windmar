@@ -95,7 +95,8 @@ def _find_cache_data(field: str) -> Optional[dict]:
         return (c_lat_max - c_lat_min) * (c_lon_max - c_lon_min)
 
     candidates.sort(
-        key=lambda f: (_bbox_area(f), f.stat().st_size), reverse=True,
+        key=lambda f: (_bbox_area(f), f.stat().st_size),
+        reverse=True,
     )
     best_file = candidates[0] if candidates else None
 
@@ -116,7 +117,9 @@ def _find_cache_data(field: str) -> Optional[dict]:
         if isinstance(sample, list) and len(sample) >= 2:
             hdr = sample[0].get("header", {})
             if hdr.get("nx", 0) < 2 or hdr.get("ny", 0) < 2:
-                logger.warning("Rejecting broken wind cache %s (nx=%s)", best_file, hdr.get("nx"))
+                logger.warning(
+                    "Rejecting broken wind cache %s (nx=%s)", best_file, hdr.get("nx")
+                )
                 # Try next broadest-coverage file
                 candidates.remove(best_file)
                 candidates.sort(
@@ -174,7 +177,7 @@ async def get_tile(
         return Response(content=_EMPTY_PNG, media_type="image/png", status_code=200)
 
     # Validate tile coords
-    max_tiles = 2 ** z
+    max_tiles = 2**z
     if x < 0 or x >= max_tiles or y < 0 or y >= max_tiles:
         return Response(content=_EMPTY_PNG, media_type="image/png", status_code=200)
 

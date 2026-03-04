@@ -30,10 +30,11 @@ logger = logging.getLogger(__name__)
 @dataclass
 class AttitudeData:
     """Roll, pitch, yaw from EKF."""
+
     timestamp: datetime
-    roll_deg: float       # Roll angle (positive = starboard down)
-    pitch_deg: float      # Pitch angle (positive = bow up)
-    heading_deg: float    # True heading
+    roll_deg: float  # Roll angle (positive = starboard down)
+    pitch_deg: float  # Pitch angle (positive = bow up)
+    heading_deg: float  # True heading
     roll_std: float = 0.0
     pitch_std: float = 0.0
     heading_std: float = 0.0
@@ -43,21 +44,23 @@ class AttitudeData:
 @dataclass
 class IMUData:
     """Raw IMU accelerations and angular rates."""
+
     timestamp: datetime
     accel_x: float  # m/s² (forward)
     accel_y: float  # m/s² (starboard)
     accel_z: float  # m/s² (down)
-    gyro_x: float   # rad/s (roll rate)
-    gyro_y: float   # rad/s (pitch rate)
-    gyro_z: float   # rad/s (yaw rate)
+    gyro_x: float  # rad/s (roll rate)
+    gyro_y: float  # rad/s (pitch rate)
+    gyro_z: float  # rad/s (yaw rate)
     valid: bool = True
 
 
 @dataclass
 class PositionData:
     """GPS position and velocity."""
+
     timestamp: datetime
-    latitude: float   # degrees
+    latitude: float  # degrees
     longitude: float  # degrees
     altitude_m: float = 0.0
     speed_kts: float = 0.0
@@ -68,6 +71,7 @@ class PositionData:
 @dataclass
 class ShipMotionData:
     """Aggregated ship motion state."""
+
     timestamp: datetime
     # Attitude
     roll_deg: float = 0.0
@@ -150,6 +154,7 @@ class SBGNmeaParser:
         """Start reading from serial port."""
         try:
             import serial
+
             self._serial = serial.Serial(
                 port=self.port,
                 baudrate=self.baudrate,
@@ -213,12 +218,12 @@ class SBGNmeaParser:
                 # Read available data
                 if self._serial.in_waiting > 0:
                     data = self._serial.read(self._serial.in_waiting)
-                    buffer += data.decode('ascii', errors='ignore')
+                    buffer += data.decode("ascii", errors="ignore")
 
                     # Process complete sentences
-                    while '\r\n' in buffer:
-                        line, buffer = buffer.split('\r\n', 1)
-                        if line.startswith('$'):
+                    while "\r\n" in buffer:
+                        line, buffer = buffer.split("\r\n", 1)
+                        if line.startswith("$"):
                             self._parse_sentence(line)
                 else:
                     time.sleep(0.01)  # Small sleep to prevent busy loop
@@ -231,33 +236,33 @@ class SBGNmeaParser:
         """Parse a single NMEA sentence."""
         try:
             # Verify checksum
-            if '*' in sentence:
-                data, checksum = sentence.rsplit('*', 1)
+            if "*" in sentence:
+                data, checksum = sentence.rsplit("*", 1)
                 if not self._verify_checksum(data, checksum):
                     self._stats["checksum_errors"] += 1
                     return
                 sentence = data
 
             # Remove $ prefix
-            if sentence.startswith('$'):
+            if sentence.startswith("$"):
                 sentence = sentence[1:]
 
             # Split into fields
-            fields = sentence.split(',')
+            fields = sentence.split(",")
             msg_type = fields[0]
 
             # Parse by message type
-            if msg_type == 'PSBGA':
+            if msg_type == "PSBGA":
                 self._parse_psbga(fields)
-            elif msg_type == 'PSBGI':
+            elif msg_type == "PSBGI":
                 self._parse_psbgi(fields)
-            elif msg_type in ('GPRMC', 'GNRMC'):
+            elif msg_type in ("GPRMC", "GNRMC"):
                 self._parse_rmc(fields)
-            elif msg_type in ('GPGGA', 'GNGGA'):
+            elif msg_type in ("GPGGA", "GNGGA"):
                 self._parse_gga(fields)
-            elif msg_type == 'PHTRO':
+            elif msg_type == "PHTRO":
                 self._parse_phtro(fields)
-            elif msg_type == 'HEAVE':
+            elif msg_type == "HEAVE":
                 self._parse_heave(fields)
 
             self._stats["sentences_parsed"] += 1
@@ -325,7 +330,7 @@ class SBGNmeaParser:
             return
 
         status = fields[2]
-        if status != 'A':  # A = valid, V = warning
+        if status != "A":  # A = valid, V = warning
             return
 
         lat = self._parse_lat_lon(fields[3], fields[4])
@@ -375,11 +380,11 @@ class SBGNmeaParser:
             return
 
         pitch = self._safe_float(fields[1])
-        if fields[2] == 'B':  # Bow down
+        if fields[2] == "B":  # Bow down
             pitch = -pitch
 
         roll = self._safe_float(fields[3])
-        if fields[4].startswith('P'):  # Port down
+        if fields[4].startswith("P"):  # Port down
             roll = -roll
 
         with self._lock:
@@ -403,17 +408,17 @@ class SBGNmeaParser:
         try:
             # Format: DDDMM.MMMM or DDMM.MMMM
             if len(value) > 5:
-                if '.' in value:
-                    dot_pos = value.index('.')
-                    degrees = float(value[:dot_pos-2])
-                    minutes = float(value[dot_pos-2:])
+                if "." in value:
+                    dot_pos = value.index(".")
+                    degrees = float(value[: dot_pos - 2])
+                    minutes = float(value[dot_pos - 2 :])
                 else:
                     degrees = float(value[:-7])
                     minutes = float(value[-7:])
 
                 result = degrees + minutes / 60.0
 
-                if direction in ('S', 'W'):
+                if direction in ("S", "W"):
                     result = -result
 
                 return result
@@ -425,7 +430,7 @@ class SBGNmeaParser:
         """Verify NMEA checksum."""
         try:
             # Remove $ if present
-            if data.startswith('$'):
+            if data.startswith("$"):
                 data = data[1:]
 
             # Calculate XOR of all characters
@@ -521,8 +526,9 @@ class SBGSimulator:
         checksum = self._calc_checksum(data)
         return f"${data}*{checksum:02X}"
 
-    def _make_psbgi(self, ax: float, ay: float, az: float,
-                    gx: float, gy: float, gz: float) -> str:
+    def _make_psbgi(
+        self, ax: float, ay: float, az: float, gx: float, gy: float, gz: float
+    ) -> str:
         """Create PSBGI sentence."""
         data = f"PSBGI,120000.00,{ax:.4f},{ay:.4f},{az:.4f},{gx:.4f},{gy:.4f},{gz:.4f}"
         checksum = self._calc_checksum(data)
@@ -532,16 +538,18 @@ class SBGSimulator:
         """Create GPRMC sentence."""
         lat_deg = int(abs(lat))
         lat_min = (abs(lat) - lat_deg) * 60
-        lat_dir = 'N' if lat >= 0 else 'S'
+        lat_dir = "N" if lat >= 0 else "S"
 
         lon_deg = int(abs(lon))
         lon_min = (abs(lon) - lon_deg) * 60
-        lon_dir = 'E' if lon >= 0 else 'W'
+        lon_dir = "E" if lon >= 0 else "W"
 
-        data = (f"GPRMC,120000.00,A,"
-                f"{lat_deg:02d}{lat_min:07.4f},{lat_dir},"
-                f"{lon_deg:03d}{lon_min:07.4f},{lon_dir},"
-                f"{speed:.1f},{course:.1f},140125,,,A")
+        data = (
+            f"GPRMC,120000.00,A,"
+            f"{lat_deg:02d}{lat_min:07.4f},{lat_dir},"
+            f"{lon_deg:03d}{lon_min:07.4f},{lon_dir},"
+            f"{speed:.1f},{course:.1f},140125,,,A"
+        )
         checksum = self._calc_checksum(data)
         return f"${data}*{checksum:02X}"
 
@@ -558,12 +566,12 @@ def list_serial_ports() -> List[str]:
     import glob
     import sys
 
-    if sys.platform.startswith('linux'):
-        ports = glob.glob('/dev/ttyUSB*') + glob.glob('/dev/ttyACM*')
-    elif sys.platform.startswith('darwin'):
-        ports = glob.glob('/dev/cu.*') + glob.glob('/dev/tty.usb*')
-    elif sys.platform.startswith('win'):
-        ports = [f'COM{i}' for i in range(1, 20)]
+    if sys.platform.startswith("linux"):
+        ports = glob.glob("/dev/ttyUSB*") + glob.glob("/dev/ttyACM*")
+    elif sys.platform.startswith("darwin"):
+        ports = glob.glob("/dev/cu.*") + glob.glob("/dev/tty.usb*")
+    elif sys.platform.startswith("win"):
+        ports = [f"COM{i}" for i in range(1, 20)]
     else:
         ports = []
 
@@ -580,8 +588,10 @@ def test_parser():
 
     # Collect sentences
     sentences = []
+
     def collect(s):
         sentences.append(s)
+
     sim.add_output_callback(collect)
 
     # Start simulator

@@ -22,7 +22,6 @@ from scipy.optimize import minimize
 
 from .vessel_model import VesselModel, VesselSpecs
 
-
 logger = logging.getLogger(__name__)
 
 
@@ -73,14 +72,14 @@ class NoonReport:
     def to_dict(self) -> Dict:
         """Convert to dictionary for JSON serialization."""
         d = asdict(self)
-        d['timestamp'] = self.timestamp.isoformat()
+        d["timestamp"] = self.timestamp.isoformat()
         return d
 
     @classmethod
-    def from_dict(cls, d: Dict) -> 'NoonReport':
+    def from_dict(cls, d: Dict) -> "NoonReport":
         """Create from dictionary."""
         d = d.copy()
-        d['timestamp'] = datetime.fromisoformat(d['timestamp'])
+        d["timestamp"] = datetime.fromisoformat(d["timestamp"])
         return cls(**d)
 
 
@@ -108,15 +107,15 @@ class CalibrationFactors:
         """Convert to dictionary for JSON serialization."""
         d = asdict(self)
         if self.calibrated_at:
-            d['calibrated_at'] = self.calibrated_at.isoformat()
+            d["calibrated_at"] = self.calibrated_at.isoformat()
         return d
 
     @classmethod
-    def from_dict(cls, d: Dict) -> 'CalibrationFactors':
+    def from_dict(cls, d: Dict) -> "CalibrationFactors":
         """Create from dictionary."""
         d = d.copy()
-        if d.get('calibrated_at'):
-            d['calibrated_at'] = datetime.fromisoformat(d['calibrated_at'])
+        if d.get("calibrated_at"):
+            d["calibrated_at"] = datetime.fromisoformat(d["calibrated_at"])
         return cls(**d)
 
 
@@ -196,38 +195,40 @@ class VesselCalibrator:
         from dateutil import parser as date_parser
 
         count = 0
-        with open(csv_path, 'r') as f:
+        with open(csv_path, "r") as f:
             reader = csv.DictReader(f)
             for row in reader:
                 try:
                     # Parse timestamp
-                    timestamp = date_parser.parse(row['timestamp'])
+                    timestamp = date_parser.parse(row["timestamp"])
 
                     # Create report
                     report = NoonReport(
                         timestamp=timestamp,
-                        latitude=float(row['latitude']),
-                        longitude=float(row['longitude']),
-                        speed_over_ground_kts=float(row['speed_over_ground_kts']),
-                        fuel_consumption_mt=float(row['fuel_consumption_mt']),
-                        period_hours=float(row.get('period_hours', 24)),
-                        is_laden=row.get('is_laden', 'true').lower() == 'true',
-                        heading_deg=float(row.get('heading_deg', 0)),
+                        latitude=float(row["latitude"]),
+                        longitude=float(row["longitude"]),
+                        speed_over_ground_kts=float(row["speed_over_ground_kts"]),
+                        fuel_consumption_mt=float(row["fuel_consumption_mt"]),
+                        period_hours=float(row.get("period_hours", 24)),
+                        is_laden=row.get("is_laden", "true").lower() == "true",
+                        heading_deg=float(row.get("heading_deg", 0)),
                     )
 
                     # Optional weather data
-                    if row.get('wind_speed_kts'):
-                        report.wind_speed_kts = float(row['wind_speed_kts'])
-                    if row.get('wind_direction_deg'):
-                        report.wind_direction_deg = float(row['wind_direction_deg'])
-                    if row.get('wave_height_m'):
-                        report.wave_height_m = float(row['wave_height_m'])
-                    if row.get('wave_direction_deg'):
-                        report.wave_direction_deg = float(row['wave_direction_deg'])
-                    if row.get('speed_through_water_kts'):
-                        report.speed_through_water_kts = float(row['speed_through_water_kts'])
-                    if row.get('engine_power_kw'):
-                        report.engine_power_kw = float(row['engine_power_kw'])
+                    if row.get("wind_speed_kts"):
+                        report.wind_speed_kts = float(row["wind_speed_kts"])
+                    if row.get("wind_direction_deg"):
+                        report.wind_direction_deg = float(row["wind_direction_deg"])
+                    if row.get("wave_height_m"):
+                        report.wave_height_m = float(row["wave_height_m"])
+                    if row.get("wave_direction_deg"):
+                        report.wave_direction_deg = float(row["wave_direction_deg"])
+                    if row.get("speed_through_water_kts"):
+                        report.speed_through_water_kts = float(
+                            row["speed_through_water_kts"]
+                        )
+                    if row.get("engine_power_kw"):
+                        report.engine_power_kw = float(row["engine_power_kw"])
 
                     self.noon_reports.append(report)
                     count += 1
@@ -255,23 +256,23 @@ class VesselCalibrator:
         for row in parsed:
             try:
                 report = NoonReport(
-                    timestamp=row['date'],
-                    latitude=row['latitude'],
-                    longitude=row['longitude'],
-                    speed_over_ground_kts=row.get('speed_kts', 0.0),
-                    fuel_consumption_mt=row['fuel_consumption_mt'],
+                    timestamp=row["date"],
+                    latitude=row["latitude"],
+                    longitude=row["longitude"],
+                    speed_over_ground_kts=row.get("speed_kts", 0.0),
+                    fuel_consumption_mt=row["fuel_consumption_mt"],
                     period_hours=24.0,
-                    is_laden=row.get('is_laden', True),
-                    heading_deg=row.get('course_deg', 0.0),
+                    is_laden=row.get("is_laden", True),
+                    heading_deg=row.get("course_deg", 0.0),
                 )
 
                 # Optional weather data — ExcelParser wind_speed is m/s, convert to kts
-                if 'wind_speed_bf' in row:
-                    report.wind_speed_kts = row['wind_speed_bf'] * 1.94384
-                if 'wind_direction_deg' in row:
-                    report.wind_direction_deg = row['wind_direction_deg']
-                if 'wave_height_m' in row:
-                    report.wave_height_m = row['wave_height_m']
+                if "wind_speed_bf" in row:
+                    report.wind_speed_kts = row["wind_speed_bf"] * 1.94384
+                if "wind_direction_deg" in row:
+                    report.wind_direction_deg = row["wind_direction_deg"]
+                if "wave_height_m" in row:
+                    report.wave_height_m = row["wave_height_m"]
 
                 self.noon_reports.append(report)
                 count += 1
@@ -293,21 +294,21 @@ class VesselCalibrator:
         speed_kts = report.speed_through_water_kts or report.speed_over_ground_kts
 
         # Build weather dict
-        weather = {'heading_deg': report.heading_deg}
+        weather = {"heading_deg": report.heading_deg}
 
         if report.wind_speed_kts is not None:
             # Convert knots to m/s
-            weather['wind_speed_ms'] = report.wind_speed_kts * 0.51444
-            weather['wind_dir_deg'] = report.wind_direction_deg or 0
+            weather["wind_speed_ms"] = report.wind_speed_kts * 0.51444
+            weather["wind_dir_deg"] = report.wind_direction_deg or 0
 
         if report.wave_height_m is not None:
-            weather['sig_wave_height_m'] = report.wave_height_m
-            weather['wave_dir_deg'] = report.wave_direction_deg or 0
+            weather["sig_wave_height_m"] = report.wave_height_m
+            weather["wave_dir_deg"] = report.wave_direction_deg or 0
 
             # Combine swell if present
             if report.swell_height_m:
                 # Use RMS combination
-                weather['sig_wave_height_m'] = np.sqrt(
+                weather["sig_wave_height_m"] = np.sqrt(
                     report.wave_height_m**2 + report.swell_height_m**2
                 )
 
@@ -333,10 +334,10 @@ class VesselCalibrator:
         model = VesselModel(
             specs=self.vessel_specs,
             calibration_factors={
-                'calm_water': calibration.calm_water,
-                'wind': calibration.wind,
-                'waves': calibration.waves,
-            }
+                "calm_water": calibration.calm_water,
+                "wind": calibration.wind,
+                "waves": calibration.waves,
+            },
         )
 
         # Get prediction
@@ -348,7 +349,7 @@ class VesselCalibrator:
         )
 
         # Apply SFOC factor
-        fuel_mt = result['fuel_mt'] * calibration.sfoc_factor
+        fuel_mt = result["fuel_mt"] * calibration.sfoc_factor
 
         return fuel_mt
 
@@ -400,7 +401,9 @@ class VesselCalibrator:
                 f"got {len(valid_reports)}"
             )
 
-        logger.info(f"Calibrating with {len(valid_reports)} reports ({skipped} skipped)")
+        logger.info(
+            f"Calibrating with {len(valid_reports)} reports ({skipped} skipped)"
+        )
 
         # Calculate initial error (no calibration)
         initial_factors = CalibrationFactors()
@@ -441,17 +444,17 @@ class VesselCalibrator:
         min_f = 1.0 - self.MAX_FACTOR_DEVIATION
         max_f = 1.0 + self.MAX_FACTOR_DEVIATION
         bounds = [
-            (0.6, 1.5),   # calm_water: wider range — Holtrop-Mennen can overpredict
+            (0.6, 1.5),  # calm_water: wider range — Holtrop-Mennen can overpredict
             (min_f, max_f),  # wind
             (min_f, max_f),  # waves
-            (0.85, 1.2),   # sfoc_factor
+            (0.85, 1.2),  # sfoc_factor
         ]
 
         # Optimize
         result = minimize(
             objective,
             x0,
-            method='L-BFGS-B',
+            method="L-BFGS-B",
             bounds=bounds,
         )
 
@@ -476,15 +479,17 @@ class VesselCalibrator:
             pct_error = (error / actual) * 100 if actual > 0 else 0
 
             final_errors.append(abs(error))
-            residuals.append({
-                'timestamp': report.timestamp.isoformat(),
-                'actual_mt': actual,
-                'predicted_mt': predicted,
-                'error_mt': error,
-                'error_pct': pct_error,
-                'speed_kts': report.speed_over_ground_kts,
-                'is_laden': report.is_laden,
-            })
+            residuals.append(
+                {
+                    "timestamp": report.timestamp.isoformat(),
+                    "actual_mt": actual,
+                    "predicted_mt": predicted,
+                    "error_mt": error,
+                    "error_pct": pct_error,
+                    "speed_kts": report.speed_over_ground_kts,
+                    "is_laden": report.is_laden,
+                }
+            )
 
         mean_error_after = np.mean(final_errors)
         optimal_factors.calibration_error = mean_error_after
@@ -492,7 +497,9 @@ class VesselCalibrator:
         improvement = ((mean_error_before - mean_error_after) / mean_error_before) * 100
 
         logger.info(f"Optimized factors: {optimal_factors}")
-        logger.info(f"Final mean error: {mean_error_after:.2f} MT ({improvement:.1f}% improvement)")
+        logger.info(
+            f"Final mean error: {mean_error_after:.2f} MT ({improvement:.1f}% improvement)"
+        )
 
         return CalibrationResult(
             factors=optimal_factors,
@@ -526,10 +533,10 @@ class VesselCalibrator:
 
         # Adjust for operating regions
         region_multipliers = {
-            'tropical': 1.5,
-            'warm_temperate': 1.2,
-            'cold': 0.8,
-            'polar': 0.5,
+            "tropical": 1.5,
+            "warm_temperate": 1.2,
+            "cold": 0.8,
+            "polar": 0.5,
         }
 
         multiplier = 1.0
@@ -556,12 +563,12 @@ class VesselCalibrator:
         filepath = self.storage_path / f"{vessel_id}_calibration.json"
 
         data = {
-            'vessel_id': vessel_id,
-            'factors': factors.to_dict(),
-            'vessel_specs': asdict(self.vessel_specs),
+            "vessel_id": vessel_id,
+            "factors": factors.to_dict(),
+            "vessel_specs": asdict(self.vessel_specs),
         }
 
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             json.dump(data, f, indent=2)
 
         logger.info(f"Saved calibration to {filepath}")
@@ -575,10 +582,10 @@ class VesselCalibrator:
             logger.warning(f"No calibration file found for {vessel_id}")
             return None
 
-        with open(filepath, 'r') as f:
+        with open(filepath, "r") as f:
             data = json.load(f)
 
-        factors = CalibrationFactors.from_dict(data['factors'])
+        factors = CalibrationFactors.from_dict(data["factors"])
         logger.info(f"Loaded calibration for {vessel_id}: {factors}")
         return factors
 
@@ -587,11 +594,11 @@ class VesselCalibrator:
         filepath = self.storage_path / f"{vessel_id}_noon_reports.json"
 
         data = {
-            'vessel_id': vessel_id,
-            'reports': [r.to_dict() for r in self.noon_reports],
+            "vessel_id": vessel_id,
+            "reports": [r.to_dict() for r in self.noon_reports],
         }
 
-        with open(filepath, 'w') as f:
+        with open(filepath, "w") as f:
             json.dump(data, f, indent=2)
 
         return filepath
@@ -603,12 +610,10 @@ class VesselCalibrator:
         if not filepath.exists():
             return 0
 
-        with open(filepath, 'r') as f:
+        with open(filepath, "r") as f:
             data = json.load(f)
 
-        self.noon_reports = [
-            NoonReport.from_dict(r) for r in data['reports']
-        ]
+        self.noon_reports = [NoonReport.from_dict(r) for r in data["reports"]]
 
         return len(self.noon_reports)
 
@@ -633,18 +638,18 @@ def create_calibrated_model(
 
     if calibration_factors:
         factors = {
-            'calm_water': calibration_factors.calm_water,
-            'wind': calibration_factors.wind,
-            'waves': calibration_factors.waves,
+            "calm_water": calibration_factors.calm_water,
+            "wind": calibration_factors.wind,
+            "waves": calibration_factors.waves,
         }
     else:
         # Estimate fouling based on days since drydock
         calibrator = VesselCalibrator(specs)
         fouling = calibrator.estimate_hull_fouling(days_since_drydock)
         factors = {
-            'calm_water': fouling,
-            'wind': 1.0,
-            'waves': 1.0,
+            "calm_water": fouling,
+            "wind": 1.0,
+            "waves": 1.0,
         }
 
     return VesselModel(specs=specs, calibration_factors=factors)

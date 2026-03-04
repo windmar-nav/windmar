@@ -20,6 +20,7 @@ import logging
 # Load .env file if present
 try:
     from dotenv import load_dotenv
+
     env_path = Path(__file__).parent.parent / ".env"
     if env_path.exists():
         load_dotenv(env_path)
@@ -65,17 +66,31 @@ class Settings:
     api_host: str = field(default_factory=lambda: os.getenv("API_HOST", "0.0.0.0"))
     api_port: int = field(default_factory=lambda: get_int("API_PORT", 8000))
     api_reload: bool = field(default_factory=lambda: get_bool("API_RELOAD", False))
-    api_log_level: str = field(default_factory=lambda: os.getenv("API_LOG_LEVEL", "info"))
+    api_log_level: str = field(
+        default_factory=lambda: os.getenv("API_LOG_LEVEL", "info")
+    )
     cors_origins: List[str] = field(
-        default_factory=lambda: get_list("CORS_ORIGINS", "http://localhost:3000,http://localhost:3001")
+        default_factory=lambda: get_list(
+            "CORS_ORIGINS", "http://localhost:3000,http://localhost:3001"
+        )
     )
 
     # Copernicus Configuration
-    copernicus_mock_mode: bool = field(default_factory=lambda: get_bool("COPERNICUS_MOCK_MODE", True))
-    cdsapi_url: str = field(default_factory=lambda: os.getenv("CDSAPI_URL", "https://cds.climate.copernicus.eu/api"))
+    copernicus_mock_mode: bool = field(
+        default_factory=lambda: get_bool("COPERNICUS_MOCK_MODE", True)
+    )
+    cdsapi_url: str = field(
+        default_factory=lambda: os.getenv(
+            "CDSAPI_URL", "https://cds.climate.copernicus.eu/api"
+        )
+    )
     cdsapi_key: Optional[str] = field(default_factory=lambda: os.getenv("CDSAPI_KEY"))
-    copernicus_username: Optional[str] = field(default_factory=lambda: os.getenv("COPERNICUSMARINE_SERVICE_USERNAME"))
-    copernicus_password: Optional[str] = field(default_factory=lambda: os.getenv("COPERNICUSMARINE_SERVICE_PASSWORD"))
+    copernicus_username: Optional[str] = field(
+        default_factory=lambda: os.getenv("COPERNICUSMARINE_SERVICE_USERNAME")
+    )
+    copernicus_password: Optional[str] = field(
+        default_factory=lambda: os.getenv("COPERNICUSMARINE_SERVICE_PASSWORD")
+    )
 
     # Calibration Configuration
     calibration_learning_rate: float = field(
@@ -86,15 +101,29 @@ class Settings:
     )
 
     # Simulation Defaults
-    sim_wave_height_m: float = field(default_factory=lambda: get_float("SIM_WAVE_HEIGHT_M", 2.5))
-    sim_wave_period_s: float = field(default_factory=lambda: get_float("SIM_WAVE_PERIOD_S", 8.0))
-    sim_start_lat: float = field(default_factory=lambda: get_float("SIM_START_LAT", 43.5))
-    sim_start_lon: float = field(default_factory=lambda: get_float("SIM_START_LON", 7.0))
-    sim_speed_kts: float = field(default_factory=lambda: get_float("SIM_SPEED_KTS", 12.0))
-    sim_heading_deg: float = field(default_factory=lambda: get_float("SIM_HEADING_DEG", 270.0))
+    sim_wave_height_m: float = field(
+        default_factory=lambda: get_float("SIM_WAVE_HEIGHT_M", 2.5)
+    )
+    sim_wave_period_s: float = field(
+        default_factory=lambda: get_float("SIM_WAVE_PERIOD_S", 8.0)
+    )
+    sim_start_lat: float = field(
+        default_factory=lambda: get_float("SIM_START_LAT", 43.5)
+    )
+    sim_start_lon: float = field(
+        default_factory=lambda: get_float("SIM_START_LON", 7.0)
+    )
+    sim_speed_kts: float = field(
+        default_factory=lambda: get_float("SIM_SPEED_KTS", 12.0)
+    )
+    sim_heading_deg: float = field(
+        default_factory=lambda: get_float("SIM_HEADING_DEG", 270.0)
+    )
 
     # Data Storage
-    grib_cache_dir: str = field(default_factory=lambda: os.getenv("GRIB_CACHE_DIR", "data/grib_cache"))
+    grib_cache_dir: str = field(
+        default_factory=lambda: os.getenv("GRIB_CACHE_DIR", "data/grib_cache")
+    )
     data_dir: str = field(default_factory=lambda: os.getenv("DATA_DIR", "data"))
 
     # Logging
@@ -118,7 +147,10 @@ class Settings:
         # Warn if Copernicus credentials missing in live mode
         if not self.copernicus_mock_mode:
             has_cds = self.cdsapi_key is not None
-            has_cmems = self.copernicus_username is not None and self.copernicus_password is not None
+            has_cmems = (
+                self.copernicus_username is not None
+                and self.copernicus_password is not None
+            )
             if not has_cds and not has_cmems:
                 logging.warning(
                     "No Copernicus credentials set, falling back to mock mode. "

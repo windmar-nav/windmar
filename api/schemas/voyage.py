@@ -10,16 +10,22 @@ from .common import Position, WaypointModel
 
 class VoyageRequest(BaseModel):
     """Request for voyage calculation."""
+
     waypoints: List[Position]
-    calm_speed_kts: float = Field(..., gt=0, lt=30, description="Calm water speed in knots")
+    calm_speed_kts: float = Field(
+        ..., gt=0, lt=30, description="Calm water speed in knots"
+    )
     is_laden: bool = True
     departure_time: Optional[datetime] = None
     use_weather: bool = True
-    variable_speed: bool = Field(False, description="Optimize speed per-leg to minimize fuel")
+    variable_speed: bool = Field(
+        False, description="Optimize speed per-leg to minimize fuel"
+    )
 
 
 class LegResultModel(BaseModel):
     """Result for a single leg."""
+
     leg_index: int
     from_wp: WaypointModel
     to_wp: WaypointModel
@@ -56,6 +62,7 @@ class LegResultModel(BaseModel):
 
 class DataSourceSummary(BaseModel):
     """Summary of data sources used in voyage calculation."""
+
     forecast_legs: int
     blended_legs: int
     climatology_legs: int
@@ -65,6 +72,7 @@ class DataSourceSummary(BaseModel):
 
 class VoyageResponse(BaseModel):
     """Complete voyage calculation response."""
+
     route_name: str
     departure_time: datetime
     arrival_time: datetime
@@ -95,6 +103,7 @@ class VoyageResponse(BaseModel):
 
 class SaveVoyageLeg(BaseModel):
     """Leg data for saving a voyage."""
+
     leg_index: int
     from_name: Optional[str] = None
     from_lat: float
@@ -124,6 +133,7 @@ class SaveVoyageLeg(BaseModel):
 
 class SaveVoyageRequest(BaseModel):
     """Request to persist a calculated voyage."""
+
     name: Optional[str] = None
     departure_port: Optional[str] = None
     arrival_port: Optional[str] = None
@@ -144,6 +154,7 @@ class SaveVoyageRequest(BaseModel):
 
 class VoyageLegResponse(BaseModel):
     """Leg data in a voyage detail response."""
+
     id: str
     leg_index: int
     from_name: Optional[str] = None
@@ -174,6 +185,7 @@ class VoyageLegResponse(BaseModel):
 
 class VoyageSummaryResponse(BaseModel):
     """Summary of a saved voyage (for list view)."""
+
     id: str
     name: Optional[str] = None
     departure_port: Optional[str] = None
@@ -192,6 +204,7 @@ class VoyageSummaryResponse(BaseModel):
 
 class VoyageDetailResponse(VoyageSummaryResponse):
     """Full voyage detail with legs."""
+
     avg_stw_kts: Optional[float] = None
     vessel_specs_snapshot: Optional[Dict] = None
     notes: Optional[str] = None
@@ -201,6 +214,7 @@ class VoyageDetailResponse(VoyageSummaryResponse):
 
 class VoyageListResponse(BaseModel):
     """Paginated list of saved voyages."""
+
     voyages: List[VoyageSummaryResponse]
     total: int
     limit: int
@@ -209,6 +223,7 @@ class VoyageListResponse(BaseModel):
 
 class NoonReportEntry(BaseModel):
     """Synthetic noon report entry generated from voyage legs."""
+
     report_number: int
     timestamp: datetime
     lat: float
@@ -230,6 +245,7 @@ class NoonReportEntry(BaseModel):
 
 class NoonReportsResponse(BaseModel):
     """List of noon reports for a voyage."""
+
     voyage_id: str
     voyage_name: Optional[str] = None
     departure_time: datetime
@@ -239,6 +255,7 @@ class NoonReportsResponse(BaseModel):
 
 class DepartureReportData(BaseModel):
     """Departure report fields."""
+
     vessel_name: Optional[str] = None
     dwt: Optional[float] = None
     departure_port: Optional[str] = None
@@ -254,6 +271,7 @@ class DepartureReportData(BaseModel):
 
 class ArrivalReportData(BaseModel):
     """Arrival report fields."""
+
     vessel_name: Optional[str] = None
     arrival_port: Optional[str] = None
     arrival_time: datetime
@@ -267,6 +285,7 @@ class ArrivalReportData(BaseModel):
 
 class VoyageReportsResponse(BaseModel):
     """Departure + arrival reports for a voyage."""
+
     voyage_id: str
     departure_report: DepartureReportData
     arrival_report: ArrivalReportData
@@ -275,6 +294,7 @@ class VoyageReportsResponse(BaseModel):
 
 class MonteCarloRequest(BaseModel):
     """Request for Monte Carlo voyage simulation."""
+
     waypoints: List[Position]
     calm_speed_kts: float = Field(..., gt=0, lt=30)
     is_laden: bool = True
@@ -296,6 +316,7 @@ class PercentileString(BaseModel):
 
 class MonteCarloResponse(BaseModel):
     """Monte Carlo simulation result."""
+
     n_simulations: int
     eta: PercentileString
     fuel_mt: PercentileFloat
