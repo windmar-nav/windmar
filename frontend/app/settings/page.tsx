@@ -2,7 +2,7 @@
 
 import Header from '@/components/Header';
 import { useVoyage } from '@/components/VoyageContext';
-import { Settings, Grid3X3, TrendingUp, Compass, Gauge, Zap } from 'lucide-react';
+import { Settings, Grid3X3, TrendingUp, Compass, Gauge, Zap, Globe } from 'lucide-react';
 
 export default function SettingsPage() {
   const {
@@ -10,7 +10,14 @@ export default function SettingsPage() {
     variableResolution, setVariableResolution,
     paretoEnabled, setParetoEnabled,
     variableSpeed, setVariableSpeed,
+    oceanArea, setOceanArea,
   } = useVoyage();
+
+  const oceanAreas = [
+    { id: 'atlantic', label: 'Atlantic', desc: 'Full Atlantic + Med + Caribbean + Nordic' },
+    { id: 'indian', label: 'Indian Ocean', desc: 'Indian Ocean basin (20\u00b0E - 120\u00b0E)' },
+    { id: 'pacific', label: 'Pacific', desc: 'Coming soon', disabled: true },
+  ];
 
   return (
     <div className="min-h-screen bg-maritime-darker text-white">
@@ -85,6 +92,52 @@ export default function SettingsPage() {
                 islands matters) and a coarser 0.5&deg; grid in the open ocean (where small
                 deviations have minimal impact). This significantly improves coastal routing
                 accuracy without the computational cost of a uniformly fine grid.
+              </p>
+            </div>
+          </section>
+
+          {/* ── Ocean Area ── */}
+          <section className="bg-white/5 rounded-lg p-8">
+            <div className="flex items-center space-x-2 mb-4">
+              <Globe className="w-5 h-5 text-primary-400" />
+              <h2 className="text-xl font-semibold">Ocean Area</h2>
+            </div>
+
+            <div className="space-y-5 mb-4">
+              <div>
+                <label className="block text-sm text-gray-300 mb-2">Coverage region</label>
+                <select
+                  value={oceanArea}
+                  onChange={(e) => {
+                    const val = e.target.value;
+                    if (confirm('This will require a weather data resync for the new area. Continue?')) {
+                      setOceanArea(val);
+                    }
+                  }}
+                  className="w-full bg-white/10 text-white border border-white/20 rounded px-3 py-2 text-sm focus:outline-none focus:ring-1 focus:ring-ocean-500"
+                >
+                  {oceanAreas.map((a) => (
+                    <option key={a.id} value={a.id} disabled={a.disabled} className="bg-gray-800">
+                      {a.label}{a.disabled ? ' (coming soon)' : ''}
+                    </option>
+                  ))}
+                </select>
+                <p className="text-xs text-gray-500 mt-1">
+                  {oceanAreas.find(a => a.id === oceanArea)?.desc}
+                </p>
+              </div>
+            </div>
+
+            <div className="text-sm text-gray-400 leading-relaxed space-y-2">
+              <p>
+                The ocean area controls the geographic coverage for all CMEMS weather
+                fields (waves, currents, SST, ice). Wind and visibility use global GFS
+                data and are not affected by this setting.
+              </p>
+              <p>
+                After changing the ocean area, trigger a full resync from the weather
+                panel to download data for the new region. Estimated download time:
+                3-5 minutes for Atlantic coverage.
               </p>
             </div>
           </section>

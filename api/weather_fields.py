@@ -87,10 +87,8 @@ _ICE_HOURS = tuple(range(0, 217, 24))       # 0, 24, 48, ..., 216 → 10 frames
 # Default bounding boxes
 # ---------------------------------------------------------------------------
 _GLOBAL_BBOX = (-85.0, 85.0, -179.75, 179.75)
-_CMEMS_BBOX = (20.0, 65.0, -35.0, 45.0)   # NE Atlantic + Med + Nordic
-_CURRENT_BBOX = (-40.0, 80.0, -100.0, 120.0)  # Atlantic + Indian Ocean
-_SST_BBOX = (20.0, 65.0, -35.0, 45.0)     # Same as CMEMS
-_ICE_BBOX = (55.0, 80.0, -35.0, 45.0)     # High latitude — wider for Arctic
+_ATLANTIC_BBOX = (-40.0, 72.0, -100.0, 45.0)  # Full Atlantic + Med + Caribbean + Nordic
+_ICE_BBOX = (55.0, 80.0, -100.0, 45.0)        # Same longitude span, high-lat only
 
 # ---------------------------------------------------------------------------
 # Field definitions
@@ -129,7 +127,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         native_resolution=0.083,
         forecast_hours=_GFS_HOURS,
         expected_frames=41,
-        default_bbox=_CMEMS_BBOX,
+        default_bbox=_ATLANTIC_BBOX,
         unit="m",
         needs_ocean_mask=True,
         colorscale_min=0, colorscale_max=6,
@@ -151,7 +149,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         native_resolution=0.083,
         forecast_hours=_GFS_HOURS,
         expected_frames=41,
-        default_bbox=_CMEMS_BBOX,
+        default_bbox=_ATLANTIC_BBOX,
         unit="m",
         needs_ocean_mask=True,
         colorscale_min=0, colorscale_max=6,
@@ -172,7 +170,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         native_resolution=0.083,
         forecast_hours=_GFS_HOURS,
         expected_frames=41,
-        default_bbox=_CURRENT_BBOX,
+        default_bbox=_ATLANTIC_BBOX,
         unit="m/s",
         needs_ocean_mask=True,
         colorscale_min=0, colorscale_max=2,
@@ -193,7 +191,7 @@ WEATHER_FIELDS: Dict[str, FieldConfig] = {
         native_resolution=0.083,
         forecast_hours=_GFS_HOURS,
         expected_frames=41,
-        default_bbox=_SST_BBOX,
+        default_bbox=_ATLANTIC_BBOX,
         unit="\u00b0C",
         needs_ocean_mask=True,
         nan_fill=-999.0,

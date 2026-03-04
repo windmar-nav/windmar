@@ -33,6 +33,8 @@ from api.weather.formatters import format_single_frame, format_velocity_response
 from api.weather.prefetch import (
     get_layer_manager, do_generic_prefetch, cleanup_stale_caches,
     _get_providers, _db_weather, _weather_ingestion,
+    acquire_resync, release_resync, get_resync_status,
+    OCEAN_AREA_PRESETS, get_ocean_bbox, get_ice_bbox,
 )
 
 from src.data.copernicus import GFSDataProvider
@@ -395,6 +397,110 @@ async def _compat_vis_frames(
     return await api_get_field_frames(field="visibility", request=request,
                                       lat_min=lat_min, lat_max=lat_max,
                                       lon_min=lon_min, lon_max=lon_max)
+
+
+# ============================================================================
+# Resync status + resync-all + ocean area config
+# (registered before {field} catch-all routes)
+# ============================================================================
+
+@router.get("/api/weather/resync-status")
+async def api_weather_resync_status():
+    """Return the currently running resync field, or null."""
+    active = get_resync_status()
+    return {"active": active}
+
+
+@router.post("/api/weather/resync-all")
+async def api_weather_resync_all():
+    """Re-ingest all weather fields in parallel."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    weather_ingestion = _weather_ingestion()
+    if weather_ingestion is None:
+        raise HTTPException(status_code=503, detail="Weather ingestion not configured")
+
+    if not acquire_resync("all"):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Resync already running: {get_resync_status()}"
+        )
+
+    try:
+        from api.config import get_settings
+        area = get_settings().ocean_area
+        bbox = get_ocean_bbox(area)
+        ice_bbox = get_ice_bbox(area)
+
+        all_fields = ["wind", "waves", "currents", "sst", "visibility", "ice"]
+        results = {}
+
+        def _resync_field(field_name: str):
+            cfg = get_field(field_name)
+            ingest_fn = getattr(weather_ingestion, cfg.ingest_method)
+            cmems_layers = {"waves", "currents", "swell", "ice", "sst"}
+
+            if field_name in cmems_layers:
+                if field_name == "ice" and ice_bbox:
+                    ingest_fn(True, *ice_bbox)
+                else:
+                    ingest_fn(True, *bbox)
+            else:
+                ingest_fn(True)
+
+            weather_ingestion._supersede_old_runs(cfg.source)
+            weather_ingestion.cleanup_orphaned_grid_data(cfg.source)
+
+            mgr = get_layer_manager(field_name)
+            if mgr.cache_dir.exists():
+                for f in mgr.cache_dir.iterdir():
+                    f.unlink(missing_ok=True)
+
+            return field_name
+
+        def _run_all():
+            with ThreadPoolExecutor(max_workers=4) as pool:
+                futures = {pool.submit(_resync_field, f): f for f in all_fields}
+                for future in as_completed(futures):
+                    fname = futures[future]
+                    try:
+                        future.result()
+                        results[fname] = "ok"
+                        logger.info(f"Resync-all: {fname} complete")
+                    except Exception as e:
+                        results[fname] = f"error: {e}"
+                        logger.error(f"Resync-all: {fname} failed: {e}")
+
+        await asyncio.to_thread(_run_all)
+
+        cleanup_stale_caches()
+
+        logger.info(f"Resync-all complete: {results}")
+        return {"status": "complete", "results": results, "ocean_area": area}
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Resync-all failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Resync-all failed: {e}")
+    finally:
+        release_resync()
+
+
+@router.get("/api/weather/ocean-areas")
+async def api_weather_ocean_areas():
+    """Return available ocean area presets."""
+    from api.config import get_settings
+    current = get_settings().ocean_area
+    areas = []
+    for key, preset in OCEAN_AREA_PRESETS.items():
+        areas.append({
+            "id": key,
+            "label": preset["label"],
+            "bbox": preset["bbox"],
+            "disabled": preset.get("disabled", False),
+        })
+    return {"areas": areas, "current": current}
 
 
 # ============================================================================
@@ -862,6 +968,12 @@ async def api_weather_layer_resync(
     logger.info(f"Per-layer resync starting: {field}" +
                 (f" bbox=[{lat_min:.1f},{lat_max:.1f}]x[{lon_min:.1f},{lon_max:.1f}]" if has_bbox else ""))
 
+    if not acquire_resync(field):
+        raise HTTPException(
+            status_code=409,
+            detail=f"Resync already running: {get_resync_status()}"
+        )
+
     try:
         ingest_fn = getattr(weather_ingestion, cfg.ingest_method)
         cmems_layers = {"waves", "currents", "swell", "ice", "sst"}
@@ -888,3 +1000,5 @@ async def api_weather_layer_resync(
     except Exception as e:
         logger.error(f"Resync failed for {field}: {e}", exc_info=True)
         raise HTTPException(status_code=500, detail=f"Resync failed: {e}")
+    finally:
+        release_resync()

@@ -89,6 +89,10 @@ interface VoyageContextValue {
   displayedAnalysisId: string | null;
   setDisplayedAnalysisId: (v: string | null) => void;
 
+  // Ocean area preset
+  oceanArea: string;
+  setOceanArea: (v: string) => void;
+
   // Sync speed from backend vessel specs
   refreshSpecs: () => Promise<void>;
 }
@@ -111,6 +115,7 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
   const [paretoEnabled, setParetoEnabled] = useSessionState('wm:pareto', false);
   const [variableSpeed, setVariableSpeed] = useSessionState('wm:varSpeed', false);
   const [displayedAnalysisId, setDisplayedAnalysisId] = useSessionState<string | null>('wm:analysisId', null);
+  const [oceanArea, setOceanArea] = useSessionState('wm:oceanArea', 'atlantic');
 
   // Route state (session-persisted)
   const [waypoints, setWaypoints] = useSessionState<Position[]>('wm:waypoints', []);
@@ -146,8 +151,8 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
   const [zoneVisibility, setZoneVisibility] = useState<Record<string, boolean>>(() => {
     const init: Record<string, boolean> = {};
     for (const t of ZONE_TYPES) init[t] = false;
-    // TSS on by default — routes must comply with traffic separation schemes
-    init['tss'] = true;
+    // TSS disabled until regulation zones are ready
+    init['tss'] = false;
     return init;
   });
 
@@ -176,6 +181,7 @@ export function VoyageProvider({ children }: { children: ReactNode }) {
         paretoEnabled, setParetoEnabled,
         variableSpeed, setVariableSpeed,
         displayedAnalysisId, setDisplayedAnalysisId,
+        oceanArea, setOceanArea,
         refreshSpecs,
       }}
     >

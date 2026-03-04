@@ -14,8 +14,8 @@ const ZONE_LABELS: Record<string, string> = {
   exclusion: 'Exclusion',
 };
 
-// Only TSS is active for now — other zone types are shown but disabled
-const ACTIVE_ZONE_TYPES = new Set(['tss']);
+// All zone types disabled until regulation zones are ready
+const ACTIVE_ZONE_TYPES = new Set<string>([]);
 
 export default function RegulationsDropdown() {
   const { zoneVisibility, setZoneTypeVisible, isDrawingZone, setIsDrawingZone } = useVoyage();

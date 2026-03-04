@@ -361,7 +361,7 @@ class CopernicusDataProvider:
         if cache_file.exists():
             logger.info(f"Loading wave data from cache: {cache_file}")
             try:
-                ds = xr.open_dataset(cache_file)
+                ds = xr.open_dataset(cache_file, engine="h5netcdf")
             except Exception as e:
                 logger.warning(f"Corrupted wave cache, deleting and re-downloading: {e}")
                 cache_file.unlink(missing_ok=True)
@@ -524,7 +524,7 @@ class CopernicusDataProvider:
             if cache_file.exists():
                 logger.info(f"Loading wave forecast from cache: {cache_file}")
                 try:
-                    ds = xr.open_dataset(cache_file)
+                    ds = xr.open_dataset(cache_file, engine="h5netcdf")
                 except Exception as e:
                     logger.warning(f"Corrupted wave forecast cache, deleting and re-downloading: {e}")
                     cache_file.unlink(missing_ok=True)
@@ -565,7 +565,7 @@ class CopernicusDataProvider:
                     logger.warning(f"Wave forecast cache suspiciously small ({fsize} bytes), deleting")
                     cache_file.unlink(missing_ok=True)
                     return None
-                ds = xr.open_dataset(cache_file)
+                ds = xr.open_dataset(cache_file, engine="h5netcdf")
                 # Subsample to ~0.25° if grid is large (for downstream memory)
                 lat_count = ds.sizes.get('latitude', 0)
                 lon_count = ds.sizes.get('longitude', 0)
@@ -676,7 +676,7 @@ class CopernicusDataProvider:
         if cache_file.exists():
             logger.info(f"Loading current data from cache: {cache_file}")
             try:
-                ds = xr.open_dataset(cache_file)
+                ds = xr.open_dataset(cache_file, engine="h5netcdf")
             except Exception as e:
                 logger.warning(f"Corrupted current cache, deleting and re-downloading: {e}")
                 cache_file.unlink(missing_ok=True)
@@ -844,6 +844,20 @@ class CopernicusDataProvider:
                     return None
                 ds = xr.open_dataset(cache_file, engine="h5netcdf")
 
+            # Subsample to ~0.167° for downstream memory
+            lat_count = ds.sizes.get('latitude', 0)
+            lon_count = ds.sizes.get('longitude', 0)
+            if lat_count > 500 or lon_count > 1000:
+                sub_step = 2  # ~0.167° effective resolution
+                ds = ds.isel(
+                    latitude=slice(None, None, sub_step),
+                    longitude=slice(None, None, sub_step),
+                )
+                logger.info(
+                    "Current forecast subsampled to ~0.167°: %s×%s",
+                    ds.sizes.get('latitude', '?'), ds.sizes.get('longitude', '?'),
+                )
+
             lats = ds["latitude"].values
             lons = ds["longitude"].values
             times = ds["time"].values
@@ -931,7 +945,7 @@ class CopernicusDataProvider:
         if cache_file.exists():
             logger.info(f"Loading SST data from cache: {cache_file}")
             try:
-                ds = xr.open_dataset(cache_file)
+                ds = xr.open_dataset(cache_file, engine="h5netcdf")
             except Exception as e:
                 logger.warning(f"Corrupted SST cache, re-downloading: {e}")
                 cache_file.unlink(missing_ok=True)
@@ -1038,7 +1052,7 @@ class CopernicusDataProvider:
             if cache_file.exists():
                 logger.info(f"Loading SST forecast from cache: {cache_file}")
                 try:
-                    ds = xr.open_dataset(cache_file)
+                    ds = xr.open_dataset(cache_file, engine="h5netcdf")
                 except Exception as e:
                     logger.warning(f"Corrupted SST forecast cache, deleting and re-downloading: {e}")
                     cache_file.unlink(missing_ok=True)
@@ -1088,7 +1102,7 @@ class CopernicusDataProvider:
                     logger.warning(f"SST forecast cache suspiciously small ({fsize} bytes), deleting")
                     cache_file.unlink(missing_ok=True)
                     return None
-                ds = xr.open_dataset(cache_file)
+                ds = xr.open_dataset(cache_file, engine="h5netcdf")
 
             lats = ds["latitude"].values
             lons = ds["longitude"].values
@@ -1201,7 +1215,7 @@ class CopernicusDataProvider:
         if cache_file.exists():
             logger.info(f"Loading ice data from cache: {cache_file}")
             try:
-                ds = xr.open_dataset(cache_file)
+                ds = xr.open_dataset(cache_file, engine="h5netcdf")
             except Exception as e:
                 logger.warning(f"Corrupted ice cache, re-downloading: {e}")
                 cache_file.unlink(missing_ok=True)
@@ -1300,7 +1314,7 @@ class CopernicusDataProvider:
             if cache_file.exists():
                 logger.info(f"Loading ice forecast from cache: {cache_file}")
                 try:
-                    ds = xr.open_dataset(cache_file)
+                    ds = xr.open_dataset(cache_file, engine="h5netcdf")
                 except Exception as e:
                     logger.warning(f"Corrupted ice forecast cache, deleting and re-downloading: {e}")
                     cache_file.unlink(missing_ok=True)
@@ -1325,19 +1339,6 @@ class CopernicusDataProvider:
                 if ds is None:
                     logger.error("CMEMS returned None for ice forecast")
                     return None
-                # Subsample to ~0.25° before loading if grid is large
-                lat_count = ds.sizes.get('latitude', 0)
-                lon_count = ds.sizes.get('longitude', 0)
-                if lat_count > 500 or lon_count > 1000:
-                    sub_step = max(1, round(0.25 / 0.083))  # 3
-                    ds = ds.isel(
-                        latitude=slice(None, None, sub_step),
-                        longitude=slice(None, None, sub_step),
-                    )
-                    logger.info(
-                        "Ice forecast subsampled to ~0.25°: %s×%s",
-                        ds.sizes.get('latitude', '?'), ds.sizes.get('longitude', '?'),
-                    )
                 logger.info("Loading ice forecast data into memory...")
                 ds = ds.load()
                 ds.to_netcdf(cache_file)
@@ -1348,7 +1349,7 @@ class CopernicusDataProvider:
                     logger.warning(f"Ice forecast cache suspiciously small ({fsize} bytes), deleting")
                     cache_file.unlink(missing_ok=True)
                     return None
-                ds = xr.open_dataset(cache_file)
+                ds = xr.open_dataset(cache_file, engine="h5netcdf")
 
             lats = ds["latitude"].values
             lons = ds["longitude"].values

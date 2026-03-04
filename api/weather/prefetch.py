@@ -6,9 +6,11 @@ building frame caches, and persisting to PostgreSQL.
 """
 
 import logging
+import threading
 import time as _time
 from datetime import datetime
 from pathlib import Path
+from typing import Optional, Tuple
 
 from api.weather_fields import get_field, WEATHER_FIELDS, FIELD_NAMES
 from api.weather.grid_processor import clamp_bbox
@@ -20,6 +22,72 @@ from api.weather.frame_builder import (
 from api.forecast_layer_manager import ForecastLayerManager, cache_covers_bounds
 
 logger = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Ocean area presets — bbox = (lat_min, lat_max, lon_min, lon_max)
+# ---------------------------------------------------------------------------
+
+OCEAN_AREA_PRESETS = {
+    "atlantic": {
+        "label": "Atlantic",
+        "bbox": (-40.0, 72.0, -100.0, 45.0),
+        "ice_bbox": (55.0, 80.0, -100.0, 45.0),
+    },
+    "indian": {
+        "label": "Indian Ocean",
+        "bbox": (-40.0, 30.0, 20.0, 120.0),
+        "ice_bbox": None,
+    },
+    "pacific": {
+        "label": "Pacific (coming soon)",
+        "bbox": (-50.0, 60.0, 100.0, -70.0),
+        "ice_bbox": (50.0, 75.0, 100.0, -70.0),
+        "disabled": True,
+    },
+}
+
+
+def get_ocean_bbox(area: str = "atlantic") -> Tuple[float, float, float, float]:
+    """Return the CMEMS bbox for the given ocean area preset."""
+    preset = OCEAN_AREA_PRESETS.get(area, OCEAN_AREA_PRESETS["atlantic"])
+    return preset["bbox"]
+
+
+def get_ice_bbox(area: str = "atlantic") -> Optional[Tuple[float, float, float, float]]:
+    """Return the ice bbox for the given ocean area, or None."""
+    preset = OCEAN_AREA_PRESETS.get(area, OCEAN_AREA_PRESETS["atlantic"])
+    return preset.get("ice_bbox")
+
+
+# ---------------------------------------------------------------------------
+# Global resync lock — prevents concurrent downloads
+# ---------------------------------------------------------------------------
+
+_resync_lock = threading.Lock()
+_resync_active: Optional[str] = None
+
+
+def acquire_resync(field: str) -> bool:
+    """Try to acquire the global resync lock. Returns False if another resync is running."""
+    global _resync_active
+    with _resync_lock:
+        if _resync_active is not None:
+            return False
+        _resync_active = field
+        return True
+
+
+def release_resync():
+    """Release the global resync lock."""
+    global _resync_active
+    with _resync_lock:
+        _resync_active = None
+
+
+def get_resync_status() -> Optional[str]:
+    """Return the currently running resync field name, or None."""
+    return _resync_active
 
 
 # ---------------------------------------------------------------------------

@@ -100,6 +100,11 @@ class Settings(BaseSettings):
                 and self.copernicusmarine_service_password is not None)
 
     # ========================================================================
+    # Ocean Area Configuration
+    # ========================================================================
+    ocean_area: str = "atlantic"
+
+    # ========================================================================
     # Performance Configuration
     # ========================================================================
     max_calculation_time: int = 300
