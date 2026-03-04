@@ -2,9 +2,13 @@ name: CI/CD Pipeline
 
 on:
   push:
-    branches: [ main, develop, claude/* ]
+    branches: [ main, dev ]
   pull_request:
-    branches: [ main, develop ]
+    branches: [ main, dev ]
+
+permissions:
+  contents: read
+  security-events: write
 
 env:
   PYTHON_VERSION: "3.11"
@@ -149,7 +153,7 @@ jobs:
           severity: 'HIGH,CRITICAL'
 
       - name: Upload Trivy FS results to GitHub Security
-        uses: github/codeql-action/upload-sarif@v3
+        uses: github/codeql-action/upload-sarif@v4
         if: always()
         with:
           sarif_file: 'trivy-fs-results.sarif'
