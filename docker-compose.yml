@@ -11,7 +11,6 @@ services:
       POSTGRES_DB: ${DB_NAME:-windmar}
     volumes:
       - postgres_data:/var/lib/postgresql/data
-      - ./docker/init-db.sql:/docker-entrypoint-initdb.d/init.sql
     # No external port — access via windmar-network only
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${DB_USER:-windmar}"]

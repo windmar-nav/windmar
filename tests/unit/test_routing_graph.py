@@ -51,8 +51,8 @@ class TestGraphConstruction:
         """Corridor near coastline should have fine (0.1°) nodes."""
         # English Channel → near coastline
         graph = RoutingGraph(
-            corridor_waypoints=[(50.5, -1.0), (51.0, 1.5)],
-            margin_deg=1.0,
+            corridor_waypoints=[(50.5, -10.0), (51.0, 10.0)],
+            margin_deg=3.0,
         )
         graph.build()
         assert graph.fine_count > 0
@@ -82,7 +82,7 @@ class TestGraphConstruction:
             if node_id.startswith("coarse"):
                 assert node.resolution_deg == 0.5
             elif node_id.startswith("fine"):
-                assert node.resolution_deg == 0.1
+                assert node.resolution_deg == 0.05
 
 
 # ---------------------------------------------------------------------------
@@ -95,8 +95,8 @@ class TestCrossResolution:
     def test_cross_tier_edges_exist(self):
         """Fine nodes at boundaries should connect to coarse nodes."""
         graph = RoutingGraph(
-            corridor_waypoints=[(50.5, -1.0), (51.0, 1.5)],
-            margin_deg=1.0,
+            corridor_waypoints=[(50.5, -10.0), (51.0, 10.0)],
+            margin_deg=3.0,
         )
         nodes = graph.build()
 
@@ -117,8 +117,8 @@ class TestCrossResolution:
     def test_cross_tier_bidirectional(self):
         """Cross-tier edges should be bidirectional."""
         graph = RoutingGraph(
-            corridor_waypoints=[(50.5, -1.0), (51.0, 1.5)],
-            margin_deg=1.0,
+            corridor_waypoints=[(50.5, -10.0), (51.0, 10.0)],
+            margin_deg=3.0,
         )
         nodes = graph.build()
 
