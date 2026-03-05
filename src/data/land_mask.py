@@ -94,6 +94,57 @@ def get_land_geometry():
 
 
 # ---------------------------------------------------------------------------
+# GSHHS low-resolution for zoomed-out coastline views
+# ---------------------------------------------------------------------------
+_gshhs_low_lock = threading.Lock()
+_gshhs_low_land: object = None
+_gshhs_low_loaded = False
+
+
+def get_land_geometry_low() -> object:
+    """Return GSHHS low-resolution land geometry for zoomed-out views.
+
+    ~10x fewer vertices than intermediate, fast intersection on large bboxes.
+    """
+    global _gshhs_low_land, _gshhs_low_loaded
+
+    if _gshhs_low_loaded:
+        return _gshhs_low_land
+
+    with _gshhs_low_lock:
+        if _gshhs_low_loaded:
+            return _gshhs_low_land
+
+        try:
+            import cartopy.io.shapereader as shpreader
+            from shapely.geometry import MultiPolygon, shape
+            from shapely.ops import unary_union
+
+            shp_path = shpreader.gshhs("l", 1)
+            reader = shpreader.Reader(shp_path)
+
+            polygons = []
+            for record in reader.records():
+                geom = shape(record.geometry)
+                polygons.append(geom if geom.is_valid else geom.buffer(0))
+
+            if polygons:
+                land_union = unary_union(polygons)
+                if not isinstance(land_union, MultiPolygon):
+                    land_union = MultiPolygon([land_union])
+                _gshhs_low_land = land_union
+                logger.info(f"GSHHS low-res loaded: {len(polygons)} polygons")
+
+            _gshhs_low_loaded = True
+            return _gshhs_low_land
+
+        except Exception as e:
+            logger.warning(f"GSHHS low-res load failed: {e}")
+            _gshhs_low_loaded = True
+            return None
+
+
+# ---------------------------------------------------------------------------
 # global-land-mask fallback
 # ---------------------------------------------------------------------------
 _HAS_LAND_MASK = False

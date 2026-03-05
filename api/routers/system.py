@@ -279,6 +279,79 @@ async def get_data_sources():
 # =============================================================================
 
 _coastline_cache: dict = {}
+_COASTLINE_DISK_DIR = "/app/data/coastline_cache"
+
+
+def _disk_cache_path(cache_key: str) -> str:
+    """Return path for disk-cached coastline GeoJSON."""
+    import hashlib
+    import os
+
+    os.makedirs(_COASTLINE_DISK_DIR, exist_ok=True)
+    h = hashlib.md5(cache_key.encode()).hexdigest()[:12]
+    return os.path.join(_COASTLINE_DISK_DIR, f"coast_{h}.json")
+
+
+def _build_coastline(
+    lat_min: float,
+    lat_max: float,
+    lon_min: float,
+    lon_max: float,
+    simplify_tolerance: float,
+    cache_key: str,
+) -> dict:
+    """CPU-bound: clip and simplify GSHHS polygons. Runs in thread pool."""
+    import os
+
+    # Check disk cache first (survives container restarts)
+    disk_path = _disk_cache_path(cache_key)
+    if os.path.exists(disk_path):
+        with open(disk_path, "r") as f:
+            return json.load(f)
+
+    from src.data.land_mask import get_land_geometry, get_land_geometry_low
+    from shapely.geometry import box, mapping
+
+    viewport = box(lon_min, lat_min, lon_max, lat_max)
+
+    # For large viewports (zoomed out), use GSHHS low-resolution
+    # to avoid 100s+ intersection on millions of intermediate vertices.
+    lat_span = lat_max - lat_min
+    lon_span = lon_max - lon_min
+    if lat_span > 50 or lon_span > 90:
+        land = get_land_geometry_low()
+    else:
+        land = get_land_geometry()
+
+    if land is None:
+        return None
+
+    clipped = land.intersection(viewport)
+
+    if clipped.is_empty:
+        result = {"type": "FeatureCollection", "features": []}
+    else:
+        simplified = clipped.simplify(simplify_tolerance, preserve_topology=True)
+        result = {
+            "type": "FeatureCollection",
+            "features": [
+                {
+                    "type": "Feature",
+                    "properties": {"type": "land"},
+                    "geometry": mapping(simplified),
+                }
+            ],
+        }
+
+    # Write to disk for fast restart
+    try:
+        with open(disk_path, "w") as f:
+            json.dump(result, f, separators=(",", ":"))
+        logger.info(f"Coastline cached to disk: {disk_path}")
+    except Exception as e:
+        logger.warning(f"Failed to write coastline disk cache: {e}")
+
+    return result
 
 
 @router.get("/api/coastline")
@@ -300,35 +373,17 @@ async def get_coastline(
         return _coastline_cache[cache_key]
 
     try:
-        from src.data.land_mask import get_land_geometry
-        from shapely.geometry import box, mapping
-
-        land = get_land_geometry()
-        if land is None:
+        # Run CPU-bound shapely ops in thread pool to avoid blocking event loop
+        result = await asyncio.to_thread(
+            _build_coastline, lat_min, lat_max, lon_min, lon_max, simplify, cache_key
+        )
+        if result is None:
             return JSONResponse(
                 status_code=404,
                 content={"detail": "GSHHS coastline data not available"},
             )
 
-        viewport = box(lon_min, lat_min, lon_max, lat_max)
-        clipped = land.intersection(viewport)
-
-        if clipped.is_empty:
-            result = {"type": "FeatureCollection", "features": []}
-        else:
-            simplified = clipped.simplify(simplify, preserve_topology=True)
-            result = {
-                "type": "FeatureCollection",
-                "features": [
-                    {
-                        "type": "Feature",
-                        "properties": {"type": "land"},
-                        "geometry": mapping(simplified),
-                    }
-                ],
-            }
-
-        # Cache (bounded size — evict oldest when > 20 entries)
+        # Memory cache (bounded size — evict oldest when > 20 entries)
         if len(_coastline_cache) > 20:
             oldest = next(iter(_coastline_cache))
             del _coastline_cache[oldest]
