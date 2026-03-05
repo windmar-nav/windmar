@@ -475,6 +475,16 @@ async def verify_demo_key(request: Request):
                 "demo_hashes_configured": demo_hash_count,
                 "full_hashes_configured": full_hash_count,
                 "legacy_hash_configured": has_legacy,
+                "first_hash_prefix": (
+                    settings.demo_api_key_hashes.split(",")[0][:10]
+                    if settings.demo_api_key_hashes
+                    else None
+                ),
+                "raw_env_len": (
+                    len(settings.demo_api_key_hashes)
+                    if settings.demo_api_key_hashes
+                    else 0
+                ),
             },
         },
     )
