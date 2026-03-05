@@ -1132,8 +1132,10 @@ class CopernicusDataProvider:
 
             if ds is None:
                 logger.info(f"Downloading CMEMS SST forecast {start_dt} -> {end_dt}")
-                ds = _retry_download(
-                    lambda: copernicusmarine.open_dataset(
+                # Use subset() for server-side download — open_dataset()
+                # streams via OPeNDAP which hits HDF errors on large requests.
+                _retry_download(
+                    lambda: copernicusmarine.subset(
                         dataset_id=self.CMEMS_PHYSICS_DATASET,
                         variables=["thetao"],
                         minimum_longitude=lon_min,
@@ -1146,29 +1148,14 @@ class CopernicusDataProvider:
                         maximum_depth=2,
                         username=self.cmems_username,
                         password=self.cmems_password,
+                        output_directory=str(cache_file.parent),
+                        output_filename=cache_file.name,
+                        overwrite=True,
                     )
                 )
-                if ds is None:
-                    logger.error("CMEMS returned None for SST forecast")
+                if not cache_file.exists():
+                    logger.error("CMEMS returned no file for SST forecast")
                     return None
-                # Subsample to ~0.25° before loading to reduce memory
-                lat_count = ds.sizes.get("latitude", 0)
-                lon_count = ds.sizes.get("longitude", 0)
-                if lat_count > 500 or lon_count > 1000:
-                    sub_step = max(1, round(0.25 / 0.083))  # 3
-                    ds = ds.isel(
-                        latitude=slice(None, None, sub_step),
-                        longitude=slice(None, None, sub_step),
-                    )
-                    logger.info(
-                        "SST forecast subsampled to ~0.25°: %s×%s",
-                        ds.sizes.get("latitude", "?"),
-                        ds.sizes.get("longitude", "?"),
-                    )
-                logger.info("Loading SST forecast data into memory...")
-                ds = ds.load()
-                ds.to_netcdf(cache_file)
-                ds.close()
                 logger.info(f"SST forecast cached: {cache_file}")
                 fsize = cache_file.stat().st_size
                 if fsize < 1_000_000:
@@ -1178,6 +1165,21 @@ class CopernicusDataProvider:
                     cache_file.unlink(missing_ok=True)
                     return None
                 ds = xr.open_dataset(cache_file, engine="h5netcdf")
+
+            # Subsample to ~0.25° after loading from file
+            lat_count = ds.sizes.get("latitude", 0)
+            lon_count = ds.sizes.get("longitude", 0)
+            if lat_count > 500 or lon_count > 1000:
+                sub_step = max(1, round(0.25 / 0.083))  # 3
+                ds = ds.isel(
+                    latitude=slice(None, None, sub_step),
+                    longitude=slice(None, None, sub_step),
+                )
+                logger.info(
+                    "SST forecast subsampled to ~0.25°: %s×%s",
+                    ds.sizes.get("latitude", "?"),
+                    ds.sizes.get("longitude", "?"),
+                )
 
             lats = ds["latitude"].values
             lons = ds["longitude"].values
