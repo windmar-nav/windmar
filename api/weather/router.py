@@ -754,7 +754,10 @@ async def api_weather_resync_status():
     return {"active": active}
 
 
-@router.post("/api/weather/resync-all")
+@router.post(
+    "/api/weather/resync-all",
+    dependencies=[Depends(require_not_demo("Weather resync"))],
+)
 async def api_weather_resync_all():
     """Re-ingest all weather fields using union bbox of selected ADRS areas.
 
@@ -912,7 +915,10 @@ async def api_get_selected_areas():
     return {"selected": get_selected_areas()}
 
 
-@router.post("/api/weather/selected-areas")
+@router.post(
+    "/api/weather/selected-areas",
+    dependencies=[Depends(require_not_demo("Area configuration"))],
+)
 async def api_set_selected_areas(areas: list[str]):
     """Update the selected ADRS area IDs."""
     try:
@@ -922,7 +928,10 @@ async def api_set_selected_areas(areas: list[str]):
     return {"selected": get_selected_areas()}
 
 
-@router.post("/api/weather/resync-area")
+@router.post(
+    "/api/weather/resync-area",
+    dependencies=[Depends(require_not_demo("Weather resync"))],
+)
 async def api_weather_resync_area(area: str = Query(...)):
     """Re-ingest CMEMS fields for a single ADRS area (background)."""
     try:
@@ -1002,7 +1011,10 @@ async def api_weather_resync_area(area: str = Query(...)):
     return {"status": "started", "area": area}
 
 
-@router.post("/api/weather/purge-all")
+@router.post(
+    "/api/weather/purge-all",
+    dependencies=[Depends(require_not_demo("Weather purge"))],
+)
 async def api_weather_purge_all():
     """Delete ALL weather data (DB + file caches) for a clean slate."""
     if get_resync_status() is not None:
@@ -1597,7 +1609,10 @@ async def api_get_field_frames(
     return empty
 
 
-@router.post("/api/weather/{field}/resync")
+@router.post(
+    "/api/weather/{field}/resync",
+    dependencies=[Depends(require_not_demo("Weather resync"))],
+)
 async def api_weather_layer_resync(
     field: str,
     lat_min: Optional[float] = Query(None, ge=-90, le=90),
