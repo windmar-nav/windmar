@@ -437,11 +437,44 @@ async def verify_demo_key(request: Request):
             content={"authenticated": False, "detail": "Licence key is required"},
         )
 
+    # Mask key for debug: show first 14 + last 4 chars (e.g. "windmar-demo-k...8Xjj")
+    if len(api_key) > 18:
+        key_hint = api_key[:14] + "..." + api_key[-4:]
+    else:
+        key_hint = api_key[:4] + "..." + api_key[-2:]
+
     tier = get_user_tier(request)
     if tier in ("full", "demo"):
-        return {"authenticated": True, "demo_mode": True, "tier": tier}
+        return {
+            "authenticated": True,
+            "demo_mode": True,
+            "tier": tier,
+            "key_hint": key_hint,
+        }
+
+    # Include debug info: how many hashes are configured
+    demo_hash_count = (
+        len([h for h in settings.demo_api_key_hashes.split(",") if h.strip()])
+        if settings.demo_api_key_hashes
+        else 0
+    )
+    full_hash_count = (
+        len([h for h in settings.full_api_key_hashes.split(",") if h.strip()])
+        if settings.full_api_key_hashes
+        else 0
+    )
+    has_legacy = bool(settings.demo_api_key_hash)
 
     return JSONResponse(
         status_code=401,
-        content={"authenticated": False, "detail": "Invalid licence key"},
+        content={
+            "authenticated": False,
+            "detail": "Invalid licence key",
+            "key_hint": key_hint,
+            "debug": {
+                "demo_hashes_configured": demo_hash_count,
+                "full_hashes_configured": full_hash_count,
+                "legacy_hash_configured": has_legacy,
+            },
+        },
     )
