@@ -693,10 +693,12 @@ async def api_weather_readiness():
 
             frame_count = len(envelope.get("frames", {})) if envelope else 0
 
-            # Validate that cached data actually covers the requested bbox
+            # Validate that cached data actually covers the requested bbox.
+            # Threshold is 0.6 because CMEMS fields (SST, waves, currents)
+            # physically cap at ~60°N while ADRS areas extend to 72°N.
             if envelope and frame_count >= cfg.expected_frames:
                 if not cache_covers_bounds(
-                    envelope, lat_min, lat_max, lon_min, lon_max, min_coverage=0.8
+                    envelope, lat_min, lat_max, lon_min, lon_max, min_coverage=0.6
                 ):
                     frame_count = 0  # data is from wrong area
 
