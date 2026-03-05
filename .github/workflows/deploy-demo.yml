@@ -54,16 +54,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Create .env for deployment
+      - name: Create env files for deployment
         run: |
           cat > deploy.env << 'DOTENV'
           DEMO_DB_PASSWORD=${{ secrets.DEMO_DB_PASSWORD }}
           API_SECRET_KEY=${{ secrets.DEMO_API_SECRET }}
-          DEMO_API_KEY_HASHES=${{ secrets.DEMO_API_KEY_HASHES }}
-          FULL_API_KEY_HASHES=${{ secrets.FULL_API_KEY_HASHES }}
           DOTENV
           sed -i 's/^[[:space:]]*//' deploy.env
-          echo "deploy.env lines: $(wc -l < deploy.env), bytes: $(wc -c < deploy.env)"
+
+          cat > deploy-keys.env << 'KEYSEOF'
+          DEMO_API_KEY_HASHES=${{ secrets.DEMO_API_KEY_HASHES }}
+          FULL_API_KEY_HASHES=${{ secrets.FULL_API_KEY_HASHES }}
+          KEYSEOF
+          sed -i 's/^[[:space:]]*//' deploy-keys.env
+          echo "deploy.env bytes: $(wc -c < deploy.env)"
+          echo "deploy-keys.env bytes: $(wc -c < deploy-keys.env)"
 
       - name: Copy files to VPS
         uses: appleboy/scp-action@v0.1.7
@@ -71,7 +76,7 @@ jobs:
           host: ${{ secrets.DEMO_VPS_HOST }}
           username: ${{ secrets.DEMO_VPS_USER }}
           key: ${{ secrets.DEMO_VPS_SSH_KEY }}
-          source: "docker-compose.demo.yml,Caddyfile,docker/init-db.sql,data/demo-engine-log-seed.sql,deploy.env"
+          source: "docker-compose.demo.yml,Caddyfile,docker/init-db.sql,data/demo-engine-log-seed.sql,deploy.env,deploy-keys.env"
           target: /opt/windmar-demo
 
       - name: Deploy on VPS
@@ -87,7 +92,8 @@ jobs:
           script: |
             cd /opt/windmar-demo
             mv deploy.env .env
-            echo ".env bytes on VPS: $(wc -c < .env)"
+            mv deploy-keys.env api-keys.env
+            echo ".env bytes: $(wc -c < .env), api-keys.env bytes: $(wc -c < api-keys.env)"
 
             # Authenticate to GHCR on VPS for pulling private packages
             echo "${GH_TOKEN}" | docker login ghcr.io -u "${GH_ACTOR}" --password-stdin
