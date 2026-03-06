@@ -1564,6 +1564,14 @@ def _resolve_cache_file(
         logger.info(f"{field} frames: covering cache hit ({covering.name})")
         return covering
 
+    # 5. Swell shares wave data — fall back to wave cache
+    if field == "swell":
+        wave_mgr = get_layer_manager("waves")
+        return _resolve_cache_file(
+            wave_mgr, get_field("waves"), "waves",
+            lat_min, lat_max, lon_min, lon_max,
+        )
+
     return None
 
 
