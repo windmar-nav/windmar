@@ -58,7 +58,11 @@ from api.weather.prefetch import (
     get_resync_progress,
     clear_resync_progress,
 )
-from api.forecast_layer_manager import cache_covers_bounds, find_covering_cache
+from api.forecast_layer_manager import (
+    cache_covers_bounds,
+    check_cache_header,
+    find_covering_cache,
+)
 from api.weather.adrs_areas import (
     ADRS_AREAS,
     AREA_SPECIFIC_FIELDS,
@@ -1507,7 +1511,7 @@ async def api_trigger_field_prefetch(
     )
 
 
-def _resolve_cache(
+def _resolve_cache_file(
     mgr,
     cfg: FieldConfig,
     field: str,
@@ -1515,31 +1519,28 @@ def _resolve_cache(
     lat_max: float,
     lon_min: float,
     lon_max: float,
-) -> Optional[dict]:
+) -> Optional[Path]:
     """Cascading cache lookup: exact → default_bbox → selected areas → covering file.
 
-    Returns a parsed JSON dict from the first cache that matches, or None.
+    Returns the Path to a valid cache JSON file WITHOUT parsing it.
+    Uses lightweight header checks (first 512 bytes) to validate schema version.
     """
     exact_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
 
     # 1. Exact match with requested bbox
-    cached = mgr.cache_get(exact_key)
-    if cached is not None:
-        if cached.get("_schema_version") != CACHE_SCHEMA_VERSION:
-            logger.info(f"{field} cache stale (schema {cached.get('_schema_version')} != {CACHE_SCHEMA_VERSION})")
-            cached = None
-        else:
-            logger.info(f"{field} frames: exact cache hit for {exact_key}")
-            return cached
+    exact_path = mgr.cache_path(exact_key)
+    if exact_path.exists() and check_cache_header(exact_path):
+        logger.info(f"{field} frames: exact cache hit for {exact_key}")
+        return exact_path
 
     # 2. Field's default_bbox key (catches prefetched global fields)
     db = cfg.default_bbox
     default_key = mgr.make_cache_key(db[0], db[1], db[2], db[3])
     if default_key != exact_key:
-        cached = mgr.cache_get(default_key)
-        if cached is not None and cached.get("_schema_version") == CACHE_SCHEMA_VERSION:
+        default_path = mgr.cache_path(default_key)
+        if default_path.exists() and check_cache_header(default_path):
             logger.info(f"{field} frames: default_bbox cache hit ({default_key})")
-            return cached
+            return default_path
 
     # 3. Selected ADRS area bbox keys (catches CMEMS fields)
     selected_areas = get_selected_areas()
@@ -1550,24 +1551,18 @@ def _resolve_cache(
             continue
         area_key = mgr.make_cache_key(area.bbox[0], area.bbox[1], area.bbox[2], area.bbox[3])
         if area_key != exact_key and area_key != default_key:
-            cached = mgr.cache_get(area_key)
-            if cached is not None and cached.get("_schema_version") == CACHE_SCHEMA_VERSION:
+            area_path = mgr.cache_path(area_key)
+            if area_path.exists() and check_cache_header(area_path):
                 logger.info(f"{field} frames: area {area_id} cache hit ({area_key})")
-                return cached
+                return area_path
 
     # 4. Filesystem scan for any covering cache file
-    covering_file = find_covering_cache(
+    covering = find_covering_cache(
         mgr.cache_dir, mgr.name, lat_min, lat_max, lon_min, lon_max
     )
-    if covering_file is not None and covering_file.exists():
-        try:
-            import json as _json
-            cached = _json.loads(covering_file.read_text())
-            if cached.get("_schema_version") == CACHE_SCHEMA_VERSION:
-                logger.info(f"{field} frames: covering cache hit ({covering_file.name})")
-                return cached
-        except Exception:
-            pass
+    if covering is not None and covering.exists() and check_cache_header(covering):
+        logger.info(f"{field} frames: covering cache hit ({covering.name})")
+        return covering
 
     return None
 
@@ -1593,15 +1588,26 @@ async def api_get_field_frames(
     cfg = get_field(field)
     mgr = get_layer_manager(field)
 
-    # --- Cascading cache lookup (exact → default_bbox → areas → covering) ---
-    cached = _resolve_cache(mgr, cfg, field, lat_min, lat_max, lon_min, lon_max)
-    if cached is not None:
-        # Try raw gzip first (fast, avoids JSON re-serialization)
-        cache_key = mgr.make_cache_key(lat_min, lat_max, lon_min, lon_max)
-        raw = mgr.serve_frames_file(cache_key, lat_min, lat_max, lon_min, lon_max, use_covering=True)
-        if raw is not None:
-            return raw
-        return cached
+    # --- Fast path: find matching cache file and serve gzip directly ---
+    cache_file = _resolve_cache_file(mgr, cfg, field, lat_min, lat_max, lon_min, lon_max)
+    if cache_file is not None:
+        from starlette.responses import Response as RawResponse
+        from api.forecast_layer_manager import is_cache_complete
+
+        # Prefer pre-compressed gzip (avoids parsing + re-serialization)
+        gz_file = cache_file.parent / (cache_file.name + ".gz")
+        if gz_file.exists():
+            return RawResponse(
+                content=gz_file.read_bytes(),
+                media_type="application/json",
+                headers={"Content-Encoding": "gzip"},
+            )
+        # Fallback: serve raw JSON bytes (still avoids Python dict parsing)
+        if is_cache_complete(cache_file):
+            return RawResponse(
+                content=cache_file.read_bytes(),
+                media_type="application/json",
+            )
 
     # --- DB rebuild fallback ---
     db_weather = _db_weather()

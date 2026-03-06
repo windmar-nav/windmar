@@ -30,6 +30,25 @@ _CACHE_ROOT = Path("/tmp/windmar_cache")
 # ---------------------------------------------------------------------------
 
 
+def check_cache_header(cache_file: Path) -> bool:
+    """Lightweight header check: file exists, is complete, and has current schema.
+
+    Reads only the first 512 bytes — never parses the full JSON.
+    Returns True if the file looks valid and serveable.
+    """
+    from api.weather_fields import CACHE_SCHEMA_VERSION
+
+    try:
+        with open(cache_file, "rb") as fh:
+            header = fh.read(512)
+        m_ver = re.search(rb'"_schema_version"\s*:\s*(\d+)', header)
+        if m_ver and int(m_ver.group(1)) != CACHE_SCHEMA_VERSION:
+            return False
+        return is_cache_complete(cache_file)
+    except Exception:
+        return False
+
+
 def is_cache_complete(cache_file: Path) -> bool:
     """Check if a forecast cache file has all expected frames.
 
