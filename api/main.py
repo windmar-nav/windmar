@@ -463,22 +463,20 @@ def _prefetch_all_weather():
             except Exception as e:
                 logger.error("Weather prefetch %s failed: %s", label, e)
 
-        # Build work items: every field gets its default_bbox cache,
-        # plus area-specific fields get per-ADRS-area caches.
+        # Build work items.  Global fields (wind, visibility) get a
+        # default_bbox cache.  Area-specific CMEMS fields get only per-area
+        # caches — their default_bbox is the Atlantic which may exceed the
+        # DB snapshot's actual coverage, wasting time on failed rebuilds.
         work_items = []
 
-        # All fields — build cache at default_bbox (global coverage for
-        # wind/visibility, Atlantic for CMEMS).  This ensures the cascading
-        # cache lookup always finds a match regardless of frontend bbox.
-        for field_name in FIELD_NAMES:
-            if field_name == "swell":
-                continue  # shares wave cache
+        # Global fields — cache at default_bbox
+        for field_name in GLOBAL_FIELDS:
             cfg = get_field(field_name)
             work_items.append(
                 (field_name, cfg.default_bbox, f"{field_name}:default")
             )
 
-        # Area-specific fields also get per-ADRS-area caches
+        # Area-specific CMEMS fields — cache per selected ADRS area only
         for area_id in selected_areas:
             try:
                 area = get_adrs_area(area_id)
@@ -492,16 +490,14 @@ def _prefetch_all_weather():
                 if field_name == "ice" and area.ice_bbox is None:
                     continue
                 bbox = area.ice_bbox if field_name == "ice" else area.bbox
-                # Skip if same as default_bbox (already queued above)
-                cfg = get_field(field_name)
-                if bbox == cfg.default_bbox:
-                    continue
                 work_items.append((field_name, bbox, f"{field_name}:{area_id}"))
 
         # Rebuild file caches from DB data only — no provider downloads.
         # Provider downloads are triggered exclusively via manual /resync.
+        # max_workers=1 keeps peak memory under the 2GB container limit
+        # (wave cache alone can use ~1.5GB when decompressing 328 grids).
         with ThreadPoolExecutor(
-            max_workers=3, thread_name_prefix="wx-prefetch"
+            max_workers=1, thread_name_prefix="wx-prefetch"
         ) as pool:
             pool.map(lambda item: _prefetch_item(*item), work_items)
 
