@@ -41,6 +41,7 @@ from src.optimization.base_optimizer import (
     ParetoSolution,
 )
 from src.optimization.grid_builder import GridBuilder, GridCell as BuilderGridCell
+from src.optimization import numba_kernels as nk
 
 logger = logging.getLogger(__name__)
 
@@ -206,6 +207,118 @@ class RouteOptimizer(BaseOptimizer):
         # Time-value penalty (computed per voyage in optimize_route)
         self._lambda_time: float = 0.0
 
+    def _prepare_search_params(self, is_laden: bool, calm_speed_kts: float) -> None:
+        """Pre-compute vessel constants for A* inner loop (avoids per-cell lookups)."""
+        vm = self.vessel_model
+        specs = vm.specs
+
+        # Loading-condition parameters (constant for entire search)
+        self._sp_draft = specs.draft_laden if is_laden else specs.draft_ballast
+        self._sp_displacement = (
+            specs.displacement_laden if is_laden else specs.displacement_ballast
+        )
+        self._sp_cb = specs.cb_laden if is_laden else specs.cb_ballast
+        self._sp_wetted_surface = (
+            specs.wetted_surface_laden if is_laden else specs.wetted_surface_ballast
+        )
+        self._sp_frontal_area = (
+            specs.frontal_area_laden if is_laden else specs.frontal_area_ballast
+        )
+        self._sp_lateral_area = (
+            specs.lateral_area_laden if is_laden else specs.lateral_area_ballast
+        )
+
+        # Vessel constants
+        self._sp_lpp = specs.lpp
+        self._sp_beam = specs.beam
+        self._sp_rho_sw = vm.RHO_SW
+        self._sp_nu_sw = vm.NU_SW
+        self._sp_rho_air = vm.RHO_AIR
+        self._sp_mcr_kw = specs.mcr_kw
+        self._sp_sfoc_at_mcr = specs.sfoc_at_mcr
+        self._sp_sfoc_factor = vm.calibration_factors.get("sfoc_factor", 1.0)
+        self._sp_cal_calm = vm.calibration_factors.get("calm_water", 1.0)
+        self._sp_cal_wind = vm.calibration_factors.get("wind", 1.0)
+        self._sp_cal_waves = vm.calibration_factors.get("waves", 1.0)
+        self._sp_prop_eff = (
+            vm.PROP_EFFICIENCY * vm.HULL_EFFICIENCY * vm.RELATIVE_ROTATIVE_EFF
+        )
+        self._sp_wave_method = vm.wave_method
+        self._sp_speed_ms = calm_speed_kts * 0.51444
+
+    def _fast_fuel_mt(
+        self,
+        speed_ms: float,
+        distance_nm: float,
+        speed_kts: float,
+        wind_speed_ms: float,
+        wind_dir_deg: float,
+        heading_deg: float,
+        sig_wave_height_m: float,
+        wave_dir_deg: float,
+    ) -> float:
+        """Inlined fuel calculation for A* — returns fuel_mt only, no dict."""
+        # Calm water resistance
+        r_calm = nk.holtrop_mennen_resistance(
+            speed_ms,
+            self._sp_draft,
+            self._sp_displacement,
+            self._sp_cb,
+            self._sp_wetted_surface,
+            self._sp_lpp,
+            self._sp_beam,
+            self._sp_rho_sw,
+            self._sp_nu_sw,
+        )
+
+        # Wind resistance
+        r_wind = 0.0
+        if wind_speed_ms > 0:
+            r_wind = nk.wind_resistance(
+                wind_speed_ms,
+                wind_dir_deg,
+                heading_deg,
+                self._sp_frontal_area,
+                self._sp_lateral_area,
+                self._sp_rho_air,
+            )
+
+        # Wave resistance
+        r_waves = 0.0
+        if sig_wave_height_m > 0:
+            if self._sp_wave_method == "kwon":
+                delta_v_pct = nk.kwon_speed_loss_pct(
+                    sig_wave_height_m,
+                    wave_dir_deg,
+                    heading_deg,
+                    self._sp_cb,
+                    self._sp_lpp,
+                )
+                r_waves = r_calm * 2.0 * (delta_v_pct / 100.0)
+            else:
+                r_waves = nk.stawave1_wave_resistance(
+                    sig_wave_height_m,
+                    wave_dir_deg,
+                    heading_deg,
+                    speed_ms,
+                    self._sp_beam,
+                    self._sp_lpp,
+                    self._sp_rho_sw,
+                )
+
+        # Total resistance → power → SFOC → fuel
+        total_r = (
+            r_calm * self._sp_cal_calm
+            + r_wind * self._sp_cal_wind
+            + r_waves * self._sp_cal_waves
+        )
+        brake_power_kw = (total_r * speed_ms / 1000.0) / self._sp_prop_eff
+        brake_power_kw = min(brake_power_kw, self._sp_mcr_kw)
+        load_fraction = brake_power_kw / self._sp_mcr_kw
+        sfoc = nk.sfoc_curve(load_fraction, self._sp_sfoc_at_mcr, self._sp_sfoc_factor)
+        time_hours = distance_nm / speed_kts
+        return (brake_power_kw * sfoc * time_hours) / 1_000_000.0
+
     def optimize_route(
         self,
         origin: Tuple[float, float],
@@ -247,6 +360,7 @@ class RouteOptimizer(BaseOptimizer):
         start_time = time.time()
 
         self.weather_provider = weather_provider
+        self._prepare_search_params(is_laden, calm_speed_kts)
 
         # Compute time-value penalty (lambda_time) for cost function.
         # Scaled by TIME_PENALTY_WEIGHT so weather-avoidance detours that add
@@ -263,6 +377,12 @@ class RouteOptimizer(BaseOptimizer):
             distance_nm=service_speed,  # 1 hour at service speed
         )
         self._lambda_time = service_fuel_result["fuel_mt"] * self.TIME_PENALTY_WEIGHT
+
+        # Pre-compute heuristic constants (avoids per-node calculate_fuel_consumption)
+        self._heuristic_fuel_per_nm = service_fuel_result["fuel_mt"] / service_speed
+        self._heuristic_service_speed = service_speed
+        # Weighted A*: inflate heuristic when safety pruning is weak
+        self._h_weight = 1.0 + max(0.0, 1.0 - self.safety_weight) * 0.5
 
         # Build grid around origin-destination corridor and run A*
         if self.variable_resolution:
@@ -492,6 +612,7 @@ class RouteOptimizer(BaseOptimizer):
             lambda_values = [0.0, 0.3, 0.7, 1.0, 1.5, 2.0, 3.0, 5.0, 10.0, 20.0]
 
         self.weather_provider = weather_provider
+        self._prepare_search_params(is_laden, calm_speed_kts)
 
         # Compute service-speed fuel rate (used to scale lambda)
         service_speed = (
@@ -506,6 +627,12 @@ class RouteOptimizer(BaseOptimizer):
             distance_nm=service_speed,
         )
         base_fuel_rate = service_fuel_result["fuel_mt"]
+
+        # Pre-compute heuristic constants (avoids per-node calculate_fuel_consumption)
+        self._heuristic_fuel_per_nm = base_fuel_rate / service_speed
+        self._heuristic_service_speed = service_speed
+        # Weighted A*: inflate heuristic when safety pruning is weak
+        self._h_weight = 1.0 + max(0.0, 1.0 - self.safety_weight) * 0.5
 
         # Build grid ONCE
         grid = self._build_grid([origin, destination])
@@ -956,6 +1083,7 @@ class RouteOptimizer(BaseOptimizer):
         closed_set: Set[Tuple[int, int]] = set()
 
         cells_explored = 0
+        _n_heap_skip = 0
 
         while open_set and cells_explored < max_cells:
             current = heapq.heappop(open_set)
@@ -963,14 +1091,25 @@ class RouteOptimizer(BaseOptimizer):
 
             # Skip if already explored with better score
             if current_key in closed_set:
+                _n_heap_skip += 1
                 continue
 
             closed_set.add(current_key)
             cells_explored += 1
 
+            # Progress logging every 25k cells
+            if cells_explored % 25_000 == 0:
+                logger.info(
+                    f"A* progress: {cells_explored} cells explored, "
+                    f"open_set={len(open_set)}, h_weight={self._h_weight:.2f}"
+                )
+
             # Check if reached destination
             if current.cell == end_cell:
-                # Reconstruct path
+                logger.info(
+                    f"A* found path: {cells_explored} cells, "
+                    f"heap_skip={_n_heap_skip}"
+                )
                 path = []
                 node = current
                 while node is not None:
@@ -1012,12 +1151,13 @@ class RouteOptimizer(BaseOptimizer):
                 # Strait edges skip is_path_clear (pre-validated)
                 is_strait = self._is_strait_edge(current_key, neighbor_key)
                 if not is_strait:
-                    if not is_path_clear(
+                    clear = is_path_clear(
                         current.cell.lat,
                         current.cell.lon,
                         neighbor_cell.lat,
                         neighbor_cell.lon,
-                    ):
+                    )
+                    if not clear:
                         continue
 
                 # Calculate cost to move to neighbor
@@ -1038,8 +1178,10 @@ class RouteOptimizer(BaseOptimizer):
                 if tentative_g < g_scores.get(neighbor_key, float("inf")):
                     g_scores[neighbor_key] = tentative_g
 
+                    h_val = self._heuristic(neighbor_cell, end_cell)
+
                     neighbor_node = SearchNode(
-                        f_score=tentative_g + self._heuristic(neighbor_cell, end_cell),
+                        f_score=tentative_g + h_val,
                         cell=neighbor_cell,
                         g_score=tentative_g,
                         arrival_time=current.arrival_time
@@ -1049,35 +1191,33 @@ class RouteOptimizer(BaseOptimizer):
                     heapq.heappush(open_set, neighbor_node)
 
         # No path found
+        logger.warning(
+            f"A* no path: {cells_explored} cells, " f"heap_skip={_n_heap_skip}"
+        )
         return None, cells_explored
 
     def _heuristic(self, cell: GridCell, goal: GridCell) -> float:
         """
         A* heuristic: estimated cost from cell to goal.
 
-        Uses great circle distance with best-case fuel consumption.
-        Must be admissible (never overestimate actual cost).
+        Uses great circle distance with pre-computed calm-water fuel rate.
+        Calm-water rate is already admissible (weather only adds resistance).
+
+        When safety_weight is low, applies weighted A* (h_weight > 1) to
+        compensate for the loss of safety-penalty pruning. This bounds the
+        result within h_weight × optimal cost, acceptable given weather
+        uncertainty.
         """
-        # Great circle distance
         distance_nm = self.haversine(cell.lat, cell.lon, goal.lat, goal.lon)
 
         if self.optimization_target == "time":
-            # Best case: calm water speed
-            return distance_nm / self.vessel_model.specs.service_speed_laden
+            return distance_nm / self._heuristic_service_speed * self._h_weight
         else:
-            # Best case: calm water fuel consumption (underestimate)
-            service_speed = self.vessel_model.specs.service_speed_laden
-            result = self.vessel_model.calculate_fuel_consumption(
-                speed_kts=service_speed,
-                is_laden=True,
-                weather=None,
-                distance_nm=distance_nm,
-            )
-            fuel_heuristic = result["fuel_mt"] * 0.8  # Underestimate for admissibility
-
-            # Time component: generous speed estimate ensures underestimate
-            time_heuristic = distance_nm / (service_speed + 2.0)
-            return fuel_heuristic + self._lambda_time * time_heuristic
+            fuel_heuristic = distance_nm * self._heuristic_fuel_per_nm
+            time_heuristic = distance_nm / (self._heuristic_service_speed + 2.0)
+            return (
+                fuel_heuristic + self._lambda_time * time_heuristic
+            ) * self._h_weight
 
     def _calculate_move_cost(
         self,
@@ -1112,84 +1252,82 @@ class RouteOptimizer(BaseOptimizer):
         # Calculate bearing
         bearing = self.bearing(from_cell.lat, from_cell.lon, to_cell.lat, to_cell.lon)
 
-        # SPEC-P1: Ice exclusion and penalty zones
-        ICE_EXCLUSION_THRESHOLD = 0.15  # IMO Polar Code limit
-        ICE_PENALTY_THRESHOLD = 0.05  # Caution zone
-        if weather.ice_concentration >= ICE_EXCLUSION_THRESHOLD:
-            return float("inf"), float("inf")
-        ice_cost_factor = (
-            2.0 if weather.ice_concentration >= ICE_PENALTY_THRESHOLD else 1.0
-        )
+        # ── Early rejection checks (before expensive fuel calc) ──
 
-        # Build weather dict for vessel model
-        weather_dict = {
-            "wind_speed_ms": weather.wind_speed_ms,
-            "wind_dir_deg": weather.wind_dir_deg,
-            "heading_deg": bearing,
-            "sig_wave_height_m": weather.sig_wave_height_m,
-            "wave_dir_deg": weather.wave_dir_deg,
-        }
+        # SPEC-P1: Ice exclusion
+        if weather.ice_concentration >= 0.15:  # IMO Polar Code limit
+            return float("inf"), float("inf")
+        ice_cost_factor = 2.0 if weather.ice_concentration >= 0.05 else 1.0
+
+        # Safety hard limits (wave/wind) — always enforced, cheap float checks
+        safety_factor = 1.0
+        if self.enforce_safety and weather.sig_wave_height_m > 0:
+            limits = self.safety_constraints.limits
+            if weather.sig_wave_height_m >= limits.max_wave_height_m:
+                return float("inf"), float("inf")
+            if weather.wind_speed_ms * 1.9438 >= limits.max_wind_speed_kts:
+                return float("inf"), float("inf")
+            if self.safety_weight > 0:
+                # Full seakeeping assessment with graduated penalties
+                wave_period_s = (
+                    weather.wave_period_s
+                    if weather.wave_period_s > 0
+                    else (5.0 + weather.sig_wave_height_m)
+                )
+                safety_factor = self.safety_constraints.get_safety_cost_factor(
+                    wave_height_m=weather.sig_wave_height_m,
+                    wave_period_s=wave_period_s,
+                    wave_dir_deg=weather.wave_dir_deg,
+                    heading_deg=bearing,
+                    speed_kts=calm_speed_kts,
+                    is_laden=is_laden,
+                    wind_speed_kts=weather.wind_speed_ms * 1.9438,
+                )
+                if safety_factor == float("inf"):
+                    return float("inf"), float("inf")
+
+        # ── Speed, fuel, and travel time ──
 
         # SPEC-P1: Visibility speed cap — IMO COLREG Rule 6
-        effective_speed_kts = calm_speed_kts
         effective_speed_kts = apply_visibility_cap(
-            effective_speed_kts, weather.visibility_km * 1000.0
+            calm_speed_kts, weather.visibility_km * 1000.0
         )
 
-        # Calculate fuel consumption
-        result = self.vessel_model.calculate_fuel_consumption(
-            speed_kts=effective_speed_kts,
-            is_laden=is_laden,
-            weather=weather_dict,
-            distance_nm=distance_nm,
+        # Current effect on SOG
+        current_effect = nk.current_effect(
+            bearing,
+            weather.current_speed_ms,
+            weather.current_dir_deg,
         )
+        sog_kts = effective_speed_kts + current_effect
+        if sog_kts <= 0:
+            return float("inf"), float("inf")
 
-        # Calculate actual travel time considering current (SOG = STW + current projection)
-        current_effect = self.current_effect(
-            heading_deg=bearing,
-            current_speed_ms=weather.current_speed_ms,
-            current_dir_deg=weather.current_dir_deg,
-        )
-
-        # SPEC-P1: Cross-current drift correction
-        # Compute lateral current component for drift penalty
+        # Cross-current drift correction
         relative_angle_rad = math.radians(
             abs(((weather.current_dir_deg - bearing) + 180) % 360 - 180)
         )
         current_kts = weather.current_speed_ms * 1.94384
         cross_current_kts = abs(current_kts * math.sin(relative_angle_rad))
-        # Drift penalty: extra distance needed to compensate for lateral set
         drift_factor = 1.0
         if cross_current_kts > 0.5 and effective_speed_kts > 0:
             drift_ratio = cross_current_kts / effective_speed_kts
             drift_factor = 1.0 / max(math.sqrt(1.0 - min(drift_ratio, 0.95) ** 2), 0.1)
 
-        sog_kts = effective_speed_kts + current_effect
-        if sog_kts <= 0:
-            return float("inf"), float("inf")  # Can't make headway
-
         travel_time_hours = (distance_nm * drift_factor) / sog_kts
 
-        # Apply safety constraints
-        safety_factor = 1.0
-        if self.enforce_safety and weather.sig_wave_height_m > 0:
-            # Use actual wave period from data, fallback to estimate if not available
-            wave_period_s = (
-                weather.wave_period_s
-                if weather.wave_period_s > 0
-                else (5.0 + weather.sig_wave_height_m)
-            )
-            safety_factor = self.safety_constraints.get_safety_cost_factor(
-                wave_height_m=weather.sig_wave_height_m,
-                wave_period_s=wave_period_s,
-                wave_dir_deg=weather.wave_dir_deg,
-                heading_deg=bearing,
-                speed_kts=calm_speed_kts,
-                is_laden=is_laden,
-                wind_speed_kts=weather.wind_speed_ms * 1.9438,
-            )
-            if safety_factor == float("inf"):
-                return float("inf"), float("inf")  # Dangerous - forbidden
+        # Inlined fuel calculation (no dict construction, direct numba kernels)
+        effective_speed_ms = effective_speed_kts * 0.51444
+        fuel_mt = self._fast_fuel_mt(
+            effective_speed_ms,
+            distance_nm,
+            effective_speed_kts,
+            weather.wind_speed_ms,
+            weather.wind_dir_deg,
+            bearing,
+            weather.sig_wave_height_m,
+            weather.wave_dir_deg,
+        )
 
         # Apply regulatory zone penalties
         zone_factor = 1.0
@@ -1218,7 +1356,7 @@ class RouteOptimizer(BaseOptimizer):
         else:
             # Time-constrained fuel minimization:
             # fuel cost + time penalty prevents detours that save marginal fuel
-            fuel_cost = result["fuel_mt"] * total_factor
+            fuel_cost = fuel_mt * total_factor
             time_penalty = self._lambda_time * travel_time_hours
             return fuel_cost + time_penalty, travel_time_hours
 

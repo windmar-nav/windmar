@@ -96,8 +96,15 @@ async def lifespan(application: FastAPI):
 
     # Pre-compile Numba JIT kernels (avoids ~3s delay on first route optimization)
     from src.optimization.numba_kernels import warm_up as _numba_warm_up
+
     _numba_warm_up()
     logger.info("Numba JIT kernels compiled")
+
+    # Pre-load GSHHS coastline polygons (avoids ~136s delay on first route request)
+    from src.data.land_mask import _load_gshhs
+
+    _load_gshhs()
+    logger.info("GSHHS coastline polygons loaded")
 
     logger.info("Startup complete")
 
@@ -477,9 +484,7 @@ def _prefetch_all_weather():
         # Global fields — cache at default_bbox
         for field_name in GLOBAL_FIELDS:
             cfg = get_field(field_name)
-            work_items.append(
-                (field_name, cfg.default_bbox, f"{field_name}:default")
-            )
+            work_items.append((field_name, cfg.default_bbox, f"{field_name}:default"))
 
         # Area-specific CMEMS fields — cache per selected ADRS area only
         for area_id in selected_areas:

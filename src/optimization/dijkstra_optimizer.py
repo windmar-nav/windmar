@@ -40,6 +40,7 @@ from src.data.land_mask import is_ocean, is_path_clear
 from src.data.regulatory_zones import get_zone_checker, ZoneChecker
 from src.optimization.route_optimizer import apply_visibility_cap
 from src.optimization.grid_builder import GridBuilder
+from src.optimization import numba_kernels as nk
 
 logger = logging.getLogger(__name__)
 
@@ -155,6 +156,106 @@ class DijkstraOptimizer(BaseOptimizer):
         )
         self.zone_checker = zone_checker or get_zone_checker()
 
+    def _prepare_search_params(self, is_laden: bool) -> None:
+        """Pre-compute vessel constants for inner loop (avoids per-edge lookups)."""
+        vm = self.vessel_model
+        specs = vm.specs
+        self._sp_draft = specs.draft_laden if is_laden else specs.draft_ballast
+        self._sp_displacement = (
+            specs.displacement_laden if is_laden else specs.displacement_ballast
+        )
+        self._sp_cb = specs.cb_laden if is_laden else specs.cb_ballast
+        self._sp_wetted_surface = (
+            specs.wetted_surface_laden if is_laden else specs.wetted_surface_ballast
+        )
+        self._sp_frontal_area = (
+            specs.frontal_area_laden if is_laden else specs.frontal_area_ballast
+        )
+        self._sp_lateral_area = (
+            specs.lateral_area_laden if is_laden else specs.lateral_area_ballast
+        )
+        self._sp_lpp = specs.lpp
+        self._sp_beam = specs.beam
+        self._sp_rho_sw = vm.RHO_SW
+        self._sp_nu_sw = vm.NU_SW
+        self._sp_rho_air = vm.RHO_AIR
+        self._sp_mcr_kw = specs.mcr_kw
+        self._sp_sfoc_at_mcr = specs.sfoc_at_mcr
+        self._sp_sfoc_factor = vm.calibration_factors.get("sfoc_factor", 1.0)
+        self._sp_cal_calm = vm.calibration_factors.get("calm_water", 1.0)
+        self._sp_cal_wind = vm.calibration_factors.get("wind", 1.0)
+        self._sp_cal_waves = vm.calibration_factors.get("waves", 1.0)
+        self._sp_prop_eff = (
+            vm.PROP_EFFICIENCY * vm.HULL_EFFICIENCY * vm.RELATIVE_ROTATIVE_EFF
+        )
+        self._sp_wave_method = vm.wave_method
+
+    def _fast_fuel_mt(
+        self,
+        speed_ms: float,
+        distance_nm: float,
+        speed_kts: float,
+        wind_speed_ms: float,
+        wind_dir_deg: float,
+        heading_deg: float,
+        sig_wave_height_m: float,
+        wave_dir_deg: float,
+    ) -> float:
+        """Inlined fuel calculation — returns fuel_mt only, no dict."""
+        r_calm = nk.holtrop_mennen_resistance(
+            speed_ms,
+            self._sp_draft,
+            self._sp_displacement,
+            self._sp_cb,
+            self._sp_wetted_surface,
+            self._sp_lpp,
+            self._sp_beam,
+            self._sp_rho_sw,
+            self._sp_nu_sw,
+        )
+        r_wind = 0.0
+        if wind_speed_ms > 0:
+            r_wind = nk.wind_resistance(
+                wind_speed_ms,
+                wind_dir_deg,
+                heading_deg,
+                self._sp_frontal_area,
+                self._sp_lateral_area,
+                self._sp_rho_air,
+            )
+        r_waves = 0.0
+        if sig_wave_height_m > 0:
+            if self._sp_wave_method == "kwon":
+                delta_v_pct = nk.kwon_speed_loss_pct(
+                    sig_wave_height_m,
+                    wave_dir_deg,
+                    heading_deg,
+                    self._sp_cb,
+                    self._sp_lpp,
+                )
+                r_waves = r_calm * 2.0 * (delta_v_pct / 100.0)
+            else:
+                r_waves = nk.stawave1_wave_resistance(
+                    sig_wave_height_m,
+                    wave_dir_deg,
+                    heading_deg,
+                    speed_ms,
+                    self._sp_beam,
+                    self._sp_lpp,
+                    self._sp_rho_sw,
+                )
+        total_r = (
+            r_calm * self._sp_cal_calm
+            + r_wind * self._sp_cal_wind
+            + r_waves * self._sp_cal_waves
+        )
+        brake_power_kw = (total_r * speed_ms / 1000.0) / self._sp_prop_eff
+        brake_power_kw = min(brake_power_kw, self._sp_mcr_kw)
+        load_fraction = brake_power_kw / self._sp_mcr_kw
+        sfoc = nk.sfoc_curve(load_fraction, self._sp_sfoc_at_mcr, self._sp_sfoc_factor)
+        time_hours = distance_nm / speed_kts
+        return (brake_power_kw * sfoc * time_hours) / 1_000_000.0
+
     # ------------------------------------------------------------------
     # Public API (BaseOptimizer contract)
     # ------------------------------------------------------------------
@@ -206,7 +307,8 @@ class DijkstraOptimizer(BaseOptimizer):
         direct_time_hours = gc_dist / max(calm_speed_kts, 0.1)
         max_voyage_hours = direct_time_hours * max_time_factor
 
-        # 5. Run Dijkstra on the time-expanded graph
+        # 5. Pre-compute vessel constants + run Dijkstra
+        self._prepare_search_params(is_laden)
         path, explored = self._dijkstra(
             grid=grid,
             start_rc=start_rc,
@@ -629,14 +731,22 @@ class DijkstraOptimizer(BaseOptimizer):
         Returns ``(cost, travel_hours, chosen_speed)`` or *None* if
         no safe speed exists.
         """
-        # SPEC-P1: Ice exclusion and penalty zones
-        ICE_EXCLUSION_THRESHOLD = 0.15  # IMO Polar Code limit
-        ICE_PENALTY_THRESHOLD = 0.05  # Caution zone
-        if weather.ice_concentration >= ICE_EXCLUSION_THRESHOLD:
+        # Lazy init if called without optimize_route (e.g., from tests)
+        if not hasattr(self, "_sp_draft"):
+            self._prepare_search_params(is_laden)
+
+        # Ice exclusion
+        if weather.ice_concentration >= 0.15:
             return None
-        ice_cost_factor = (
-            2.0 if weather.ice_concentration >= ICE_PENALTY_THRESHOLD else 1.0
-        )
+        ice_cost_factor = 2.0 if weather.ice_concentration >= 0.05 else 1.0
+
+        # Hard safety limits (cheap, before speed loop)
+        if self.enforce_safety and weather.sig_wave_height_m > 0:
+            limits = self.safety_constraints.limits
+            if weather.sig_wave_height_m >= limits.max_wave_height_m:
+                return None
+            if weather.wind_speed_ms * 1.9438 >= limits.max_wind_speed_kts:
+                return None
 
         min_spd, max_spd = self.SPEED_RANGE_KTS
         if is_laden:
@@ -647,15 +757,7 @@ class DijkstraOptimizer(BaseOptimizer):
         # SPEC-P1: Visibility speed cap (IMO COLREG Rule 6)
         max_spd = apply_visibility_cap(max_spd, weather.visibility_km * 1000.0)
 
-        weather_dict = {
-            "wind_speed_ms": weather.wind_speed_ms,
-            "wind_dir_deg": weather.wind_dir_deg,
-            "heading_deg": bearing_deg,
-            "sig_wave_height_m": weather.sig_wave_height_m,
-            "wave_dir_deg": weather.wave_dir_deg,
-        }
-
-        ce = self.current_effect(
+        ce = nk.current_effect(
             bearing_deg,
             weather.current_speed_ms,
             weather.current_dir_deg,
@@ -666,7 +768,11 @@ class DijkstraOptimizer(BaseOptimizer):
         for speed_kts in np.linspace(min_spd, max_spd, self.SPEED_STEPS):
             # Safety gate (voluntary speed reduction)
             safety_cost = 1.0
-            if self.enforce_safety and weather.sig_wave_height_m > 0:
+            if (
+                self.safety_weight > 0
+                and self.enforce_safety
+                and weather.sig_wave_height_m > 0
+            ):
                 wp = self.estimate_wave_period(weather)
                 sf = self.safety_constraints.get_safety_cost_factor(
                     wave_height_m=weather.sig_wave_height_m,
@@ -678,9 +784,8 @@ class DijkstraOptimizer(BaseOptimizer):
                     wind_speed_kts=weather.wind_speed_ms * 1.9438,
                 )
                 if sf == float("inf"):
-                    continue  # unsafe at this speed — hard constraint always
-                # Soft safety penalty dampened by safety_weight
-                if self.safety_weight > 0 and sf > 1.0:
+                    continue
+                if sf > 1.0:
                     safety_cost = sf**self.safety_weight
 
             sog = speed_kts + ce
@@ -689,13 +794,18 @@ class DijkstraOptimizer(BaseOptimizer):
 
             hours = dist_nm / sog
 
-            result = self.vessel_model.calculate_fuel_consumption(
-                speed_kts=speed_kts,
-                is_laden=is_laden,
-                weather=weather_dict,
-                distance_nm=dist_nm,
+            # Inlined fuel calculation (no dict, direct numba kernels)
+            speed_ms = float(speed_kts) * 0.51444
+            fuel = self._fast_fuel_mt(
+                speed_ms,
+                dist_nm,
+                float(speed_kts),
+                weather.wind_speed_ms,
+                weather.wind_dir_deg,
+                bearing_deg,
+                weather.sig_wave_height_m,
+                weather.wave_dir_deg,
             )
-            fuel = result["fuel_mt"]
 
             if self.optimization_target == "fuel":
                 # Safety/zone penalties apply to fuel only; time penalty stays clean

@@ -18,7 +18,10 @@ except ModuleNotFoundError:
     # Fallback: functions run as plain Python (no JIT speedup)
     def njit(fn):
         return fn
-    logging.getLogger(__name__).info("numba not installed — kernels run as plain Python")
+
+    logging.getLogger(__name__).info(
+        "numba not installed — kernels run as plain Python"
+    )
 
 
 # ===================================================================
@@ -46,11 +49,9 @@ def bearing(lat1: float, lon1: float, lat2: float, lon2: float) -> float:
     """Initial bearing from point 1 to point 2 (degrees, 0-360)."""
     dlon = math.radians(lon2 - lon1)
     x = math.sin(dlon) * math.cos(math.radians(lat2))
-    y = math.cos(math.radians(lat1)) * math.sin(
-        math.radians(lat2)
-    ) - math.sin(math.radians(lat1)) * math.cos(
-        math.radians(lat2)
-    ) * math.cos(dlon)
+    y = math.cos(math.radians(lat1)) * math.sin(math.radians(lat2)) - math.sin(
+        math.radians(lat1)
+    ) * math.cos(math.radians(lat2)) * math.cos(dlon)
     return (math.degrees(math.atan2(x, y)) + 360) % 360
 
 
@@ -67,9 +68,7 @@ def current_effect(
 
 
 @njit
-def course_change_penalty(
-    current_heading_deg: float, next_heading_deg: float
-) -> float:
+def course_change_penalty(current_heading_deg: float, next_heading_deg: float) -> float:
     """Piecewise-linear penalty for course changes (0-0.20)."""
     diff = abs(((next_heading_deg - current_heading_deg) + 180) % 360 - 180)
     if diff <= 15.0:
@@ -90,12 +89,7 @@ def course_change_penalty(
 def seawater_density(sst_celsius: float) -> float:
     """UNESCO 1983 simplified equation of state (salinity=35 PSU)."""
     t = sst_celsius
-    rho_fw = (
-        999.842594
-        + 6.793952e-2 * t
-        - 9.095290e-3 * t**2
-        + 1.001685e-4 * t**3
-    )
+    rho_fw = 999.842594 + 6.793952e-2 * t - 9.095290e-3 * t**2 + 1.001685e-4 * t**3
     return rho_fw + 0.824493 * 35 - 4.0899e-3 * 35 * t
 
 
@@ -252,9 +246,7 @@ def kwon_speed_loss_pct(
 
 
 @njit
-def sfoc_curve(
-    load_fraction: float, sfoc_at_mcr: float, sfoc_factor: float
-) -> float:
+def sfoc_curve(load_fraction: float, sfoc_at_mcr: float, sfoc_factor: float) -> float:
     """SFOC at given engine load (g/kWh)."""
     if load_fraction < 0.15:
         load_fraction = 0.15
@@ -476,7 +468,9 @@ def warm_up():
     seawater_density(15.0)
     seawater_viscosity(15.0)
 
-    holtrop_mennen_resistance(7.0, 11.8, 65000.0, 0.82, 7500.0, 176.0, 32.0, 1025.0, 1.19e-6)
+    holtrop_mennen_resistance(
+        7.0, 11.8, 65000.0, 0.82, 7500.0, 176.0, 32.0, 1025.0, 1.19e-6
+    )
     wind_resistance(15.0, 0.0, 0.0, 450.0, 2100.0, 1.225)
     stawave1_wave_resistance(3.0, 0.0, 0.0, 7.0, 32.0, 176.0, 1025.0)
     kwon_speed_loss_pct(3.0, 0.0, 0.0, 0.82, 176.0)
