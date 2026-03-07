@@ -204,6 +204,9 @@ class RouteOptimizer(BaseOptimizer):
         # Weather provider function (set before optimization)
         self.weather_provider: Optional[Callable] = None
 
+        # Time-value penalty (computed per voyage in optimize_route)
+        self._lambda_time: float = 0.0
+
     # ------------------------------------------------------------------
     # Waypoint interpolation for baseline route evaluation
     # ------------------------------------------------------------------
@@ -233,9 +236,6 @@ class RouteOptimizer(BaseOptimizer):
                 )
             result.append((lat2, lon2))
         return result
-
-        # Time-value penalty (computed per voyage in optimize_route)
-        self._lambda_time: float = 0.0
 
     def _prepare_search_params(self, is_laden: bool, calm_speed_kts: float) -> None:
         """Pre-compute vessel constants for A* inner loop (avoids per-cell lookups)."""
