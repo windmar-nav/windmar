@@ -305,8 +305,15 @@ class VesselModel:
             nu_sw = self.NU_SW
 
         return nk.holtrop_mennen_resistance(
-            speed_ms, draft, displacement, cb, wetted_surface,
-            self.specs.lpp, self.specs.beam, rho_sw, nu_sw,
+            speed_ms,
+            draft,
+            displacement,
+            cb,
+            wetted_surface,
+            self.specs.lpp,
+            self.specs.beam,
+            rho_sw,
+            nu_sw,
         )
 
     def _wind_resistance(
@@ -342,8 +349,12 @@ class VesselModel:
         )
 
         return nk.wind_resistance(
-            wind_speed_ms, wind_dir_deg, heading_deg,
-            frontal_area, lateral_area, self.RHO_AIR,
+            wind_speed_ms,
+            wind_dir_deg,
+            heading_deg,
+            frontal_area,
+            lateral_area,
+            self.RHO_AIR,
         )
 
     def _wave_resistance(
@@ -408,8 +419,13 @@ class VesselModel:
             Added wave resistance (N)
         """
         return nk.stawave1_wave_resistance(
-            sig_wave_height_m, wave_dir_deg, heading_deg,
-            speed_ms, self.specs.beam, self.specs.lpp, self.RHO_SW,
+            sig_wave_height_m,
+            wave_dir_deg,
+            heading_deg,
+            speed_ms,
+            self.specs.beam,
+            self.specs.lpp,
+            self.RHO_SW,
         )
 
     def _kwon_wave_resistance(
@@ -443,8 +459,11 @@ class VesselModel:
         cb = self.specs.cb_laden if is_laden else self.specs.cb_ballast
 
         delta_v_pct = nk.kwon_speed_loss_pct(
-            sig_wave_height_m, wave_dir_deg, heading_deg,
-            cb, self.specs.lpp,
+            sig_wave_height_m,
+            wave_dir_deg,
+            heading_deg,
+            cb,
+            self.specs.lpp,
         )
 
         # Convert speed loss to equivalent added resistance
@@ -461,7 +480,11 @@ class VesselModel:
         )
 
         r_calm = self._holtrop_mennen_resistance(
-            speed_ms, draft, displacement, cb, wetted_surface,
+            speed_ms,
+            draft,
+            displacement,
+            cb,
+            wetted_surface,
         )
 
         return r_calm * 2.0 * (delta_v_pct / 100.0)

@@ -445,8 +445,14 @@ class SeakeepingModel:
         Roll is maximum in beam seas and at resonance.
         """
         return nk.calculate_roll(
-            wave_height_m, wave_length_m, encounter_angle_rad,
-            omega_e, omega_roll, gm, self.specs.roll_damping, self.G,
+            wave_height_m,
+            wave_length_m,
+            encounter_angle_rad,
+            omega_e,
+            omega_roll,
+            gm,
+            self.specs.roll_damping,
+            self.G,
         )
 
     def _calculate_pitch(
@@ -462,8 +468,11 @@ class SeakeepingModel:
         Pitch is maximum in head/following seas.
         """
         return nk.calculate_pitch(
-            wave_height_m, wave_length_m, encounter_angle_rad,
-            speed_ms, self.lpp,
+            wave_height_m,
+            wave_length_m,
+            encounter_angle_rad,
+            speed_ms,
+            self.lpp,
         )
 
     def _calculate_heave_accel(
@@ -490,7 +499,10 @@ class SeakeepingModel:
         Combines heave and pitch-induced acceleration.
         """
         return nk.calculate_point_accel(
-            heave_accel, pitch_amplitude_deg, omega_e, distance_from_midship,
+            heave_accel,
+            pitch_amplitude_deg,
+            omega_e,
+            distance_from_midship,
         )
 
     def _calculate_slamming_probability(
@@ -510,8 +522,12 @@ class SeakeepingModel:
         2. Re-entry velocity exceeds threshold
         """
         return nk.calculate_slamming_probability(
-            wave_height_m, wave_period_s, bow_freeboard, speed_ms,
-            encounter_angle_rad, pitch_amplitude_deg,
+            wave_height_m,
+            wave_period_s,
+            bow_freeboard,
+            speed_ms,
+            encounter_angle_rad,
+            pitch_amplitude_deg,
             self.specs.fp_from_midship,
         )
 
@@ -525,7 +541,9 @@ class SeakeepingModel:
         Calculate probability of green water on deck.
         """
         return nk.calculate_green_water_probability(
-            wave_height_m, bow_freeboard, pitch_amplitude_deg,
+            wave_height_m,
+            bow_freeboard,
+            pitch_amplitude_deg,
             self.specs.fp_from_midship,
         )
 
@@ -545,8 +563,11 @@ class SeakeepingModel:
         3. Head or following seas
         """
         return nk.calculate_parametric_roll_risk(
-            wave_length_m, encounter_period_s, roll_period_s,
-            encounter_angle_rad, self.lpp,
+            wave_length_m,
+            encounter_period_s,
+            roll_period_s,
+            encounter_angle_rad,
+            self.lpp,
         )
 
 

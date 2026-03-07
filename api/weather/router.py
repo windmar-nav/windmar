@@ -1549,7 +1549,9 @@ def _resolve_cache_file(
             area = get_adrs_area(area_id)
         except KeyError:
             continue
-        area_key = mgr.make_cache_key(area.bbox[0], area.bbox[1], area.bbox[2], area.bbox[3])
+        area_key = mgr.make_cache_key(
+            area.bbox[0], area.bbox[1], area.bbox[2], area.bbox[3]
+        )
         if area_key != exact_key and area_key != default_key:
             area_path = mgr.cache_path(area_key)
             if area_path.exists() and check_cache_header(area_path):
@@ -1568,8 +1570,13 @@ def _resolve_cache_file(
     if field == "swell":
         wave_mgr = get_layer_manager("waves")
         return _resolve_cache_file(
-            wave_mgr, get_field("waves"), "waves",
-            lat_min, lat_max, lon_min, lon_max,
+            wave_mgr,
+            get_field("waves"),
+            "waves",
+            lat_min,
+            lat_max,
+            lon_min,
+            lon_max,
         )
 
     return None
@@ -1597,7 +1604,9 @@ async def api_get_field_frames(
     mgr = get_layer_manager(field)
 
     # --- Fast path: find matching cache file and serve gzip directly ---
-    cache_file = _resolve_cache_file(mgr, cfg, field, lat_min, lat_max, lon_min, lon_max)
+    cache_file = _resolve_cache_file(
+        mgr, cfg, field, lat_min, lat_max, lon_min, lon_max
+    )
     if cache_file is not None:
         from starlette.responses import Response as RawResponse
         from api.forecast_layer_manager import is_cache_complete
