@@ -152,7 +152,7 @@ export default function Header({ onFitRoute }: HeaderProps) {
 
             {/* Docs — external link */}
             <a
-              href="https://windmar-nav.github.io"
+              href="https://windmar.slmar.co/docs"
               target="_blank"
               rel="noopener noreferrer"
               className="flex items-center space-x-1.5 px-3 py-2 rounded-lg text-gray-400 hover:text-white hover:bg-white/5 transition-all"
