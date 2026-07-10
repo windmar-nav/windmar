@@ -238,14 +238,10 @@ For voyages beyond the 5-day forecast window, the system uses climatological fal
   </tr>
   <tr>
     <td align="center"><img src="docs/screenshots/route-portugal-casquets.png" width="400"><br><strong>Route Optimization</strong><br>Weather-optimal routing with Pareto front and strait shortcuts</td>
-    <td align="center"><img src="docs/screenshots/vessel-model.png" width="400"><br><strong>Vessel Model</strong><br>Resistance, power, SFOC, and fuel curves with calibration</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/engine-log-analytics.png" width="400"><br><strong>Engine Log Analytics</strong><br>Speed-power scatter, fuel distributions, voyage statistics</td>
-    <td align="center"><img src="docs/screenshots/fuel-analysis.png" width="400"><br><strong>Fuel Analysis</strong><br>Physics-based fuel scenarios across loading conditions</td>
   </tr>
   <tr>
-    <td align="center"><img src="docs/screenshots/cii-compliance.png" width="400"><br><strong>CII Compliance</strong><br>IMO Carbon Intensity rating with multi-year projection</td>
     <td align="center"><img src="docs/screenshots/regulations.png" width="400"><br><strong>Regulatory Zones</strong><br>ECA/SECA, TSS, HRA zones with GeoJSON visualization</td>
   </tr>
 </table>
