@@ -1,6 +1,18 @@
 # WINDMAR - Weather Routing & Performance Analytics
 
-> **Note**: This is the open-source reference release (v0.1.5). It is a fully functional self-hosted tool — not a SaaS product. You bring your own weather credentials, your own noon reports, and run it locally or on your own server. Do not use for actual voyage planning or navigation.
+> **⚠️ ARCHIVED — open-source foundation, frozen at v0.1.5.**
+> This repository is the open-source reference release of WindMar's
+> foundation layer (Apache 2.0) and is **no longer maintained**.
+> Commercial development — including the calibrated vessel-performance
+> models, the isochrone and compiled routing engines, safety-aware
+> optimization, and extended forecast horizons — continues on a private,
+> proprietary line at [windmar.slmar.co](https://windmar.slmar.co).
+> This code remains free to use under its license as-is.
+>
+> It is a fully functional self-hosted tool — not a SaaS product. You
+> bring your own weather credentials and noon reports, and run it locally
+> or on your own server. **Do not use for actual voyage planning or
+> navigation.**
 
 A weather routing and performance analytics platform for merchant ships. Optimizes fuel consumption through weather-aware A\* and Dijkstra routing, physics-based vessel modeling, and engine log analytics. Ships with a default MR Product Tanker configuration; all vessel parameters are fully configurable.
 
